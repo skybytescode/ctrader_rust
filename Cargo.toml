@@ -1,0 +1,14 @@
+[package]
+name = "ctrader_rust"
+version = "0.1.0"
+edition = "2024"
+default-run = "ctrader_rust"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = "0.24"
+prost = "0.12"
+prost-build = "0.12"
+bytes = "1.5"
+webpki-roots = "0.25"
+dotenv = "0.15"
