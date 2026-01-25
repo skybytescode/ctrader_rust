@@ -13,6 +13,8 @@ pub mod openapi {
     include!("proto/generated/_.rs");
 }
 
+pub mod news;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum AuthState {
     NotAuthenticated,
@@ -260,6 +262,9 @@ async fn run_session() -> Result<(), Box<dyn std::error::Error>> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
+
+    // Start news scraper in a separate task
+    news::spawn_news_scraper();
     
     let mut backoff_seconds = 1;
     
