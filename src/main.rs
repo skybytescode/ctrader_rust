@@ -14,6 +14,7 @@ pub mod openapi {
 }
 
 pub mod news;
+pub mod ai;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum AuthState {
