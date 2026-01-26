@@ -15,6 +15,10 @@ pub mod openapi {
 
 pub mod news;
 pub mod ai;
+pub mod ui;
+
+use ui::app::{AppState, CtraderApp};
+use std::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum AuthState {
@@ -25,7 +29,7 @@ enum AuthState {
     Subscribed,
 }
 
-async fn run_session() -> Result<(), Box<dyn std::error::Error>> {
+async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std::error::Error>> {
     // Load credentials from environment variables
     let app_client_id = std::env::var("CTRADER_CLIENT_ID")
         .expect("CTRADER_CLIENT_ID must be set in .env file");
@@ -67,6 +71,10 @@ async fn run_session() -> Result<(), Box<dyn std::error::Error>> {
     let domain = ServerName::try_from(host)?;
     let mut tls_stream = connector.connect(domain, stream).await?;
     println!("Connected to IC Markets Live via Rust...");
+    {
+        let mut state = app_state.lock().unwrap();
+        state.connection_status = "Connected".to_string();
+    }
 
     // 3. Send App Auth
     let app_auth = openapi::ProtoOaApplicationAuthReq {
@@ -188,6 +196,48 @@ async fn run_session() -> Result<(), Box<dyn std::error::Error>> {
                             let bid = event.bid.unwrap_or(0) as f64 / 100_000.0;
                             let ask = event.ask.unwrap_or(0) as f64 / 100_000.0;
                             println!("LIVE BTCUSD | Bid: {:.5} | Ask: {:.5}", bid, ask);
+
+                            let mut state = app_state.lock().unwrap();
+                            state.btc_bid = bid;
+                            state.btc_ask = ask;
+                            state.btc_price = bid;
+                            
+                            // 1-minute candle aggregation (60 seconds)
+                            let interval = 60;
+                            let now = chrono::Utc::now().timestamp();
+                            let bucket_start = (now / interval) * interval;
+                            
+                            use crate::ui::app::Candle;
+                            if let Some(mut last_candle) = state.candles.last_mut() {
+                                if last_candle.time == bucket_start {
+                                    // Update current candle
+                                    last_candle.close = bid;
+                                    if bid > last_candle.high { last_candle.high = bid; }
+                                    if bid < last_candle.low { last_candle.low = bid; }
+                                } else {
+                                    // Start new candle
+                                    state.candles.push(Candle {
+                                        time: bucket_start,
+                                        open: bid,
+                                        high: bid,
+                                        low: bid,
+                                        close: bid,
+                                    });
+                                }
+                            } else {
+                                // First candle
+                                state.candles.push(Candle {
+                                    time: bucket_start,
+                                    open: bid,
+                                    high: bid,
+                                    low: bid,
+                                    close: bid,
+                                });
+                            }
+                            
+                            if state.candles.len() > 200 {
+                                state.candles.remove(0);
+                            }
                         }
                     },
                     2142 => { // ProtoOAErrorRes
@@ -259,28 +309,62 @@ async fn run_session() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
 
-    // Start news scraper in a separate task
-    news::spawn_news_scraper();
-    
-    let mut backoff_seconds = 1;
-    
-    loop {
-        println!("Starting cTrader price stream...");
-        match run_session().await {
-            Ok(_) => println!("Session ended gracefully."),
-            Err(e) => println!("Session error: {}", e),
-        }
+    let app_state = Arc::new(Mutex::new(AppState {
+        btc_price: 0.0,
+        btc_bid: 0.0,
+        btc_ask: 0.0,
+        candles: Vec::new(),
+        connection_status: "Init".to_string(),
+    }));
+
+    // Create tokio runtime manually since we need to run eframe on main thread
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    let state_for_task = Arc::clone(&app_state);
+    rt.spawn(async move {
+        // Start news scraper in a separate task
+        news::spawn_news_scraper();
         
-        // Exponential backoff with cap at 30 seconds
-        println!("Reconnecting in {} seconds...", backoff_seconds);
-        tokio::time::sleep(Duration::from_secs(backoff_seconds)).await;
-        backoff_seconds = (backoff_seconds * 2).min(30);
-    }
+        let mut backoff_seconds = 1;
+        loop {
+            println!("Starting cTrader price stream...");
+            match run_session(state_for_task.clone()).await {
+                Ok(_) => println!("Session ended gracefully."),
+                Err(e) => {
+                    println!("Session error: {}", e);
+                    {
+                        let mut state = state_for_task.lock().unwrap();
+                        state.connection_status = format!("Error: {}", e);
+                    }
+                }
+            }
+            
+            // Exponential backoff
+            tokio::time::sleep(Duration::from_secs(backoff_seconds)).await;
+            backoff_seconds = (backoff_seconds * 2).min(30);
+        }
+    });
+
+    // Run UI on the main thread
+    let options = eframe::NativeOptions {
+        viewport: eframe::egui::ViewportBuilder::default()
+            .with_inner_size([800.0, 600.0]),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "cTrader Rust Terminal",
+        options,
+        Box::new(|_cc| {
+            Box::new(CtraderApp::new(app_state))
+        }),
+    ).map_err(|e| e.to_string().into())
 }
 
 async fn send_message<T: Message>(

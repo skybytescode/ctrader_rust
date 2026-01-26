@@ -422,3 +422,239 @@
 [2026-01-25 20:20:56] Fetching full content for: FTSE 100 Up Marginally As Investors Assess Economic Data
 [2026-01-25 20:20:57] Extraction complete.
 [2026-01-25 20:20:57] News updated successfully.
+[2026-01-25 22:23:10] Starting news scraper thread...
+[2026-01-25 22:23:10] Fetching latest news...
+[2026-01-25 22:23:10] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-25 22:23:10] Found 13 articles from news page.
+[2026-01-25 22:23:10] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-25 22:23:11] Found 10 new articles from RSS.
+[2026-01-25 22:23:11] Processing 23 articles...
+[2026-01-25 22:23:11] Fetching full content for: 
+                            Key Global Economic Events to Watch: January 26, 2026
+                        
+[2026-01-25 22:23:12] Fetching full content for: U.S. Dollar Falls Against Majors
+[2026-01-25 22:23:12] Fetching full content for: Swiss Market Ends On Weak Note
+[2026-01-25 22:23:13] Fetching full content for: Major European Markets Close Flat
+[2026-01-25 22:23:14] Fetching full content for: TSX Climbs To New Record High; Technology, Materials Stocks Shine
+[2026-01-25 22:23:15] Fetching full content for: U.S. Consumer Sentiment Improves More Than Previously Estimated In January
+[2026-01-25 22:23:15] Fetching full content for: Pound Rises After Upbeat U.K. Retail Sales Data
+[2026-01-25 22:46:54] Starting news scraper thread...
+[2026-01-25 22:46:54] Fetching latest news...
+[2026-01-25 22:46:54] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-25 22:46:55] Found 13 articles from news page.
+[2026-01-25 22:46:55] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-25 22:46:56] Found 10 new articles from RSS.
+[2026-01-25 22:46:56] Processing 23 articles...
+[2026-01-25 22:46:56] Fetching full content for: 
+                            Key Global Economic Events to Watch: January 26, 2026
+                        
+[2026-01-25 22:46:57] Fetching full content for: U.S. Dollar Falls Against Majors
+[2026-01-25 22:46:58] Fetching full content for: Swiss Market Ends On Weak Note
+[2026-01-25 22:46:58] Fetching full content for: Major European Markets Close Flat
+[2026-01-25 22:46:59] Fetching full content for: TSX Climbs To New Record High; Technology, Materials Stocks Shine
+[2026-01-25 22:46:59] Fetching full content for: U.S. Consumer Sentiment Improves More Than Previously Estimated In January
+[2026-01-25 22:47:00] Fetching full content for: Pound Rises After Upbeat U.K. Retail Sales Data
+[2026-01-25 22:47:01] Fetching full content for: Canadian Market Likely To Open Higher; Retails Sales Data In Focus
+[2026-01-25 22:47:02] Fetching full content for: UK Private Sector Strengthens On Services Activity Upturn
+[2026-01-25 22:47:03] Fetching full content for: Pound Rises Against Majors
+[2026-01-25 22:47:04] Fetching full content for: Eurozone Private Sector Logs Steady Growth
+[2026-01-25 22:47:05] Fetching full content for: Yen Recovers After BoJ Ueda Remarks
+[2026-01-25 22:47:05] Fetching full content for: FTSE 100 Up Marginally As Investors Assess Economic Data
+[2026-01-25 22:47:06] Extraction complete.
+[2026-01-25 22:47:06] News updated successfully.
+[2026-01-25 22:49:53] Starting news scraper thread...
+[2026-01-25 22:49:53] Fetching latest news...
+[2026-01-25 22:49:53] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-25 22:49:53] Found 13 articles from news page.
+[2026-01-25 22:49:53] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-25 22:49:53] Found 10 new articles from RSS.
+[2026-01-25 22:49:53] Processing 23 articles...
+[2026-01-25 22:49:53] Fetching full content for: 
+                            Key Global Economic Events to Watch: January 26, 2026
+                        
+[2026-01-25 22:49:54] Fetching full content for: U.S. Dollar Falls Against Majors
+[2026-01-25 22:49:54] Fetching full content for: Swiss Market Ends On Weak Note
+[2026-01-25 22:49:55] Fetching full content for: Major European Markets Close Flat
+[2026-01-25 22:49:56] Fetching full content for: TSX Climbs To New Record High; Technology, Materials Stocks Shine
+[2026-01-25 22:49:57] Fetching full content for: U.S. Consumer Sentiment Improves More Than Previously Estimated In January
+[2026-01-25 22:49:58] Fetching full content for: Pound Rises After Upbeat U.K. Retail Sales Data
+[2026-01-25 22:49:58] Fetching full content for: Canadian Market Likely To Open Higher; Retails Sales Data In Focus
+[2026-01-25 22:49:59] Fetching full content for: UK Private Sector Strengthens On Services Activity Upturn
+[2026-01-25 22:49:59] Fetching full content for: Pound Rises Against Majors
+[2026-01-25 22:50:00] Fetching full content for: Eurozone Private Sector Logs Steady Growth
+[2026-01-25 22:50:01] Fetching full content for: Yen Recovers After BoJ Ueda Remarks
+[2026-01-25 22:50:01] Fetching full content for: FTSE 100 Up Marginally As Investors Assess Economic Data
+[2026-01-25 22:50:02] Extraction complete.
+[2026-01-25 22:50:02] News updated successfully.
+[2026-01-25 22:52:43] Starting news scraper thread...
+[2026-01-25 22:52:43] Fetching latest news...
+[2026-01-25 22:52:43] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-25 22:52:45] Found 13 articles from news page.
+[2026-01-25 22:52:45] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-25 22:52:45] Found 10 new articles from RSS.
+[2026-01-25 22:52:45] Processing 23 articles...
+[2026-01-25 22:52:45] Fetching full content for: 
+                            Key Global Economic Events to Watch: January 26, 2026
+                        
+[2026-01-25 22:52:46] Fetching full content for: U.S. Dollar Falls Against Majors
+[2026-01-25 22:52:48] Fetching full content for: Swiss Market Ends On Weak Note
+[2026-01-25 22:52:49] Fetching full content for: Major European Markets Close Flat
+[2026-01-25 22:52:50] Fetching full content for: TSX Climbs To New Record High; Technology, Materials Stocks Shine
+[2026-01-25 22:52:51] Fetching full content for: U.S. Consumer Sentiment Improves More Than Previously Estimated In January
+[2026-01-25 22:52:52] Fetching full content for: Pound Rises After Upbeat U.K. Retail Sales Data
+[2026-01-25 22:52:53] Fetching full content for: Canadian Market Likely To Open Higher; Retails Sales Data In Focus
+[2026-01-25 22:52:54] Fetching full content for: UK Private Sector Strengthens On Services Activity Upturn
+[2026-01-25 22:52:54] Fetching full content for: Pound Rises Against Majors
+[2026-01-25 22:52:55] Fetching full content for: Eurozone Private Sector Logs Steady Growth
+[2026-01-25 22:52:55] Failed to fetch full article for Eurozone Private Sector Logs Steady Growth: Cloudflare Block
+[2026-01-25 22:52:55] Fetching full content for: Yen Recovers After BoJ Ueda Remarks
+[2026-01-25 22:52:55] Fetching full content for: FTSE 100 Up Marginally As Investors Assess Economic Data
+[2026-01-25 22:52:56] Extraction complete.
+[2026-01-25 22:52:56] News updated successfully.
+[2026-01-25 22:53:11] Starting news scraper thread...
+[2026-01-25 22:53:11] Fetching latest news...
+[2026-01-25 22:53:11] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-25 22:53:11] Found 13 articles from news page.
+[2026-01-25 22:53:11] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-25 22:53:12] Found 10 new articles from RSS.
+[2026-01-25 22:53:12] Processing 23 articles...
+[2026-01-25 22:53:12] Fetching full content for: 
+                            Key Global Economic Events to Watch: January 26, 2026
+                        
+[2026-01-25 22:53:13] Fetching full content for: U.S. Dollar Falls Against Majors
+[2026-01-25 22:53:13] Fetching full content for: Swiss Market Ends On Weak Note
+[2026-01-25 22:53:14] Fetching full content for: Major European Markets Close Flat
+[2026-01-25 22:53:15] Fetching full content for: TSX Climbs To New Record High; Technology, Materials Stocks Shine
+[2026-01-25 22:53:15] Fetching full content for: U.S. Consumer Sentiment Improves More Than Previously Estimated In January
+[2026-01-25 22:53:16] Fetching full content for: Pound Rises After Upbeat U.K. Retail Sales Data
+[2026-01-25 22:53:16] Fetching full content for: Canadian Market Likely To Open Higher; Retails Sales Data In Focus
+[2026-01-25 22:53:17] Fetching full content for: UK Private Sector Strengthens On Services Activity Upturn
+[2026-01-25 22:53:17] Fetching full content for: Pound Rises Against Majors
+[2026-01-25 22:53:18] Fetching full content for: Eurozone Private Sector Logs Steady Growth
+[2026-01-25 22:53:18] Fetching full content for: Yen Recovers After BoJ Ueda Remarks
+[2026-01-25 22:53:19] Fetching full content for: FTSE 100 Up Marginally As Investors Assess Economic Data
+[2026-01-25 22:53:20] Extraction complete.
+[2026-01-25 22:53:20] News updated successfully.
+[2026-01-25 23:11:01] Starting news scraper thread...
+[2026-01-25 23:11:01] Fetching latest news...
+[2026-01-25 23:11:01] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-25 23:11:02] Found 13 articles from news page.
+[2026-01-25 23:11:02] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-25 23:11:02] Found 10 new articles from RSS.
+[2026-01-25 23:11:02] Processing 23 articles...
+[2026-01-25 23:11:02] Fetching full content for: 
+                            Key Global Economic Events to Watch: January 26, 2026
+                        
+[2026-01-25 23:11:03] Fetching full content for: U.S. Dollar Falls Against Majors
+[2026-01-25 23:11:04] Fetching full content for: Swiss Market Ends On Weak Note
+[2026-01-25 23:11:04] Failed to fetch full article for Swiss Market Ends On Weak Note: Cloudflare Block
+[2026-01-25 23:11:04] Fetching full content for: Major European Markets Close Flat
+[2026-01-25 23:11:04] Fetching full content for: TSX Climbs To New Record High; Technology, Materials Stocks Shine
+[2026-01-25 23:11:05] Fetching full content for: U.S. Consumer Sentiment Improves More Than Previously Estimated In January
+[2026-01-25 23:11:06] Fetching full content for: Pound Rises After Upbeat U.K. Retail Sales Data
+[2026-01-25 23:11:06] Fetching full content for: Canadian Market Likely To Open Higher; Retails Sales Data In Focus
+[2026-01-25 23:11:08] Fetching full content for: UK Private Sector Strengthens On Services Activity Upturn
+[2026-01-25 23:11:09] Fetching full content for: Pound Rises Against Majors
+[2026-01-25 23:11:10] Fetching full content for: Eurozone Private Sector Logs Steady Growth
+[2026-01-25 23:11:11] Fetching full content for: Yen Recovers After BoJ Ueda Remarks
+[2026-01-25 23:11:12] Fetching full content for: FTSE 100 Up Marginally As Investors Assess Economic Data
+[2026-01-25 23:11:12] Extraction complete.
+[2026-01-25 23:11:12] News updated successfully.
+[2026-01-25 23:11:46] Starting news scraper thread...
+[2026-01-25 23:11:46] Fetching latest news...
+[2026-01-25 23:11:46] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-25 23:11:47] Found 13 articles from news page.
+[2026-01-25 23:11:47] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-25 23:11:47] Found 10 new articles from RSS.
+[2026-01-25 23:11:47] Processing 23 articles...
+[2026-01-25 23:11:47] Fetching full content for: 
+                            Key Global Economic Events to Watch: January 26, 2026
+                        
+[2026-01-25 23:11:47] Fetching full content for: U.S. Dollar Falls Against Majors
+[2026-01-25 23:11:48] Fetching full content for: Swiss Market Ends On Weak Note
+[2026-01-25 23:11:49] Fetching full content for: Major European Markets Close Flat
+[2026-01-25 23:11:49] Fetching full content for: TSX Climbs To New Record High; Technology, Materials Stocks Shine
+[2026-01-25 23:11:49] Fetching full content for: U.S. Consumer Sentiment Improves More Than Previously Estimated In January
+[2026-01-25 23:11:50] Fetching full content for: Pound Rises After Upbeat U.K. Retail Sales Data
+[2026-01-25 23:11:51] Fetching full content for: Canadian Market Likely To Open Higher; Retails Sales Data In Focus
+[2026-01-25 23:11:51] Fetching full content for: UK Private Sector Strengthens On Services Activity Upturn
+[2026-01-25 23:11:52] Fetching full content for: Pound Rises Against Majors
+[2026-01-25 23:11:52] Fetching full content for: Eurozone Private Sector Logs Steady Growth
+[2026-01-25 23:11:52] Fetching full content for: Yen Recovers After BoJ Ueda Remarks
+[2026-01-25 23:11:53] Fetching full content for: FTSE 100 Up Marginally As Investors Assess Economic Data
+[2026-01-25 23:11:53] Extraction complete.
+[2026-01-25 23:11:53] News updated successfully.
+[2026-01-25 23:26:53] Fetching latest news...
+[2026-01-25 23:26:53] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-25 23:26:54] Found 13 articles from news page.
+[2026-01-25 23:26:54] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-25 23:26:54] Found 10 new articles from RSS.
+[2026-01-25 23:26:54] Processing 23 articles...
+[2026-01-25 23:26:54] Fetching full content for: 
+                            Key Global Economic Events to Watch: January 26, 2026
+                        
+[2026-01-25 23:26:55] Fetching full content for: U.S. Dollar Falls Against Majors
+[2026-01-25 23:26:55] Fetching full content for: Swiss Market Ends On Weak Note
+[2026-01-25 23:26:56] Fetching full content for: Major European Markets Close Flat
+[2026-01-25 23:26:57] Fetching full content for: TSX Climbs To New Record High; Technology, Materials Stocks Shine
+[2026-01-25 23:26:58] Fetching full content for: U.S. Consumer Sentiment Improves More Than Previously Estimated In January
+[2026-01-25 23:26:58] Fetching full content for: Pound Rises After Upbeat U.K. Retail Sales Data
+[2026-01-25 23:26:59] Fetching full content for: Canadian Market Likely To Open Higher; Retails Sales Data In Focus
+[2026-01-25 23:26:59] Fetching full content for: UK Private Sector Strengthens On Services Activity Upturn
+[2026-01-25 23:27:00] Fetching full content for: Pound Rises Against Majors
+[2026-01-25 23:27:00] Failed to fetch full article for Pound Rises Against Majors: Cloudflare Block
+[2026-01-25 23:27:00] Fetching full content for: Eurozone Private Sector Logs Steady Growth
+[2026-01-25 23:27:01] Fetching full content for: Yen Recovers After BoJ Ueda Remarks
+[2026-01-25 23:27:01] Fetching full content for: FTSE 100 Up Marginally As Investors Assess Economic Data
+[2026-01-25 23:27:02] Extraction complete.
+[2026-01-25 23:27:02] News updated successfully.
+[2026-01-26 10:14:59] Starting news scraper thread...
+[2026-01-26 10:14:59] Fetching latest news...
+[2026-01-26 10:14:59] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-26 10:15:00] Found 13 articles from news page.
+[2026-01-26 10:15:00] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-26 10:15:01] Found 10 new articles from RSS.
+[2026-01-26 10:15:01] Processing 23 articles...
+[2026-01-26 10:15:01] Fetching full content for: 
+                            Key Economic Events Preview: January 27, 2026 – Market Moving Releases Set to Impact Global Trading
+                        
+[2026-01-26 10:15:02] Fetching full content for: Yen Rises Against Majors
+[2026-01-26 10:15:03] Fetching full content for: European Shares Seen Lower Amid Heightened Global Uncertainties
+[2026-01-26 10:15:03] Fetching full content for: Asian Markets Mixed Amid Cautious Trades
+[2026-01-26 10:15:04] Fetching full content for: Indian Markets Closed For Republic Day
+[2026-01-26 10:15:05] Fetching full content for: Thai Stock Markt May Extend Friday's Gains
+[2026-01-26 10:15:06] Fetching full content for: Japanese Market Sharply Lower
+[2026-01-26 10:15:06] Fetching full content for: Indonesia Stock Market May End Losing Streak
+[2026-01-26 10:15:07] Fetching full content for: Win Streak May Continue For Hong Kong Stock Market
+[2026-01-26 10:15:08] Fetching full content for: Higher Open Predicted For China Stock Market
+[2026-01-26 10:15:09] Fetching full content for: Tech Shares May Boost Taiwan Stock Market
+[2026-01-26 10:15:10] Fetching full content for: Additional Support Anticipated For Singapore Stock Market
+[2026-01-26 10:15:10] Fetching full content for: Malaysia Shares May Tick Higher Again On Monday
+[2026-01-26 10:15:11] Extraction complete.
+[2026-01-26 10:15:11] News updated successfully.
+[2026-01-26 10:26:28] Starting news scraper thread...
+[2026-01-26 10:26:28] Fetching latest news...
+[2026-01-26 10:26:28] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-26 10:26:29] Found 13 articles from news page.
+[2026-01-26 10:26:29] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-26 10:26:29] Found 10 new articles from RSS.
+[2026-01-26 10:26:29] Processing 23 articles...
+[2026-01-26 10:26:29] Fetching full content for: 
+                            Key Economic Events Preview: January 27, 2026 – Market Moving Releases Set to Impact Global Trading
+                        
+[2026-01-26 10:26:30] Fetching full content for: Yen Rises Against Majors
+[2026-01-26 10:26:30] Fetching full content for: European Shares Seen Lower Amid Heightened Global Uncertainties
+[2026-01-26 10:26:31] Fetching full content for: Asian Markets Mixed Amid Cautious Trades
+[2026-01-26 10:26:31] Failed to fetch full article for Asian Markets Mixed Amid Cautious Trades: Cloudflare Block
+[2026-01-26 10:26:31] Fetching full content for: Indian Markets Closed For Republic Day
+[2026-01-26 10:26:32] Fetching full content for: Thai Stock Markt May Extend Friday's Gains
+[2026-01-26 10:26:33] Fetching full content for: Japanese Market Sharply Lower
+[2026-01-26 10:26:34] Fetching full content for: Indonesia Stock Market May End Losing Streak
+[2026-01-26 10:26:35] Fetching full content for: Win Streak May Continue For Hong Kong Stock Market
+[2026-01-26 10:26:36] Fetching full content for: Higher Open Predicted For China Stock Market
+[2026-01-26 10:26:36] Fetching full content for: Tech Shares May Boost Taiwan Stock Market
+[2026-01-26 10:26:37] Fetching full content for: Additional Support Anticipated For Singapore Stock Market
+[2026-01-26 10:26:37] Fetching full content for: Malaysia Shares May Tick Higher Again On Monday
+[2026-01-26 10:26:37] Failed to fetch full article for Malaysia Shares May Tick Higher Again On Monday: Cloudflare Block
+[2026-01-26 10:26:37] Extraction complete.
+[2026-01-26 10:26:37] News updated successfully.
