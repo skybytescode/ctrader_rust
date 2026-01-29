@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2024"
 default-run = "ctrader_rust"
 
+[[bin]]
+name = "ctrader_rust"
+path = "src/main.rs"
+
+[[bin]]
+name = "load_historical_data"
+path = "src/bin/load_historical_data.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 tokio-rustls = "0.24"
@@ -20,4 +28,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 eframe = "0.26"
 egui_plot = "0.26"
+# Database for historical candlestick data
+# Using rusqlite instead of duckdb for better Windows compatibility
+rusqlite = { version = "0.31", features = ["bundled"] }
+csv = "1.3"
 

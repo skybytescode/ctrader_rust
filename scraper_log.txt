@@ -1138,3 +1138,51 @@
 [2026-01-29 18:41:39] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
 [2026-01-29 18:41:40] Extraction complete.
 [2026-01-29 18:41:40] News updated successfully.
+[2026-01-29 18:44:22] Starting news scraper thread...
+[2026-01-29 18:44:22] Fetching latest news...
+[2026-01-29 18:44:22] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 18:44:23] Found 13 articles from news page.
+[2026-01-29 18:44:23] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 18:44:23] Found 10 new articles from RSS.
+[2026-01-29 18:44:23] Processing 23 articles...
+[2026-01-29 18:44:23] Fetching full content for: 
+                            U.S. Wholesale Inventories Increase Modestly In November
+                        
+[2026-01-29 18:44:24] Fetching full content for: U.S. Factory Orders Rebound Much More Than Expected In November
+[2026-01-29 18:44:25] Fetching full content for: U.S. Trade Deficit Widens More Than Expected To $56.8 Billion In November
+[2026-01-29 18:44:26] Fetching full content for: U.S. Jobless Claims Edge Down From Upwardly Revised Level
+[2026-01-29 18:44:26] Fetching full content for: Bay Street Likely To Open On Firm Note
+[2026-01-29 18:44:27] Fetching full content for: U.S. Trade Deficit Widens Much More Than Expected In November
+[2026-01-29 18:44:28] Fetching full content for: U.S. Weekly Jobless Claims Edge Down To 209,000
+[2026-01-29 18:44:29] Fetching full content for: Eurozone Economic Sentiment Strongest In 3 Years
+[2026-01-29 18:44:30] Fetching full content for: FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+[2026-01-29 18:44:31] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 18:44:33] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 18:44:33] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 18:44:34] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 18:44:35] Extraction complete.
+[2026-01-29 18:44:35] News updated successfully.
+[2026-01-29 20:07:05] Starting news scraper thread...
+[2026-01-29 20:07:05] Fetching latest news...
+[2026-01-29 20:07:05] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 20:07:06] Found 13 articles from news page.
+[2026-01-29 20:07:06] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 20:07:07] Found 10 new articles from RSS.
+[2026-01-29 20:07:07] Processing 23 articles...
+[2026-01-29 20:07:07] Fetching full content for: 
+                            TSX Tumbles After Firm Start As Tech Stocks Fall After Microsoft's Weak Update
+                        
+[2026-01-29 20:07:08] Fetching full content for: U.S. Wholesale Inventories Increase Modestly In November
+[2026-01-29 20:07:09] Fetching full content for: U.S. Factory Orders Rebound Much More Than Expected In November
+[2026-01-29 20:07:10] Fetching full content for: U.S. Trade Deficit Widens More Than Expected To $56.8 Billion In November
+[2026-01-29 20:07:11] Fetching full content for: U.S. Jobless Claims Edge Down From Upwardly Revised Level
+[2026-01-29 20:07:12] Fetching full content for: Bay Street Likely To Open On Firm Note
+[2026-01-29 20:07:13] Fetching full content for: U.S. Trade Deficit Widens Much More Than Expected In November
+[2026-01-29 20:07:14] Fetching full content for: U.S. Weekly Jobless Claims Edge Down To 209,000
+[2026-01-29 20:07:14] Fetching full content for: Eurozone Economic Sentiment Strongest In 3 Years
+[2026-01-29 20:07:15] Fetching full content for: FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+[2026-01-29 20:07:16] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 20:07:17] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 20:07:18] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 20:07:19] Extraction complete.
+[2026-01-29 20:07:19] News updated successfully.

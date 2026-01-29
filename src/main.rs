@@ -16,6 +16,7 @@ pub mod openapi {
 pub mod news;
 pub mod ai;
 pub mod ui;
+pub mod db;
 
 use ui::app::{AppState, CtraderApp};
 use std::sync::Mutex;
