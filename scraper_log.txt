@@ -658,3 +658,483 @@
 [2026-01-26 10:26:37] Failed to fetch full article for Malaysia Shares May Tick Higher Again On Monday: Cloudflare Block
 [2026-01-26 10:26:37] Extraction complete.
 [2026-01-26 10:26:37] News updated successfully.
+[2026-01-29 13:40:23] Starting news scraper thread...
+[2026-01-29 13:40:23] Fetching latest news...
+[2026-01-29 13:40:23] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 13:40:23] Found 13 articles from news page.
+[2026-01-29 13:40:23] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 13:40:24] Found 10 new articles from RSS.
+[2026-01-29 13:40:24] Processing 23 articles...
+[2026-01-29 13:40:24] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 13:40:25] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 13:40:26] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 13:40:26] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 13:40:27] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 13:40:27] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 13:40:28] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 13:40:29] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 13:40:30] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 13:40:30] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 13:40:31] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 13:40:32] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 13:40:32] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 13:40:33] Extraction complete.
+[2026-01-29 13:40:33] News updated successfully.
+[2026-01-29 13:53:51] Starting news scraper thread...
+[2026-01-29 13:53:51] Fetching latest news...
+[2026-01-29 13:53:51] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 13:53:52] Found 13 articles from news page.
+[2026-01-29 13:53:52] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 13:53:52] Found 10 new articles from RSS.
+[2026-01-29 13:53:52] Processing 23 articles...
+[2026-01-29 13:53:52] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 13:53:53] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 13:53:54] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 13:53:54] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 13:53:55] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 13:53:55] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 13:53:56] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 13:53:57] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 13:53:57] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 13:53:58] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 13:53:59] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 13:53:59] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 13:54:00] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 13:54:00] Extraction complete.
+[2026-01-29 13:54:00] News updated successfully.
+[2026-01-29 13:57:11] Starting news scraper thread...
+[2026-01-29 13:57:11] Fetching latest news...
+[2026-01-29 13:57:11] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 13:57:11] Found 13 articles from news page.
+[2026-01-29 13:57:11] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 13:57:11] Found 10 new articles from RSS.
+[2026-01-29 13:57:11] Processing 23 articles...
+[2026-01-29 13:57:11] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 13:57:12] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 13:57:13] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 13:57:14] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 13:57:14] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 13:57:15] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 13:57:15] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 13:57:16] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 13:57:16] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 13:57:17] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 13:57:17] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 13:57:18] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 13:57:18] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 13:57:19] Extraction complete.
+[2026-01-29 13:57:19] News updated successfully.
+[2026-01-29 14:00:59] Starting news scraper thread...
+[2026-01-29 14:00:59] Fetching latest news...
+[2026-01-29 14:00:59] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 14:01:00] Found 13 articles from news page.
+[2026-01-29 14:01:00] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 14:01:00] Found 10 new articles from RSS.
+[2026-01-29 14:01:00] Processing 23 articles...
+[2026-01-29 14:01:00] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 14:01:02] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 14:01:02] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 14:01:03] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 14:01:03] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 14:01:04] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 14:01:05] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 14:01:05] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 14:01:06] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 14:01:07] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 14:01:07] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 14:01:08] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 14:01:08] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 14:01:09] Extraction complete.
+[2026-01-29 14:01:09] News updated successfully.
+[2026-01-29 14:04:33] Starting news scraper thread...
+[2026-01-29 14:04:33] Fetching latest news...
+[2026-01-29 14:04:33] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 14:04:33] Found 13 articles from news page.
+[2026-01-29 14:04:33] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 14:04:34] Found 10 new articles from RSS.
+[2026-01-29 14:04:34] Processing 23 articles...
+[2026-01-29 14:04:34] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 14:04:34] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 14:04:35] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 14:04:36] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 14:04:36] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 14:04:37] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 14:04:38] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 14:04:38] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 14:04:39] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 14:04:40] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 14:04:40] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 14:04:41] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 14:04:42] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 14:04:42] Extraction complete.
+[2026-01-29 14:04:42] News updated successfully.
+[2026-01-29 14:07:52] Starting news scraper thread...
+[2026-01-29 14:07:52] Fetching latest news...
+[2026-01-29 14:07:52] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 14:07:53] Found 13 articles from news page.
+[2026-01-29 14:07:53] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 14:07:53] Found 10 new articles from RSS.
+[2026-01-29 14:07:53] Processing 23 articles...
+[2026-01-29 14:07:53] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 14:07:55] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 14:07:55] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 14:07:56] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 14:07:56] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 14:07:57] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 14:07:57] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 14:07:58] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 14:07:59] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 14:07:59] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 14:08:01] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 14:08:01] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 14:08:01] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 14:08:05] Extraction complete.
+[2026-01-29 14:08:05] News updated successfully.
+[2026-01-29 14:11:01] Starting news scraper thread...
+[2026-01-29 14:11:01] Fetching latest news...
+[2026-01-29 14:11:01] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 14:11:01] Found 13 articles from news page.
+[2026-01-29 14:11:01] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 14:11:02] Found 10 new articles from RSS.
+[2026-01-29 14:11:02] Processing 23 articles...
+[2026-01-29 14:11:02] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 14:11:02] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 14:11:03] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 14:11:05] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 14:11:05] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 14:11:06] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 14:11:06] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 14:11:07] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 14:11:07] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 14:11:08] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 14:11:08] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 14:11:10] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 14:11:10] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 14:11:11] Extraction complete.
+[2026-01-29 14:11:11] News updated successfully.
+[2026-01-29 14:18:10] Starting news scraper thread...
+[2026-01-29 14:18:10] Fetching latest news...
+[2026-01-29 14:18:10] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 14:18:11] Found 13 articles from news page.
+[2026-01-29 14:18:11] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 14:18:11] Found 10 new articles from RSS.
+[2026-01-29 14:18:11] Processing 23 articles...
+[2026-01-29 14:18:11] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 14:18:13] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 14:18:14] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 14:18:15] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 14:18:16] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 14:18:16] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 14:18:17] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 14:18:17] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 14:18:18] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 14:18:19] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 14:18:20] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 14:18:21] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 14:18:21] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 14:18:22] Extraction complete.
+[2026-01-29 14:18:22] News updated successfully.
+[2026-01-29 14:28:16] Starting news scraper thread...
+[2026-01-29 14:28:16] Fetching latest news...
+[2026-01-29 14:28:16] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 14:28:17] Found 13 articles from news page.
+[2026-01-29 14:28:17] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 14:28:17] Found 10 new articles from RSS.
+[2026-01-29 14:28:17] Processing 23 articles...
+[2026-01-29 14:28:17] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 14:28:18] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 14:28:19] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 14:28:20] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 14:28:21] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 14:28:22] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 14:28:23] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 14:28:23] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 14:28:24] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 14:28:25] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 14:28:26] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 14:28:27] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 14:28:27] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 14:28:28] Extraction complete.
+[2026-01-29 14:28:28] News updated successfully.
+[2026-01-29 14:35:43] Starting news scraper thread...
+[2026-01-29 14:35:43] Fetching latest news...
+[2026-01-29 14:35:43] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 14:35:43] Found 13 articles from news page.
+[2026-01-29 14:35:43] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 14:35:43] Found 10 new articles from RSS.
+[2026-01-29 14:35:43] Processing 23 articles...
+[2026-01-29 14:35:43] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 14:35:45] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 14:35:46] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 14:35:47] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 14:35:48] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 14:35:49] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 14:35:50] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 14:35:50] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 14:35:51] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 14:35:51] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 14:35:53] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 14:35:53] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 14:35:54] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 14:35:55] Extraction complete.
+[2026-01-29 14:35:55] News updated successfully.
+[2026-01-29 14:48:27] Starting news scraper thread...
+[2026-01-29 14:48:27] Fetching latest news...
+[2026-01-29 14:48:27] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 14:48:28] Found 13 articles from news page.
+[2026-01-29 14:48:28] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 14:48:28] Found 10 new articles from RSS.
+[2026-01-29 14:48:28] Processing 23 articles...
+[2026-01-29 14:48:28] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 14:48:30] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 14:48:31] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 14:48:31] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 14:48:32] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 14:48:33] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 14:48:34] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 14:48:35] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 14:48:36] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 14:48:36] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 14:48:37] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 14:48:38] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 14:48:39] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 14:48:39] Extraction complete.
+[2026-01-29 14:48:39] News updated successfully.
+[2026-01-29 14:55:09] Starting news scraper thread...
+[2026-01-29 14:55:09] Fetching latest news...
+[2026-01-29 14:55:09] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 14:55:10] Found 13 articles from news page.
+[2026-01-29 14:55:10] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 14:55:10] Found 10 new articles from RSS.
+[2026-01-29 14:55:10] Processing 23 articles...
+[2026-01-29 14:55:10] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 14:55:11] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 14:55:13] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 14:55:13] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 14:55:14] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 14:55:14] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 14:55:15] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 14:55:16] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 14:55:16] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 14:55:17] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 14:55:18] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 14:55:19] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 14:55:19] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 14:55:20] Failed to fetch full article for Australian Dollar Rises Against Majors: Cloudflare Block
+[2026-01-29 14:55:20] Extraction complete.
+[2026-01-29 14:55:20] News updated successfully.
+[2026-01-29 14:59:42] Starting news scraper thread...
+[2026-01-29 14:59:42] Fetching latest news...
+[2026-01-29 14:59:42] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 14:59:42] Found 13 articles from news page.
+[2026-01-29 14:59:42] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 14:59:43] Found 10 new articles from RSS.
+[2026-01-29 14:59:43] Processing 23 articles...
+[2026-01-29 14:59:43] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 14:59:44] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 14:59:45] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 14:59:45] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 14:59:45] Failed to fetch full article for Indian Shares End Choppy Session Modestly Higher: Cloudflare Block
+[2026-01-29 14:59:45] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 14:59:46] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 14:59:47] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 14:59:47] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 14:59:48] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 14:59:49] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 14:59:49] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 14:59:50] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 14:59:51] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 14:59:51] Extraction complete.
+[2026-01-29 14:59:51] News updated successfully.
+[2026-01-29 15:14:51] Fetching latest news...
+[2026-01-29 15:14:51] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 15:14:53] Found 13 articles from news page.
+[2026-01-29 15:14:53] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 15:14:53] Found 10 new articles from RSS.
+[2026-01-29 15:14:53] Processing 23 articles...
+[2026-01-29 15:14:53] Fetching full content for: 
+                            FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+                        
+[2026-01-29 15:14:53] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 15:14:54] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 15:14:54] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 15:14:55] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 15:14:56] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 15:14:57] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 15:14:58] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 15:14:59] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 15:15:00] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 15:15:00] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 15:15:01] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 15:15:02] Fetching full content for: Australian Dollar Rises Against Majors
+[2026-01-29 15:15:03] Extraction complete.
+[2026-01-29 15:15:03] News updated successfully.
+[2026-01-29 15:30:03] Fetching latest news...
+[2026-01-29 15:30:03] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 15:30:04] Found 13 articles from news page.
+[2026-01-29 15:30:04] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 15:30:04] Found 10 new articles from RSS.
+[2026-01-29 15:30:04] Processing 23 articles...
+[2026-01-29 15:30:04] Fetching full content for: 
+                            Eurozone Economic Sentiment Strongest In 3 Years
+                        
+[2026-01-29 15:30:05] Fetching full content for: FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+[2026-01-29 15:30:06] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 15:30:10] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 15:30:11] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 15:30:12] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 15:30:15] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 15:30:16] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 15:30:17] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 15:30:21] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 15:30:23] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 15:30:24] Fetching full content for: Canadian Dollar Climbs Against Most Majors
+[2026-01-29 15:30:25] Fetching full content for: NZ Dollar Advances Against Most Majors
+[2026-01-29 15:30:28] Extraction complete.
+[2026-01-29 15:30:28] News updated successfully.
+[2026-01-29 15:45:28] Fetching latest news...
+[2026-01-29 15:45:28] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 15:45:29] Found 13 articles from news page.
+[2026-01-29 15:45:29] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 15:45:29] Found 10 new articles from RSS.
+[2026-01-29 15:45:29] Processing 23 articles...
+[2026-01-29 15:45:29] Fetching full content for: 
+                            U.S. Trade Deficit Widens Much More Than Expected In November
+                        
+[2026-01-29 15:45:30] Fetching full content for: U.S. Weekly Jobless Claims Edge Down To 209,000
+[2026-01-29 15:45:30] Fetching full content for: Eurozone Economic Sentiment Strongest In 3 Years
+[2026-01-29 15:45:31] Fetching full content for: FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+[2026-01-29 15:45:32] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 15:45:33] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 15:45:34] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 15:45:35] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 15:45:36] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 15:45:37] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 15:45:37] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 15:45:39] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 15:45:39] Fetching full content for: Asian Shares Mixed With Fed Decision And Tech Earnings In Focus
+[2026-01-29 15:45:41] Extraction complete.
+[2026-01-29 15:45:41] News updated successfully.
+[2026-01-29 16:00:41] Fetching latest news...
+[2026-01-29 16:00:41] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 16:00:42] Found 13 articles from news page.
+[2026-01-29 16:00:42] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 16:00:42] Found 10 new articles from RSS.
+[2026-01-29 16:00:42] Processing 23 articles...
+[2026-01-29 16:00:42] Fetching full content for: 
+                            Bay Street Likely To Open On Firm Note
+                        
+[2026-01-29 16:00:43] Fetching full content for: U.S. Trade Deficit Widens Much More Than Expected In November
+[2026-01-29 16:00:44] Fetching full content for: U.S. Weekly Jobless Claims Edge Down To 209,000
+[2026-01-29 16:00:45] Fetching full content for: Eurozone Economic Sentiment Strongest In 3 Years
+[2026-01-29 16:00:46] Fetching full content for: FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+[2026-01-29 16:00:47] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 16:00:48] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 16:00:49] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 16:00:51] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 16:00:52] Fetching full content for: Commodity Currencies Climb As Commodity Prices Rally's
+[2026-01-29 16:00:53] Fetching full content for: Philippine Economy Logs Weakest Growth Since Pandemic
+[2026-01-29 16:00:54] Fetching full content for: European Shares Mostly Higher Amid Earnings Deluge
+[2026-01-29 16:00:55] Fetching full content for: Yen Slides Against Majors
+[2026-01-29 16:00:56] Extraction complete.
+[2026-01-29 16:00:56] News updated successfully.
+[2026-01-29 18:05:58] Fetching latest news...
+[2026-01-29 18:05:58] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 18:06:00] Found 13 articles from news page.
+[2026-01-29 18:06:00] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 18:06:01] Found 10 new articles from RSS.
+[2026-01-29 18:06:01] Processing 23 articles...
+[2026-01-29 18:06:01] Fetching full content for: 
+                            U.S. Wholesale Inventories Increase Modestly In November
+                        
+[2026-01-29 18:06:03] Fetching full content for: U.S. Factory Orders Rebound Much More Than Expected In November
+[2026-01-29 18:06:04] Fetching full content for: U.S. Trade Deficit Widens More Than Expected To $56.8 Billion In November
+[2026-01-29 18:06:05] Fetching full content for: U.S. Jobless Claims Edge Down From Upwardly Revised Level
+[2026-01-29 18:06:05] Fetching full content for: Bay Street Likely To Open On Firm Note
+[2026-01-29 18:06:06] Fetching full content for: U.S. Trade Deficit Widens Much More Than Expected In November
+[2026-01-29 18:06:07] Fetching full content for: U.S. Weekly Jobless Claims Edge Down To 209,000
+[2026-01-29 18:06:07] Failed to fetch full article for U.S. Weekly Jobless Claims Edge Down To 209,000: Cloudflare Block
+[2026-01-29 18:06:07] Fetching full content for: Eurozone Economic Sentiment Strongest In 3 Years
+[2026-01-29 18:06:08] Failed to fetch full article for Eurozone Economic Sentiment Strongest In 3 Years: Cloudflare Block
+[2026-01-29 18:06:08] Fetching full content for: FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+[2026-01-29 18:06:08] Failed to fetch full article for FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales: Cloudflare Block
+[2026-01-29 18:06:08] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 18:06:10] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 18:06:12] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 18:06:13] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 18:06:14] Extraction complete.
+[2026-01-29 18:06:14] News updated successfully.
+[2026-01-29 18:32:37] Starting news scraper thread...
+[2026-01-29 18:32:37] Fetching latest news...
+[2026-01-29 18:32:37] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 18:32:37] Found 13 articles from news page.
+[2026-01-29 18:32:37] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 18:32:38] Found 10 new articles from RSS.
+[2026-01-29 18:32:38] Processing 23 articles...
+[2026-01-29 18:32:38] Fetching full content for: 
+                            U.S. Wholesale Inventories Increase Modestly In November
+                        
+[2026-01-29 18:32:39] Fetching full content for: U.S. Factory Orders Rebound Much More Than Expected In November
+[2026-01-29 18:32:40] Fetching full content for: U.S. Trade Deficit Widens More Than Expected To $56.8 Billion In November
+[2026-01-29 18:32:40] Fetching full content for: U.S. Jobless Claims Edge Down From Upwardly Revised Level
+[2026-01-29 18:32:41] Fetching full content for: Bay Street Likely To Open On Firm Note
+[2026-01-29 18:32:42] Fetching full content for: U.S. Trade Deficit Widens Much More Than Expected In November
+[2026-01-29 18:32:43] Fetching full content for: U.S. Weekly Jobless Claims Edge Down To 209,000
+[2026-01-29 18:32:44] Fetching full content for: Eurozone Economic Sentiment Strongest In 3 Years
+[2026-01-29 18:32:45] Fetching full content for: FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+[2026-01-29 18:32:46] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 18:32:48] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 18:32:49] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 18:32:50] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 18:32:51] Extraction complete.
+[2026-01-29 18:32:51] News updated successfully.
+[2026-01-29 18:41:26] Starting news scraper thread...
+[2026-01-29 18:41:26] Fetching latest news...
+[2026-01-29 18:41:26] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-29 18:41:27] Found 13 articles from news page.
+[2026-01-29 18:41:27] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-29 18:41:28] Found 10 new articles from RSS.
+[2026-01-29 18:41:28] Processing 23 articles...
+[2026-01-29 18:41:28] Fetching full content for: 
+                            U.S. Wholesale Inventories Increase Modestly In November
+                        
+[2026-01-29 18:41:29] Fetching full content for: U.S. Factory Orders Rebound Much More Than Expected In November
+[2026-01-29 18:41:30] Fetching full content for: U.S. Trade Deficit Widens More Than Expected To $56.8 Billion In November
+[2026-01-29 18:41:31] Fetching full content for: U.S. Jobless Claims Edge Down From Upwardly Revised Level
+[2026-01-29 18:41:31] Fetching full content for: Bay Street Likely To Open On Firm Note
+[2026-01-29 18:41:32] Fetching full content for: U.S. Trade Deficit Widens Much More Than Expected In November
+[2026-01-29 18:41:33] Fetching full content for: U.S. Weekly Jobless Claims Edge Down To 209,000
+[2026-01-29 18:41:34] Fetching full content for: Eurozone Economic Sentiment Strongest In 3 Years
+[2026-01-29 18:41:35] Fetching full content for: FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+[2026-01-29 18:41:36] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-29 18:41:37] Fetching full content for: Yen Slides Amid Japan Fiscal And Political Uncertainty
+[2026-01-29 18:41:38] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
+[2026-01-29 18:41:39] Fetching full content for: DAX Tumbles; SAP Tanks 13% After Earnings Miss Estimates
+[2026-01-29 18:41:40] Extraction complete.
+[2026-01-29 18:41:40] News updated successfully.

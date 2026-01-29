@@ -88,7 +88,8 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
     // 4. Message Loop (Reading Prices)
     let mut _auth_state = AuthState::NotAuthenticated;
     let mut btc_symbol_id: Option<i64> = None;
-
+    let mut eurusd_symbol_id: Option<i64> = None;
+    
     let mut last_heartbeat = tokio::time::Instant::now();
     let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30)); // send heartbeat every 30 seconds
     heartbeat_interval.tick().await; // skip first immediate tick
@@ -163,28 +164,42 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                     2115 => { // ProtoOASymbolsListRes
                         if let Some(payload) = &msg.payload {
                             let res = openapi::ProtoOaSymbolsListRes::decode(payload.as_slice())?;
-                            // Find BTCUSD symbol ID
+                            
+                            // Find both BTCUSD and EURUSD symbol IDs
                             for symbol in res.symbol {
-                                if let Some(symbol_name) = symbol.symbol_name {
-                                    if symbol_name == target_symbol {
+                                if let Some(ref symbol_name) = symbol.symbol_name {
+                                    if symbol_name == "BTCUSD" || symbol_name == &target_symbol {
                                         btc_symbol_id = Some(symbol.symbol_id);
-                                        println!("Found {} (ID: {}). Subscribing to live quotes...", target_symbol, symbol.symbol_id);
-                                        break;
+                                        println!("Found {} (ID: {})", symbol_name, symbol.symbol_id);
+                                    } else if symbol_name == "EURUSD" {
+                                        eurusd_symbol_id = Some(symbol.symbol_id);
+                                        println!("Found {} (ID: {})", symbol_name, symbol.symbol_id);
                                     }
                                 }
                             }
-                            if let Some(symbol_id) = btc_symbol_id {
+                            
+                            // Subscribe to both symbols if found
+                            let mut symbol_ids = Vec::new();
+                            if let Some(id) = btc_symbol_id {
+                                symbol_ids.push(id);
+                            }
+                            if let Some(id) = eurusd_symbol_id {
+                                symbol_ids.push(id);
+                            }
+                            
+                            if !symbol_ids.is_empty() {
+                                println!("Subscribing to {} symbols...", symbol_ids.len());
                                 let subscribe = openapi::ProtoOaSubscribeSpotsReq {
                                     payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaSubscribeSpotsReq as i32),
                                     ctid_trader_account_id: account_id,
-                                    symbol_id: vec![symbol_id],
+                                    symbol_id: symbol_ids,
                                     subscribe_to_spot_timestamp: Some(true),
                                 };
                                 send_message(&mut tls_stream, openapi::ProtoOaPayloadType::ProtoOaSubscribeSpotsReq as u32, subscribe).await?;
-                                println!("Subscribe sent");
+                                println!("Subscribe sent for all symbols");
                                 _auth_state = AuthState::Subscribed;
                             } else {
-                                println!("Error: {} not found in account symbol list.", target_symbol);
+                                println!("Error: No symbols found in account symbol list.");
                                 break;
                             }
                         }
@@ -192,30 +207,58 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                     2131 => { // ProtoOASpotEvent
                         if let Some(payload) = &msg.payload {
                             let event = openapi::ProtoOaSpotEvent::decode(payload.as_slice())?;
+                            let symbol_id = event.symbol_id;
+                            
                             // Price scaling: divide by 100_000 as per proto spec (1/100000 of unit of price)
                             let bid = event.bid.unwrap_or(0) as f64 / 100_000.0;
                             let ask = event.ask.unwrap_or(0) as f64 / 100_000.0;
-                            println!("LIVE BTCUSD | Bid: {:.5} | Ask: {:.5}", bid, ask);
-
+                            
+                            // Check which symbol this update is for
                             let mut state = app_state.lock().unwrap();
-                            state.btc_bid = bid;
-                            state.btc_ask = ask;
-                            state.btc_price = bid;
                             
-                            // 1-minute candle aggregation (60 seconds)
-                            let interval = 60;
-                            let now = chrono::Utc::now().timestamp();
-                            let bucket_start = (now / interval) * interval;
-                            
-                            use crate::ui::app::Candle;
-                            if let Some(mut last_candle) = state.candles.last_mut() {
-                                if last_candle.time == bucket_start {
-                                    // Update current candle
-                                    last_candle.close = bid;
-                                    if bid > last_candle.high { last_candle.high = bid; }
-                                    if bid < last_candle.low { last_candle.low = bid; }
+                            if Some(symbol_id) == btc_symbol_id {
+                                // Only update if we received valid non-zero prices
+                                if bid > 0.0 && ask > 0.0 {
+                                    println!("LIVE BTCUSD | Bid: {:.2} | Ask: {:.2}", bid, ask);
+                                    
+                                    // Set opening price on first update
+                                    if state.btc_open == 0.0 {
+                                        state.btc_open = bid;
+                                    }
+                                    
+                                    // Store previous prices before updating
+                                    state.btc_prev_bid = state.btc_bid;
+                                    state.btc_prev_ask = state.btc_ask;
+                                    
+                                    state.btc_bid = bid;
+                                    state.btc_ask = ask;
+                                    state.btc_price = bid;
+                                }
+                                
+                                // 1-minute candle aggregation (60 seconds)
+                                let interval = 60;
+                                let now = chrono::Utc::now().timestamp();
+                                let bucket_start = (now / interval) * interval;
+                                
+                                use crate::ui::app::Candle;
+                                if let Some(last_candle) = state.candles.last_mut() {
+                                    if last_candle.time == bucket_start {
+                                        // Update current candle
+                                        last_candle.close = bid;
+                                        if bid > last_candle.high { last_candle.high = bid; }
+                                        if bid < last_candle.low { last_candle.low = bid; }
+                                    } else {
+                                        // Start new candle
+                                        state.candles.push(Candle {
+                                            time: bucket_start,
+                                            open: bid,
+                                            high: bid,
+                                            low: bid,
+                                            close: bid,
+                                        });
+                                    }
                                 } else {
-                                    // Start new candle
+                                    // First candle
                                     state.candles.push(Candle {
                                         time: bucket_start,
                                         open: bid,
@@ -224,19 +267,27 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                                         close: bid,
                                     });
                                 }
-                            } else {
-                                // First candle
-                                state.candles.push(Candle {
-                                    time: bucket_start,
-                                    open: bid,
-                                    high: bid,
-                                    low: bid,
-                                    close: bid,
-                                });
-                            }
-                            
-                            if state.candles.len() > 200 {
-                                state.candles.remove(0);
+                                
+                                if state.candles.len() > 200 {
+                                    state.candles.remove(0);
+                                }
+                            } else if Some(symbol_id) == eurusd_symbol_id {
+                                // Only update if we received valid non-zero prices
+                                if bid > 0.0 && ask > 0.0 {
+                                    println!("LIVE EURUSD | Bid: {:.5} | Ask: {:.5}", bid, ask);
+                                    
+                                    // Set opening price on first update
+                                    if state.eurusd_open == 0.0 {
+                                        state.eurusd_open = bid;
+                                    }
+                                    
+                                    // Store previous prices before updating
+                                    state.eurusd_prev_bid = state.eurusd_bid;
+                                    state.eurusd_prev_ask = state.eurusd_ask;
+                                    
+                                    state.eurusd_bid = bid;
+                                    state.eurusd_ask = ask;
+                                }
                             }
                         }
                     },
@@ -317,6 +368,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         btc_price: 0.0,
         btc_bid: 0.0,
         btc_ask: 0.0,
+        btc_prev_bid: 0.0,
+        btc_prev_ask: 0.0,
+        eurusd_bid: 0.0,
+        eurusd_ask: 0.0,
+        eurusd_prev_bid: 0.0,
+        eurusd_prev_ask: 0.0,
+        btc_open: 0.0,
+        eurusd_open: 0.0,
         candles: Vec::new(),
         connection_status: "Init".to_string(),
     }));
