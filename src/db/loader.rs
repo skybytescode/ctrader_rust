@@ -4,7 +4,7 @@ use csv::ReaderBuilder;
 use std::path::Path;
 
 /// Load CSV data into DuckDB
-pub fn load_csv_to_duckdb<P: AsRef<Path>>(csv_path: P, db: &mut CandleDatabase) -> Result<usize, Box<dyn std::error::Error>> {
+pub fn load_csv_to_duckdb<P: AsRef<Path>>(csv_path: P, table_name: &str, db: &mut CandleDatabase) -> Result<usize, Box<dyn std::error::Error>> {
     let mut reader = ReaderBuilder::new()
         .has_headers(true)
         .from_path(csv_path)?;
@@ -30,7 +30,7 @@ pub fn load_csv_to_duckdb<P: AsRef<Path>>(csv_path: P, db: &mut CandleDatabase) 
     }
 
     let count = candles.len();
-    db.insert_candles(&candles)?;
+    db.insert_candles(table_name, &candles)?;
     
     println!("Loaded {} candles from CSV into database", count);
     Ok(count)

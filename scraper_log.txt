@@ -1186,3 +1186,51 @@
 [2026-01-29 20:07:18] Fetching full content for: Indian Shares End Choppy Session Modestly Higher
 [2026-01-29 20:07:19] Extraction complete.
 [2026-01-29 20:07:19] News updated successfully.
+[2026-01-30 00:21:57] Starting news scraper thread...
+[2026-01-30 00:21:57] Fetching latest news...
+[2026-01-30 00:21:57] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-30 00:21:58] Found 13 articles from news page.
+[2026-01-30 00:21:58] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-30 00:21:58] Found 10 new articles from RSS.
+[2026-01-30 00:21:58] Processing 23 articles...
+[2026-01-30 00:21:58] Fetching full content for: 
+                            Swiss Market Ends On Firm Note; ABB Rises Sharply On Strong Earnings, Guidance
+                        
+[2026-01-30 00:21:59] Fetching full content for: European Stocks Fail To Hold Early Gains, Close On Mixed Note
+[2026-01-30 00:22:00] Fetching full content for: TSX Tumbles After Firm Start As Tech Stocks Fall After Microsoft's Weak Update
+[2026-01-30 00:22:01] Fetching full content for: U.S. Wholesale Inventories Increase Modestly In November
+[2026-01-30 00:22:01] Fetching full content for: U.S. Factory Orders Rebound Much More Than Expected In November
+[2026-01-30 00:22:02] Fetching full content for: U.S. Trade Deficit Widens More Than Expected To $56.8 Billion In November
+[2026-01-30 00:22:03] Fetching full content for: U.S. Jobless Claims Edge Down From Upwardly Revised Level
+[2026-01-30 00:22:04] Fetching full content for: Bay Street Likely To Open On Firm Note
+[2026-01-30 00:22:04] Fetching full content for: U.S. Trade Deficit Widens Much More Than Expected In November
+[2026-01-30 00:22:05] Fetching full content for: U.S. Weekly Jobless Claims Edge Down To 209,000
+[2026-01-30 00:22:06] Fetching full content for: Eurozone Economic Sentiment Strongest In 3 Years
+[2026-01-30 00:22:07] Fetching full content for: FTSE 100 Modestly Higher; 3i Group Soars 11% After Reporting Higher Sales
+[2026-01-30 00:22:08] Fetching full content for: CAC 40 Up Firmly In Positive Territory
+[2026-01-30 00:22:09] Extraction complete.
+[2026-01-30 00:22:09] News updated successfully.
+[2026-01-30 01:29:27] Starting news scraper thread...
+[2026-01-30 01:29:27] Fetching latest news...
+[2026-01-30 01:29:27] Fetching news list from https://www.myfxbook.com/news using curl...
+[2026-01-30 01:29:27] Found 13 articles from news page.
+[2026-01-30 01:29:27] Fetching RSS from https://www.myfxbook.com/rss/latest-forex-news...
+[2026-01-30 01:29:28] Found 10 new articles from RSS.
+[2026-01-30 01:29:28] Processing 23 articles...
+[2026-01-30 01:29:28] Fetching full content for: 
+                            Nikkei 225 Due For Profit Taking On Friday
+                        
+[2026-01-30 01:29:28] Fetching full content for: Tech Shares May Weigh On South Korea Stocks
+[2026-01-30 01:29:30] Fetching full content for: Japan Data Due On Friday
+[2026-01-30 01:29:31] Fetching full content for: Swiss Market Ends On Firm Note; ABB Rises Sharply On Strong Earnings, Guidance
+[2026-01-30 01:29:32] Fetching full content for: European Stocks Fail To Hold Early Gains, Close On Mixed Note
+[2026-01-30 01:29:33] Fetching full content for: TSX Tumbles After Firm Start As Tech Stocks Fall After Microsoft's Weak Update
+[2026-01-30 01:29:34] Fetching full content for: U.S. Wholesale Inventories Increase Modestly In November
+[2026-01-30 01:29:35] Fetching full content for: U.S. Factory Orders Rebound Much More Than Expected In November
+[2026-01-30 01:29:35] Fetching full content for: U.S. Trade Deficit Widens More Than Expected To $56.8 Billion In November
+[2026-01-30 01:29:36] Fetching full content for: U.S. Jobless Claims Edge Down From Upwardly Revised Level
+[2026-01-30 01:29:36] Fetching full content for: Bay Street Likely To Open On Firm Note
+[2026-01-30 01:29:37] Fetching full content for: U.S. Trade Deficit Widens Much More Than Expected In November
+[2026-01-30 01:29:37] Fetching full content for: U.S. Weekly Jobless Claims Edge Down To 209,000
+[2026-01-30 01:29:38] Extraction complete.
+[2026-01-30 01:29:38] News updated successfully.
