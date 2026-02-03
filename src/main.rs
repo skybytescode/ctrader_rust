@@ -1,14 +1,15 @@
+use bevy::prelude::*;
+use bevy_egui::EguiPlugin;
 use prost::Message;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore, ServerName};
 use tokio_rustls::TlsConnector;
 
-// Note: You must compile the .proto files (OpenApiMessages.proto, etc.)
-// to generate these Rust structs. For this example, we assume they are in 'openapi' module.
 pub mod openapi {
     include!("proto/generated/_.rs");
 }
@@ -18,8 +19,27 @@ pub mod ai;
 pub mod ui;
 pub mod db;
 
-use ui::app::{AppState, CtraderApp};
-use std::sync::Mutex;
+use ui::{AppState, UiState, Candle, ui_system};
+
+/// Message types for communication between async tasks and Bevy
+#[derive(Debug, Clone)]
+pub enum PriceUpdate {
+    BtcPrice {
+        bid: f64,
+        ask: f64,
+    },
+    EurusdPrice {
+        bid: f64,
+        ask: f64,
+    },
+    ConnectionStatus(String),
+}
+
+/// Resource to hold the receiver for price updates
+#[derive(Resource)]
+pub struct PriceUpdateReceiver {
+    pub receiver: mpsc::Receiver<PriceUpdate>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum AuthState {
@@ -30,7 +50,141 @@ enum AuthState {
     Subscribed,
 }
 
-async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
+    // Load environment variables from .env file
+    dotenv::dotenv().ok();
+
+    // Create channel for price updates
+    let (tx, rx) = mpsc::channel::<PriceUpdate>(100);
+
+    // Spawn the tokio runtime in a separate thread for async tasks
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create tokio runtime");
+
+        rt.block_on(async move {
+            // Start news scraper
+            news::spawn_news_scraper();
+
+            // Run price streaming with reconnection
+            let mut backoff_seconds = 1;
+            loop {
+                println!("Starting cTrader price stream...");
+                match run_session(tx.clone()).await {
+                    Ok(_) => println!("Session ended gracefully."),
+                    Err(e) => {
+                        println!("Session error: {}", e);
+                        let _ = tx.send(PriceUpdate::ConnectionStatus(format!("Error: {}", e))).await;
+                    }
+                }
+
+                // Exponential backoff
+                tokio::time::sleep(Duration::from_secs(backoff_seconds)).await;
+                backoff_seconds = (backoff_seconds * 2).min(30);
+            }
+        });
+    });
+
+    // Run Bevy app on main thread
+    App::new()
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "cTrader Rust Terminal".into(),
+                resolution: (800., 600.).into(),
+                ..default()
+            }),
+            ..default()
+        }))
+        .add_plugins(EguiPlugin)
+        .init_resource::<AppState>()
+        .init_resource::<UiState>()
+        .insert_resource(PriceUpdateReceiver { receiver: rx })
+        .add_systems(Update, process_price_updates)
+        .add_systems(Update, ui_system)
+        .run();
+}
+
+/// System to process price updates from the async tasks
+fn process_price_updates(
+    mut app_state: ResMut<AppState>,
+    mut receiver: ResMut<PriceUpdateReceiver>,
+) {
+    // Process all pending updates
+    while let Ok(update) = receiver.receiver.try_recv() {
+        match update {
+            PriceUpdate::BtcPrice { bid, ask } => {
+                // Set opening price on first update
+                if app_state.btc_open == 0.0 {
+                    app_state.btc_open = bid;
+                }
+
+                // Store previous prices before updating
+                app_state.btc_prev_bid = app_state.btc_bid;
+                app_state.btc_prev_ask = app_state.btc_ask;
+
+                app_state.btc_bid = bid;
+                app_state.btc_ask = ask;
+                app_state.btc_price = bid;
+
+                // 1-minute candle aggregation
+                let interval = 60;
+                let now = chrono::Utc::now().timestamp();
+                let bucket_start = (now / interval) * interval;
+
+                if let Some(last_candle) = app_state.candles.last_mut() {
+                    if last_candle.time == bucket_start {
+                        // Update current candle
+                        last_candle.close = bid;
+                        if bid > last_candle.high { last_candle.high = bid; }
+                        if bid < last_candle.low { last_candle.low = bid; }
+                    } else {
+                        // Start new candle
+                        app_state.candles.push(Candle {
+                            time: bucket_start,
+                            open: bid,
+                            high: bid,
+                            low: bid,
+                            close: bid,
+                        });
+                    }
+                } else {
+                    // First candle
+                    app_state.candles.push(Candle {
+                        time: bucket_start,
+                        open: bid,
+                        high: bid,
+                        low: bid,
+                        close: bid,
+                    });
+                }
+
+                if app_state.candles.len() > 200 {
+                    app_state.candles.remove(0);
+                }
+            }
+            PriceUpdate::EurusdPrice { bid, ask } => {
+                // Set opening price on first update
+                if app_state.eurusd_open == 0.0 {
+                    app_state.eurusd_open = bid;
+                }
+
+                // Store previous prices before updating
+                app_state.eurusd_prev_bid = app_state.eurusd_bid;
+                app_state.eurusd_prev_ask = app_state.eurusd_ask;
+
+                app_state.eurusd_bid = bid;
+                app_state.eurusd_ask = ask;
+            }
+            PriceUpdate::ConnectionStatus(status) => {
+                app_state.connection_status = status;
+            }
+        }
+    }
+}
+
+async fn run_session(tx: mpsc::Sender<PriceUpdate>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Load credentials from environment variables
     let app_client_id = std::env::var("CTRADER_CLIENT_ID")
         .expect("CTRADER_CLIENT_ID must be set in .env file");
@@ -44,11 +198,11 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
         .expect("CTRADER_ACCOUNT_ID must be a valid number");
     let target_symbol = std::env::var("CTRADER_SYMBOL")
         .unwrap_or_else(|_| "BTCUSD".to_string());
-    
+
     // Debug: Show loaded config (masked for security)
-    println!("✓ Loaded config: Client ID: {}..., Account ID: {}, Symbol: {}", 
-             &app_client_id.chars().take(10).collect::<String>(), 
-             account_id, 
+    println!("✓ Loaded config: Client ID: {}..., Account ID: {}, Symbol: {}",
+             &app_client_id.chars().take(10).collect::<String>(),
+             account_id,
              target_symbol);
 
     let host = "live.ctraderapi.com";
@@ -72,10 +226,7 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
     let domain = ServerName::try_from(host)?;
     let mut tls_stream = connector.connect(domain, stream).await?;
     println!("Connected to IC Markets Live via Rust...");
-    {
-        let mut state = app_state.lock().unwrap();
-        state.connection_status = "Connected".to_string();
-    }
+    tx.send(PriceUpdate::ConnectionStatus("Connected".to_string())).await?;
 
     // 3. Send App Auth
     let app_auth = openapi::ProtoOaApplicationAuthReq {
@@ -90,15 +241,14 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
     let mut _auth_state = AuthState::NotAuthenticated;
     let mut btc_symbol_id: Option<i64> = None;
     let mut eurusd_symbol_id: Option<i64> = None;
-    
+
     let mut last_heartbeat = tokio::time::Instant::now();
-    let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30)); // send heartbeat every 30 seconds
+    let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30));
     heartbeat_interval.tick().await; // skip first immediate tick
-    
+
     loop {
         let mut header = [0u8; 4];
         tokio::select! {
-            // Read 4-byte header (Big Endian length) with timeout
             header_read = timeout(Duration::from_secs(30), tls_stream.read_exact(&mut header)) => {
                 match header_read {
                     Ok(Ok(_)) => {},
@@ -112,7 +262,6 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                     }
                 }
                 let len = u32::from_be_bytes(header) as usize;
-                // Read payload with timeout
                 let mut buf = vec![0u8; len];
                 let payload_read = timeout(Duration::from_secs(30), tls_stream.read_exact(&mut buf)).await;
                 match payload_read {
@@ -126,7 +275,6 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                         break;
                     }
                 }
-                // Deserialize ProtoMessage
                 let msg = match openapi::ProtoMessage::decode(&buf[..]) {
                     Ok(m) => m,
                     Err(e) => {
@@ -135,12 +283,11 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                     }
                 };
                 println!("DEBUG recv: payload_type={}, payload_len={}", msg.payload_type, msg.payload.as_ref().map(|p| p.len()).unwrap_or(0));
-                
+
                 match msg.payload_type {
                     2101 => { // ProtoOAApplicationAuthRes
                         println!("App auth successful");
                         _auth_state = AuthState::AppAuthenticated;
-                        // Send Account Auth
                         let account_auth = openapi::ProtoOaAccountAuthReq {
                             payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaAccountAuthReq as i32),
                             ctid_trader_account_id: account_id,
@@ -152,7 +299,6 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                     2103 => { // ProtoOAAccountAuthRes
                         println!("Account auth successful");
                         _auth_state = AuthState::AccountAuthenticated;
-                        // Send Symbols List Request
                         let symbols_req = openapi::ProtoOaSymbolsListReq {
                             payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaSymbolsListReq as i32),
                             ctid_trader_account_id: account_id,
@@ -165,8 +311,7 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                     2115 => { // ProtoOASymbolsListRes
                         if let Some(payload) = &msg.payload {
                             let res = openapi::ProtoOaSymbolsListRes::decode(payload.as_slice())?;
-                            
-                            // Find both BTCUSD and EURUSD symbol IDs
+
                             for symbol in res.symbol {
                                 if let Some(ref symbol_name) = symbol.symbol_name {
                                     if symbol_name == "BTCUSD" || symbol_name == &target_symbol {
@@ -178,8 +323,7 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                                     }
                                 }
                             }
-                            
-                            // Subscribe to both symbols if found
+
                             let mut symbol_ids = Vec::new();
                             if let Some(id) = btc_symbol_id {
                                 symbol_ids.push(id);
@@ -187,7 +331,7 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                             if let Some(id) = eurusd_symbol_id {
                                 symbol_ids.push(id);
                             }
-                            
+
                             if !symbol_ids.is_empty() {
                                 println!("Subscribing to {} symbols...", symbol_ids.len());
                                 let subscribe = openapi::ProtoOaSubscribeSpotsReq {
@@ -209,85 +353,19 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                         if let Some(payload) = &msg.payload {
                             let event = openapi::ProtoOaSpotEvent::decode(payload.as_slice())?;
                             let symbol_id = event.symbol_id;
-                            
-                            // Price scaling: divide by 100_000 as per proto spec (1/100000 of unit of price)
+
                             let bid = event.bid.unwrap_or(0) as f64 / 100_000.0;
                             let ask = event.ask.unwrap_or(0) as f64 / 100_000.0;
-                            
-                            // Check which symbol this update is for
-                            let mut state = app_state.lock().unwrap();
-                            
+
                             if Some(symbol_id) == btc_symbol_id {
-                                // Only update if we received valid non-zero prices
                                 if bid > 0.0 && ask > 0.0 {
                                     println!("LIVE BTCUSD | Bid: {:.2} | Ask: {:.2}", bid, ask);
-                                    
-                                    // Set opening price on first update
-                                    if state.btc_open == 0.0 {
-                                        state.btc_open = bid;
-                                    }
-                                    
-                                    // Store previous prices before updating
-                                    state.btc_prev_bid = state.btc_bid;
-                                    state.btc_prev_ask = state.btc_ask;
-                                    
-                                    state.btc_bid = bid;
-                                    state.btc_ask = ask;
-                                    state.btc_price = bid;
-                                }
-                                
-                                // 1-minute candle aggregation (60 seconds)
-                                let interval = 60;
-                                let now = chrono::Utc::now().timestamp();
-                                let bucket_start = (now / interval) * interval;
-                                
-                                use crate::ui::app::Candle;
-                                if let Some(last_candle) = state.candles.last_mut() {
-                                    if last_candle.time == bucket_start {
-                                        // Update current candle
-                                        last_candle.close = bid;
-                                        if bid > last_candle.high { last_candle.high = bid; }
-                                        if bid < last_candle.low { last_candle.low = bid; }
-                                    } else {
-                                        // Start new candle
-                                        state.candles.push(Candle {
-                                            time: bucket_start,
-                                            open: bid,
-                                            high: bid,
-                                            low: bid,
-                                            close: bid,
-                                        });
-                                    }
-                                } else {
-                                    // First candle
-                                    state.candles.push(Candle {
-                                        time: bucket_start,
-                                        open: bid,
-                                        high: bid,
-                                        low: bid,
-                                        close: bid,
-                                    });
-                                }
-                                
-                                if state.candles.len() > 200 {
-                                    state.candles.remove(0);
+                                    tx.send(PriceUpdate::BtcPrice { bid, ask }).await?;
                                 }
                             } else if Some(symbol_id) == eurusd_symbol_id {
-                                // Only update if we received valid non-zero prices
                                 if bid > 0.0 && ask > 0.0 {
                                     println!("LIVE EURUSD | Bid: {:.5} | Ask: {:.5}", bid, ask);
-                                    
-                                    // Set opening price on first update
-                                    if state.eurusd_open == 0.0 {
-                                        state.eurusd_open = bid;
-                                    }
-                                    
-                                    // Store previous prices before updating
-                                    state.eurusd_prev_bid = state.eurusd_bid;
-                                    state.eurusd_prev_ask = state.eurusd_ask;
-                                    
-                                    state.eurusd_bid = bid;
-                                    state.eurusd_ask = ask;
+                                    tx.send(PriceUpdate::EurusdPrice { bid, ask }).await?;
                                 }
                             }
                         }
@@ -296,20 +374,17 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                         if let Some(payload) = &msg.payload {
                             let err = openapi::ProtoOaErrorRes::decode(payload.as_slice())?;
                             println!("ERROR: {} - {}", err.error_code, err.description.unwrap_or_default());
-                            // If error is fatal, break
                             if err.error_code == "CH_CLIENT_AUTH_FAILURE" || err.error_code == "ACCOUNT_NOT_AUTHORIZED" {
                                 break;
                             }
-                            // Handle rate‑limit error
                             if err.error_code == "BLOCKED_PAYLOAD_TYPE" {
-                                let retry_after = err.retry_after.unwrap_or(5); // default 5 seconds
+                                let retry_after = err.retry_after.unwrap_or(5);
                                 if retry_after > 300 {
                                     println!("Rate limit too long ({} seconds). Treating as fatal error.", retry_after);
                                     break;
                                 }
                                 println!("Rate limited. Waiting {} seconds before retrying...", retry_after);
                                 tokio::time::sleep(Duration::from_secs(retry_after)).await;
-                                // After waiting, we can try to resend the account auth if we are in AppAuthenticated state
                                 if _auth_state == AuthState::AppAuthenticated {
                                     let account_auth = openapi::ProtoOaAccountAuthReq {
                                         payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaAccountAuthReq as i32),
@@ -319,7 +394,6 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                                     send_message(&mut tls_stream, openapi::ProtoOaPayloadType::ProtoOaAccountAuthReq as u32, account_auth).await?;
                                     println!("Account auth resent after rate limit");
                                 }
-                                // Do not break; continue loop
                             }
                         }
                     },
@@ -342,14 +416,12 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
                 }
             }
             _ = heartbeat_interval.tick() => {
-                // Send periodic heartbeat
                 if let Err(e) = send_heartbeat(&mut tls_stream).await {
                     println!("Failed to send periodic heartbeat: {}", e);
                     break;
                 }
             }
             _ = tokio::time::sleep(Duration::from_secs(60)) => {
-                // Check if we haven't received a heartbeat from server in 60 seconds
                 if last_heartbeat.elapsed() > Duration::from_secs(60) {
                     println!("No heartbeat from server for 60 seconds, reconnecting...");
                     break;
@@ -361,77 +433,11 @@ async fn run_session(app_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load environment variables from .env file
-    dotenv::dotenv().ok();
-
-    let app_state = Arc::new(Mutex::new(AppState {
-        btc_price: 0.0,
-        btc_bid: 0.0,
-        btc_ask: 0.0,
-        btc_prev_bid: 0.0,
-        btc_prev_ask: 0.0,
-        eurusd_bid: 0.0,
-        eurusd_ask: 0.0,
-        eurusd_prev_bid: 0.0,
-        eurusd_prev_ask: 0.0,
-        btc_open: 0.0,
-        eurusd_open: 0.0,
-        candles: Vec::new(),
-        connection_status: "Init".to_string(),
-    }));
-
-    // Create tokio runtime manually since we need to run eframe on main thread
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-
-    let state_for_task = Arc::clone(&app_state);
-    rt.spawn(async move {
-        // Start news scraper in a separate task
-        news::spawn_news_scraper();
-        
-        let mut backoff_seconds = 1;
-        loop {
-            println!("Starting cTrader price stream...");
-            match run_session(state_for_task.clone()).await {
-                Ok(_) => println!("Session ended gracefully."),
-                Err(e) => {
-                    println!("Session error: {}", e);
-                    {
-                        let mut state = state_for_task.lock().unwrap();
-                        state.connection_status = format!("Error: {}", e);
-                    }
-                }
-            }
-            
-            // Exponential backoff
-            tokio::time::sleep(Duration::from_secs(backoff_seconds)).await;
-            backoff_seconds = (backoff_seconds * 2).min(30);
-        }
-    });
-
-    // Run UI on the main thread
-    let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([800.0, 600.0]),
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        "cTrader Rust Terminal",
-        options,
-        Box::new(|_cc| {
-            Box::new(CtraderApp::new(app_state))
-        }),
-    ).map_err(|e| e.to_string().into())
-}
-
 async fn send_message<T: Message>(
     stream: &mut tokio_rustls::client::TlsStream<TcpStream>,
     payload_type: u32,
     payload: T,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut body = Vec::new();
     payload.encode(&mut body)?;
     println!("DEBUG send: payload_type={}, body_len={}", payload_type, body.len());
@@ -446,16 +452,15 @@ async fn send_message<T: Message>(
     proto_msg.encode(&mut full_msg)?;
     println!("DEBUG send: full_msg_len={}", full_msg.len());
 
-    // Prefix with 4-byte length in Big Endian
     let len = (full_msg.len() as u32).to_be_bytes();
     stream.write_all(&len).await?;
     stream.write_all(&full_msg).await?;
     Ok(())
 }
 
-async fn send_heartbeat(stream: &mut tokio_rustls::client::TlsStream<TcpStream>) -> Result<(), Box<dyn std::error::Error>> {
+async fn send_heartbeat(stream: &mut tokio_rustls::client::TlsStream<TcpStream>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let proto_msg = openapi::ProtoMessage {
-        payload_type: 51, // heartbeat payload type
+        payload_type: 51,
         payload: None,
         client_msg_id: Some("heartbeat".to_string()),
     };

@@ -1,5 +1,5 @@
 use super::Candle;
-use rusqlite::{Connection, Result, params};
+use duckdb::{Connection, Result, params};
 use std::path::Path;
 
 pub struct CandleDatabase {
@@ -14,31 +14,31 @@ impl CandleDatabase {
 
     pub fn create_table_if_not_exists(&self, table_name: &str) -> Result<()> {
         // Create table if it doesn't exist
-        self.conn.execute(&format!(
-            "CREATE TABLE IF NOT EXISTS {} (
-                timestamp BIGINT PRIMARY KEY,
-                open DOUBLE,
-                high DOUBLE,
-                low DOUBLE,
-                close DOUBLE,
-                volume BIGINT
-            )",
-            table_name
-        ), [])?;
+        self.conn.execute(
+            &format!(
+                "CREATE TABLE IF NOT EXISTS {} (
+                    timestamp BIGINT PRIMARY KEY,
+                    open DOUBLE,
+                    high DOUBLE,
+                    low DOUBLE,
+                    close DOUBLE,
+                    volume BIGINT
+                )",
+                table_name
+            ),
+            [],
+        )?;
 
-        // Create index for fast time-range queries
-        self.conn.execute(&format!(
-            "CREATE INDEX IF NOT EXISTS idx_timestamp_{} ON {}(timestamp)",
-            table_name, table_name
-        ), [])?;
+        // DuckDB automatically creates indexes for PRIMARY KEY
+        // No need for explicit index creation like in SQLite
         Ok(())
     }
 
     /// Query candles in a time range
-     pub fn get_candles(&self, table_name: &str, start_ts: i64, end_ts: i64) -> Result<Vec<Candle>> {
-      let mut stmt = self.conn.prepare(&format!(
-            "SELECT timestamp, open, high, low, close, volume 
-             FROM {} 
+    pub fn get_candles(&self, table_name: &str, start_ts: i64, end_ts: i64) -> Result<Vec<Candle>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT timestamp, open, high, low, close, volume
+             FROM {}
              WHERE timestamp >= ? AND timestamp <= ?
              ORDER BY timestamp ASC",
             table_name
@@ -61,14 +61,14 @@ impl CandleDatabase {
     /// Get last N candles
     pub fn get_last_candles(&self, table_name: &str, count: usize) -> Result<Vec<Candle>> {
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT timestamp, open, high, low, close, volume 
-             FROM {} 
+            "SELECT timestamp, open, high, low, close, volume
+             FROM {}
              ORDER BY timestamp DESC
              LIMIT ?",
             table_name
         ))?;
 
-        let candle_iter = stmt.query_map([count], |row| {
+        let candle_iter = stmt.query_map([count as i64], |row| {
             Ok(Candle {
                 timestamp: row.get(0)?,
                 open: row.get(1)?,
@@ -88,7 +88,8 @@ impl CandleDatabase {
     pub fn insert_candle(&self, table_name: &str, candle: &Candle) -> Result<()> {
         self.conn.execute(
             &format!(
-                "INSERT OR REPLACE INTO {} (timestamp, open, high, low, close, volume)\n                         VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO {} (timestamp, open, high, low, close, volume)
+                 VALUES (?, ?, ?, ?, ?, ?)",
                 table_name
             ),
             params![candle.timestamp, candle.open, candle.high, candle.low, candle.close, candle.volume],
@@ -96,27 +97,28 @@ impl CandleDatabase {
         Ok(())
     }
 
-     /// Batch insert candles (more efficient)
+    /// Batch insert candles (more efficient)
     pub fn insert_candles(&mut self, table_name: &str, candles: &[Candle]) -> Result<()> {
         let tx = self.conn.transaction()?;
-        
+
         for candle in candles {
             tx.execute(
                 &format!(
-                    "INSERT OR REPLACE INTO {} (timestamp, open, high, low, close, volume)\n                     VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO {} (timestamp, open, high, low, close, volume)
+                     VALUES (?, ?, ?, ?, ?, ?)",
                     table_name
                 ),
                 params![candle.timestamp, candle.open, candle.high, candle.low, candle.close, candle.volume],
             )?;
         }
-        
+
         tx.commit()?;
         Ok(())
     }
 
     /// Get count of candles in database
-   pub fn count_candles(&self, table_name: &str) -> Result<i64> {
-         let count: i64 = self.conn.query_row(
+    pub fn count_candles(&self, table_name: &str) -> Result<i64> {
+        let count: i64 = self.conn.query_row(
             &format!("SELECT COUNT(*) FROM {}", table_name),
             [],
             |row| row.get(0),
