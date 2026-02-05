@@ -125,4 +125,54 @@ impl CandleDatabase {
         )?;
         Ok(count)
     }
+
+    /// Get ALL candles from the table (for loading complete historical data)
+    pub fn get_all_candles(&self, table_name: &str) -> Result<Vec<Candle>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT timestamp, open, high, low, close, volume
+             FROM {}
+             ORDER BY timestamp ASC",
+            table_name
+        ))?;
+
+        let candle_iter = stmt.query_map([], |row| {
+            Ok(Candle {
+                timestamp: row.get(0)?,
+                open: row.get(1)?,
+                high: row.get(2)?,
+                low: row.get(3)?,
+                close: row.get(4)?,
+                volume: row.get(5)?,
+            })
+        })?;
+
+        candle_iter.collect()
+    }
+
+    /// Get N candles before a specific timestamp (for lazy loading older data)
+    pub fn get_candles_before(&self, table_name: &str, before_timestamp: i64, count: usize) -> Result<Vec<Candle>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT timestamp, open, high, low, close, volume
+             FROM {}
+             WHERE timestamp < ?
+             ORDER BY timestamp DESC
+             LIMIT ?",
+            table_name
+        ))?;
+
+        let candle_iter = stmt.query_map([before_timestamp, count as i64], |row| {
+            Ok(Candle {
+                timestamp: row.get(0)?,
+                open: row.get(1)?,
+                high: row.get(2)?,
+                low: row.get(3)?,
+                close: row.get(4)?,
+                volume: row.get(5)?,
+            })
+        })?;
+
+        let mut candles: Vec<Candle> = candle_iter.collect::<Result<Vec<_>>>()?;
+        candles.reverse(); // Return in chronological order (oldest first)
+        Ok(candles)
+    }
 }

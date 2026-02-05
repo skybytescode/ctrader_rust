@@ -19,7 +19,8 @@ pub mod ai;
 pub mod ui;
 pub mod db;
 
-use ui::{AppState, UiState, Candle, ui_system};
+use db::{Candle, CandleDatabase};
+use ui::{AppState, UiState, ChartState, Timeframe, ui_system, BevyChartPlugin};
 
 /// Message types for communication between async tasks and Bevy
 #[derive(Debug, Clone)]
@@ -89,21 +90,283 @@ fn main() {
 
     // Run Bevy app on main thread
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "cTrader Rust Terminal".into(),
-                resolution: (800., 600.).into(),
+        .add_plugins(DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "cTrader Rust Terminal".into(),
+                    resolution: (1200., 800.).into(),
+                    ..default()
+                }),
                 ..default()
-            }),
-            ..default()
-        }))
+            })
+            .set(bevy::log::LogPlugin {
+                level: bevy::log::Level::INFO,
+                filter: "wgpu=info,bevy_render=info".to_string(),
+                ..default()
+            })
+        )
         .add_plugins(EguiPlugin)
+        .add_plugins(BevyChartPlugin)
         .init_resource::<AppState>()
         .init_resource::<UiState>()
+        .init_resource::<ChartState>()
         .insert_resource(PriceUpdateReceiver { receiver: rx })
+        .add_systems(Startup, (print_gpu_info, load_historical_data).chain())
         .add_systems(Update, process_price_updates)
+        .add_systems(Update, process_load_more_requests)
         .add_systems(Update, ui_system)
         .run();
+}
+
+/// System to print GPU/renderer information at startup
+fn print_gpu_info(
+    render_adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
+    render_device: Option<Res<bevy::render::renderer::RenderDevice>>,
+) {
+    println!("\n========== GPU INFORMATION ==========");
+
+    // Print adapter info (GPU name, vendor, backend)
+    if let Some(adapter) = render_adapter {
+        println!("GPU Name: {}", adapter.name);
+        println!("Vendor: {:?}", adapter.vendor);
+        println!("Device Type: {:?}", adapter.device_type);
+        println!("Backend: {:?}", adapter.backend);
+        println!("Driver: {}", adapter.driver);
+        println!("Driver Info: {}", adapter.driver_info);
+    } else {
+        println!("Adapter Info: Not available yet");
+    }
+
+    if let Some(device) = render_device {
+        let limits = device.limits();
+        println!("\nDevice Limits:");
+        println!("  Max Texture 2D: {}x{}", limits.max_texture_dimension_2d, limits.max_texture_dimension_2d);
+        println!("  Max Buffer Size: {} MB", limits.max_buffer_size / (1024 * 1024));
+        println!("  Max Compute Workgroup: {}", limits.max_compute_workgroup_size_x);
+    }
+
+    // Print environment info
+    if let Ok(backend) = std::env::var("WGPU_BACKEND") {
+        println!("\nWGPU_BACKEND env: {}", backend);
+    }
+
+    println!("======================================\n");
+}
+
+/// System to load historical data from DuckDB on startup
+fn load_historical_data(mut app_state: ResMut<AppState>, mut chart_state: ResMut<ChartState>) {
+    println!("Loading ALL historical data from DuckDB...");
+
+    let db_path = "instruments_db/all_instruments.duckdb";
+
+    match CandleDatabase::new(db_path) {
+        Ok(db) => {
+            // Load ALL EURUSD H4 data (table name: eurusd_eurusd_hour4)
+            match db.get_all_candles("eurusd_eurusd_hour4") {
+                Ok(candles) => {
+                    let count = candles.len();
+                    println!("Loaded ALL {} EURUSD H4 candles from database", count);
+                    if let Some(instrument) = app_state.instruments.get_mut("EURUSD") {
+                        instrument.candles.insert(Timeframe::H4, candles);
+                    }
+                    chart_state.set_total_candles("EURUSD", Timeframe::H4, count);
+                    chart_state.mark_all_data_loaded("EURUSD", Timeframe::H4);
+                }
+                Err(e) => println!("Failed to load EURUSD H4 data: {}", e),
+            }
+
+            // Load ALL BTCUSD H4 data (table name: btcusd_btcusd_hour4)
+            match db.get_all_candles("btcusd_btcusd_hour4") {
+                Ok(candles) => {
+                    let count = candles.len();
+                    println!("Loaded ALL {} BTCUSD H4 candles from database", count);
+                    if let Some(instrument) = app_state.instruments.get_mut("BTCUSD") {
+                        instrument.candles.insert(Timeframe::H4, candles);
+                    }
+                    chart_state.set_total_candles("BTCUSD", Timeframe::H4, count);
+                    chart_state.mark_all_data_loaded("BTCUSD", Timeframe::H4);
+                }
+                Err(e) => println!("Failed to load BTCUSD H4 data: {}", e),
+            }
+
+            println!("Historical data loading complete.");
+        }
+        Err(e) => {
+            println!("Warning: Could not open database {}: {}", db_path, e);
+            println!("Charts will show live data only.");
+        }
+    }
+}
+
+/// Get DuckDB table name for a symbol/timeframe combination
+fn get_table_name(symbol: &str, timeframe: Timeframe) -> Option<&'static str> {
+    match (symbol, timeframe) {
+        ("EURUSD", Timeframe::H4) => Some("eurusd_eurusd_hour4"),
+        ("BTCUSD", Timeframe::H4) => Some("btcusd_btcusd_hour4"),
+        // Add more timeframes as they become available in the database
+        _ => None,
+    }
+}
+
+/// System to process load more data requests (lazy loading from DuckDB)
+fn process_load_more_requests(
+    mut app_state: ResMut<AppState>,
+    mut chart_state: ResMut<ChartState>,
+) {
+    // Check if there's a pending request and we're not already loading
+    if chart_state.is_loading {
+        return;
+    }
+
+    let request = match chart_state.load_more_request.take() {
+        Some(r) => r,
+        None => return,
+    };
+
+    // Get the table name for this symbol/timeframe
+    let table_name = match get_table_name(&request.symbol, request.timeframe) {
+        Some(name) => name,
+        None => {
+            println!("No database table for {}/{:?}", request.symbol, request.timeframe);
+            return;
+        }
+    };
+
+    // Mark as loading
+    chart_state.is_loading = true;
+
+    let db_path = "instruments_db/all_instruments.duckdb";
+
+    match CandleDatabase::new(db_path) {
+        Ok(db) => {
+            match db.get_candles_before(table_name, request.before_timestamp, request.count) {
+                Ok(older_candles) => {
+                    if older_candles.is_empty() {
+                        // No more data available - mark as all loaded
+                        println!("All data loaded for {}/{:?}", request.symbol, request.timeframe);
+                        chart_state.mark_all_data_loaded(&request.symbol, request.timeframe);
+                    } else {
+                        println!(
+                            "Loaded {} older candles for {}/{:?}",
+                            older_candles.len(),
+                            request.symbol,
+                            request.timeframe
+                        );
+
+                        // Prepend older candles to existing data
+                        if let Some(instrument) = app_state.instruments.get_mut(&request.symbol) {
+                            let candles = instrument
+                                .candles
+                                .entry(request.timeframe)
+                                .or_insert_with(Vec::new);
+
+                            // Prepend older candles (they should be in chronological order)
+                            let mut new_candles = older_candles;
+                            new_candles.append(candles);
+                            *candles = new_candles;
+
+                            // Update total candles count
+                            chart_state.set_total_candles(
+                                &request.symbol,
+                                request.timeframe,
+                                candles.len(),
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!(
+                        "Failed to load older candles for {}/{:?}: {}",
+                        request.symbol, request.timeframe, e
+                    );
+                }
+            }
+
+            // Update total count from database
+            if let Ok(total) = db.count_candles(table_name) {
+                chart_state.set_total_candles(&request.symbol, request.timeframe, total as usize);
+            }
+        }
+        Err(e) => {
+            println!("Failed to open database: {}", e);
+        }
+    }
+
+    chart_state.is_loading = false;
+}
+
+/// Helper to update candles for a specific timeframe with a new price tick
+/// Returns the completed candle if a new period started (the previous candle is now complete)
+/// Creates live candles at proper timestamps - gaps are handled by the rendering system
+fn update_candles_with_tick(candles: &mut Vec<Candle>, timeframe: Timeframe, bid: f64, now: i64) -> Option<Candle> {
+    let interval = timeframe.seconds();
+    let bucket_start = (now / interval) * interval;
+
+    if let Some(last_candle) = candles.last_mut() {
+        if last_candle.timestamp == bucket_start {
+            // Update current candle
+            last_candle.close = bid;
+            if bid > last_candle.high { last_candle.high = bid; }
+            if bid < last_candle.low { last_candle.low = bid; }
+            last_candle.volume += 1;
+            None // No completed candle
+        } else if bucket_start > last_candle.timestamp {
+            // Check if it's the immediate next period (for saving completed candles)
+            let gap = bucket_start - last_candle.timestamp;
+            let is_continuous = gap <= interval * 2; // Within 2 periods = continuous
+
+            // Always create the new candle at its proper timestamp
+            // The rendering system will show gaps with empty space and separators
+            candles.push(Candle::new(bucket_start, bid, bid, bid, bid, 1));
+
+            if is_continuous {
+                // Previous candle completed normally - save it
+                let completed_candle = candles.get(candles.len() - 2).cloned();
+                completed_candle
+            } else {
+                // Gap exists - don't save the old candle as "completed"
+                // (it was already complete, just not saved because app wasn't running)
+                None
+            }
+        } else {
+            // bucket_start < last_candle.timestamp - ignore (out of order tick)
+            None
+        }
+    } else {
+        // First candle - create it at proper timestamp
+        candles.push(Candle::new(bucket_start, bid, bid, bid, bid, 1));
+        None
+    }
+}
+
+/// Helper to save a completed candle to DuckDB
+fn save_candle_to_db(symbol: &str, timeframe: Timeframe, candle: &Candle) {
+    let table_name = match get_table_name(symbol, timeframe) {
+        Some(name) => name,
+        None => {
+            println!("No database table configured for {}/{:?}", symbol, timeframe);
+            return;
+        }
+    };
+
+    let db_path = "instruments_db/all_instruments.duckdb";
+    match CandleDatabase::new(db_path) {
+        Ok(db) => {
+            match db.insert_candle(table_name, candle) {
+                Ok(_) => {
+                    let dt = chrono::DateTime::from_timestamp(candle.timestamp, 0)
+                        .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    println!(
+                        "✓ Saved completed {} {:?} candle to DB: {} O:{:.5} H:{:.5} L:{:.5} C:{:.5}",
+                        symbol, timeframe, dt, candle.open, candle.high, candle.low, candle.close
+                    );
+                }
+                Err(e) => println!("Failed to save candle to DB: {}", e),
+            }
+        }
+        Err(e) => println!("Failed to open database for saving: {}", e),
+    }
 }
 
 /// System to process price updates from the async tasks
@@ -113,69 +376,32 @@ fn process_price_updates(
 ) {
     // Process all pending updates
     while let Ok(update) = receiver.receiver.try_recv() {
+        let now = chrono::Utc::now().timestamp();
+
         match update {
             PriceUpdate::BtcPrice { bid, ask } => {
-                // Set opening price on first update
-                if app_state.btc_open == 0.0 {
-                    app_state.btc_open = bid;
-                }
+                if let Some(instrument) = app_state.instruments.get_mut("BTCUSD") {
+                    instrument.update_price(bid, ask);
 
-                // Store previous prices before updating
-                app_state.btc_prev_bid = app_state.btc_bid;
-                app_state.btc_prev_ask = app_state.btc_ask;
-
-                app_state.btc_bid = bid;
-                app_state.btc_ask = ask;
-                app_state.btc_price = bid;
-
-                // 1-minute candle aggregation
-                let interval = 60;
-                let now = chrono::Utc::now().timestamp();
-                let bucket_start = (now / interval) * interval;
-
-                if let Some(last_candle) = app_state.candles.last_mut() {
-                    if last_candle.time == bucket_start {
-                        // Update current candle
-                        last_candle.close = bid;
-                        if bid > last_candle.high { last_candle.high = bid; }
-                        if bid < last_candle.low { last_candle.low = bid; }
-                    } else {
-                        // Start new candle
-                        app_state.candles.push(Candle {
-                            time: bucket_start,
-                            open: bid,
-                            high: bid,
-                            low: bid,
-                            close: bid,
-                        });
+                    // Update 4-hour candles with real-time price
+                    let h4_candles = instrument.candles.entry(Timeframe::H4).or_insert_with(Vec::new);
+                    if let Some(completed) = update_candles_with_tick(h4_candles, Timeframe::H4, bid, now) {
+                        // A candle period just completed - save it to the database
+                        save_candle_to_db("BTCUSD", Timeframe::H4, &completed);
                     }
-                } else {
-                    // First candle
-                    app_state.candles.push(Candle {
-                        time: bucket_start,
-                        open: bid,
-                        high: bid,
-                        low: bid,
-                        close: bid,
-                    });
-                }
-
-                if app_state.candles.len() > 200 {
-                    app_state.candles.remove(0);
                 }
             }
             PriceUpdate::EurusdPrice { bid, ask } => {
-                // Set opening price on first update
-                if app_state.eurusd_open == 0.0 {
-                    app_state.eurusd_open = bid;
+                if let Some(instrument) = app_state.instruments.get_mut("EURUSD") {
+                    instrument.update_price(bid, ask);
+
+                    // Update 4-hour candles with real-time price
+                    let h4_candles = instrument.candles.entry(Timeframe::H4).or_insert_with(Vec::new);
+                    if let Some(completed) = update_candles_with_tick(h4_candles, Timeframe::H4, bid, now) {
+                        // A candle period just completed - save it to the database
+                        save_candle_to_db("EURUSD", Timeframe::H4, &completed);
+                    }
                 }
-
-                // Store previous prices before updating
-                app_state.eurusd_prev_bid = app_state.eurusd_bid;
-                app_state.eurusd_prev_ask = app_state.eurusd_ask;
-
-                app_state.eurusd_bid = bid;
-                app_state.eurusd_ask = ask;
             }
             PriceUpdate::ConnectionStatus(status) => {
                 app_state.connection_status = status;
