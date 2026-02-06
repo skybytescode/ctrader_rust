@@ -13,9 +13,10 @@ pub fn handle_chart_interaction(
     price_range: Option<(f64, f64)>,  // (price_min, price_max) for vertical pan
 ) {
     // Calculate max future slots based on visible area
+    // Note: candle_width is already zoom-adjusted, so just divide
     let chart_width = response.rect.width();
     let chart_height = response.rect.height();
-    let visible_candles = ((chart_width / candle_width) * state.zoom_level as f32) as i64;
+    let visible_candles = (chart_width / candle_width) as i64;
     let max_future_slots = (visible_candles as f32 * MAX_FUTURE_PERCENT) as i64;
 
     // Handle zoom with scroll wheel

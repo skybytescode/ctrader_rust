@@ -70,10 +70,11 @@ pub struct InstrumentData {
     pub decimal_places: u8,
     pub candles: HashMap<Timeframe, Vec<Candle>>,
     pub tick_direction: TickDirection,  // Direction of last price change
+    pub trades_weekends: bool,          // True for crypto (24/7), false for forex (skip Sat/Sun)
 }
 
 impl InstrumentData {
-    pub fn new(symbol: &str, decimal_places: u8) -> Self {
+    pub fn new(symbol: &str, decimal_places: u8, trades_weekends: bool) -> Self {
         Self {
             symbol: symbol.to_string(),
             bid: 0.0,
@@ -84,6 +85,7 @@ impl InstrumentData {
             decimal_places,
             candles: HashMap::new(),
             tick_direction: TickDirection::Up,
+            trades_weekends,
         }
     }
 
@@ -118,6 +120,58 @@ impl InstrumentData {
         if self.open == 0.0 {
             self.open = bid;
         }
+    }
+
+    /// Auto-detect if this instrument trades on weekends by checking candle data
+    /// Only counts "true weekend" candles (Saturday 04:00-23:59 and Sunday 00:00-16:00 UTC)
+    /// to avoid false positives from Friday close / Sunday open edge cases
+    pub fn detect_trades_weekends(&mut self) {
+        use chrono::{Datelike, TimeZone, Timelike, Utc};
+
+        let mut total_checked = 0usize;
+        let mut true_weekend_count = 0usize;
+
+        // Check all candles from all timeframes for better accuracy
+        for candles in self.candles.values() {
+            for candle in candles.iter() {
+                if let Some(dt) = Utc.timestamp_opt(candle.timestamp, 0).single() {
+                    total_checked += 1;
+                    let weekday = dt.weekday();
+                    let hour = dt.hour();
+
+                    // Only count "true weekend" candles - middle of weekend, not edge cases
+                    // Forex typically closes Friday ~22:00 UTC and opens Sunday ~22:00 UTC
+                    // So we exclude:
+                    // - Saturday 00:00-03:59 (could be Friday close spillover)
+                    // - Sunday 17:00-23:59 (could be Sunday open)
+                    let is_true_weekend = match weekday {
+                        chrono::Weekday::Sat => hour >= 4,  // Saturday from 04:00 onwards
+                        chrono::Weekday::Sun => hour < 17,  // Sunday until 17:00
+                        _ => false,
+                    };
+
+                    if is_true_weekend {
+                        true_weekend_count += 1;
+                    }
+                }
+            }
+        }
+
+        // Crypto markets trade 24/7, so should have significant true weekend candles (~20%)
+        // Forex should have ~0% true weekend candles
+        // Use 10% threshold for true weekend candles
+        let weekend_percentage = if total_checked > 0 {
+            (true_weekend_count as f64 / total_checked as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        // Log for debugging
+        println!("  Weekend detection: {}/{} TRUE weekend candles ({:.1}%)",
+            true_weekend_count, total_checked, weekend_percentage);
+
+        // Crypto should have ~20%+ true weekend candles, forex should have <5%
+        self.trades_weekends = weekend_percentage >= 10.0;
     }
 }
 
@@ -200,7 +254,8 @@ impl ChartState {
             return (0, 0, 0);
         }
 
-        let visible_count = ((chart_width / candle_width) * self.zoom_level as f32) as usize;
+        // candle_width is already zoom-adjusted, so just divide
+        let visible_count = (chart_width / candle_width) as usize;
         let _visible_count = visible_count.max(10);
 
         // For future space (panning right past the current candle)
@@ -215,8 +270,10 @@ impl ChartState {
     }
 
     /// Get the visible slot count for calculating time range
+    /// Note: candle_width is already zoom-adjusted (base_width / zoom_level)
     pub fn visible_slot_count(&self, chart_width: f32, candle_width: f32) -> usize {
-        let visible_count = ((chart_width / candle_width) * self.zoom_level as f32) as usize;
+        // candle_width is already adjusted for zoom, so just divide
+        let visible_count = (chart_width / candle_width) as usize;
         visible_count.max(10)
     }
 
@@ -244,7 +301,8 @@ impl ChartState {
 
     /// Adjust vertical zoom (price axis scaling)
     pub fn adjust_vertical_zoom(&mut self, delta: f64) {
-        self.vertical_zoom = (self.vertical_zoom * (1.0 + delta)).clamp(0.2, 5.0);
+        // Allow much higher vertical zoom for detailed price analysis (up to 20x)
+        self.vertical_zoom = (self.vertical_zoom * (1.0 + delta)).clamp(0.1, 20.0);
     }
 
     /// Reset vertical zoom to auto-fit

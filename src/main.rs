@@ -168,6 +168,9 @@ fn load_historical_data(mut app_state: ResMut<AppState>, mut chart_state: ResMut
                     println!("Loaded ALL {} EURUSD H4 candles from database", count);
                     if let Some(instrument) = app_state.instruments.get_mut("EURUSD") {
                         instrument.candles.insert(Timeframe::H4, candles);
+                        // Auto-detect weekend trading from candle data
+                        instrument.detect_trades_weekends();
+                        println!("  EURUSD trades_weekends: {}", instrument.trades_weekends);
                     }
                     chart_state.set_total_candles("EURUSD", Timeframe::H4, count);
                     chart_state.mark_all_data_loaded("EURUSD", Timeframe::H4);
@@ -182,6 +185,9 @@ fn load_historical_data(mut app_state: ResMut<AppState>, mut chart_state: ResMut
                     println!("Loaded ALL {} BTCUSD H4 candles from database", count);
                     if let Some(instrument) = app_state.instruments.get_mut("BTCUSD") {
                         instrument.candles.insert(Timeframe::H4, candles);
+                        // Auto-detect if this instrument trades on weekends
+                        instrument.detect_trades_weekends();
+                        println!("  BTCUSD trades_weekends: {}", instrument.trades_weekends);
                     }
                     chart_state.set_total_candles("BTCUSD", Timeframe::H4, count);
                     chart_state.mark_all_data_loaded("BTCUSD", Timeframe::H4);
@@ -255,21 +261,27 @@ fn process_load_more_requests(
 
                         // Prepend older candles to existing data
                         if let Some(instrument) = app_state.instruments.get_mut(&request.symbol) {
-                            let candles = instrument
-                                .candles
-                                .entry(request.timeframe)
-                                .or_insert_with(Vec::new);
+                            let candle_count = {
+                                let candles = instrument
+                                    .candles
+                                    .entry(request.timeframe)
+                                    .or_insert_with(Vec::new);
 
-                            // Prepend older candles (they should be in chronological order)
-                            let mut new_candles = older_candles;
-                            new_candles.append(candles);
-                            *candles = new_candles;
+                                // Prepend older candles (they should be in chronological order)
+                                let mut new_candles = older_candles;
+                                new_candles.append(candles);
+                                *candles = new_candles;
+                                candles.len()
+                            };
+
+                            // Re-detect weekend trading with new data
+                            instrument.detect_trades_weekends();
 
                             // Update total candles count
                             chart_state.set_total_candles(
                                 &request.symbol,
                                 request.timeframe,
-                                candles.len(),
+                                candle_count,
                             );
                         }
                     }

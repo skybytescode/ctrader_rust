@@ -19,8 +19,10 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         let mut instruments = HashMap::new();
-        instruments.insert("EURUSD".to_string(), InstrumentData::new("EURUSD", 5));
-        instruments.insert("BTCUSD".to_string(), InstrumentData::new("BTCUSD", 2));
+        // EURUSD: forex - trades_weekends=false (skip Sat/Sun)
+        instruments.insert("EURUSD".to_string(), InstrumentData::new("EURUSD", 5, false));
+        // BTCUSD: crypto - trades_weekends=true (24/7)
+        instruments.insert("BTCUSD".to_string(), InstrumentData::new("BTCUSD", 2, true));
 
         Self {
             instruments,
@@ -427,8 +429,35 @@ fn render_chart_panel(
                         let slot_index = (x_in_chart / candle_width) as i64;
 
                         // Convert slot to timestamp using the viewport's time_start
+                        // Must handle weekend skipping for forex instruments
                         let interval = selected_timeframe.seconds();
-                        let hovered_timestamp = viewport_time_start + (slot_index * interval);
+                        let trades_weekends = instrument.trades_weekends;
+
+                        // Helper to check if timestamp is weekend
+                        let is_weekend = |ts: i64| -> bool {
+                            use chrono::{Datelike, TimeZone, Utc};
+                            if let Some(dt) = Utc.timestamp_opt(ts, 0).single() {
+                                let weekday = dt.weekday();
+                                weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun
+                            } else {
+                                false
+                            }
+                        };
+
+                        // Convert slot index to timestamp (skip weekends for forex)
+                        let hovered_timestamp = if trades_weekends {
+                            viewport_time_start + (slot_index * interval)
+                        } else {
+                            let mut ts = viewport_time_start;
+                            let mut counted = 0i64;
+                            while counted < slot_index {
+                                ts += interval;
+                                if !is_weekend(ts) {
+                                    counted += 1;
+                                }
+                            }
+                            ts
+                        };
 
                         // Find candle closest to this timestamp (within half interval)
                         let half_interval = interval / 2;
@@ -605,14 +634,56 @@ fn render_chart_panel(
                     painter.rect_filled(time_axis_response.rect, 0.0, axis_bg);
 
                     // Draw time labels with date (cTrader style)
+                    // Use timestamp-based positioning to match Bevy chart (handles weekend skipping)
                     let candle_width = 12.0 / chart_state.zoom_level as f32;
                     let label_interval = (80.0 / candle_width).max(1.0) as usize;
                     let mut last_day = -1i32;
+                    let interval = selected_timeframe.seconds();
+                    let trades_weekends = instrument.trades_weekends;
+
+                    // Helper to check if timestamp is weekend
+                    let is_weekend = |ts: i64| -> bool {
+                        use chrono::{Datelike, TimeZone, Utc};
+                        if let Some(dt) = Utc.timestamp_opt(ts, 0).single() {
+                            let weekday = dt.weekday();
+                            weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun
+                        } else {
+                            false
+                        }
+                    };
+
+                    // Helper to count trading slots from start timestamp to given timestamp
+                    let count_trading_slots = |from_ts: i64, to_ts: i64| -> i64 {
+                        if trades_weekends {
+                            // For crypto: simple calculation
+                            (to_ts - from_ts) / interval
+                        } else {
+                            // For forex: skip weekend slots
+                            let mut count = 0i64;
+                            let mut ts = from_ts;
+                            while ts < to_ts {
+                                if !is_weekend(ts) {
+                                    count += 1;
+                                }
+                                ts += interval;
+                            }
+                            count
+                        }
+                    };
 
                     for (i, candle) in visible_candles.iter().enumerate() {
                         if i % label_interval != 0 { continue; }
-                        let x = time_axis_response.rect.min.x + (i as f32 * candle_width) + candle_width / 2.0;
+
+                        // Skip weekend candles for forex (they shouldn't exist, but just in case)
+                        if !trades_weekends && is_weekend(candle.timestamp) {
+                            continue;
+                        }
+
+                        // Calculate X position based on timestamp (matches Bevy chart)
+                        let slot_index = count_trading_slots(viewport_time_start, candle.timestamp);
+                        let x = time_axis_response.rect.min.x + (slot_index as f32 * candle_width) + candle_width / 2.0;
                         if x > time_axis_response.rect.max.x - 60.0 { break; }
+                        if x < time_axis_response.rect.min.x { continue; }
 
                         let dt: chrono::DateTime<chrono::Utc> = chrono::DateTime::from_timestamp(candle.timestamp, 0).unwrap_or_default();
                         let day = dt.day() as i32;

@@ -137,6 +137,8 @@ pub struct ChartViewport {
     pub timeframe_interval: i64,
     /// Total number of time slots in visible range (including gaps)
     pub total_slots: usize,
+    /// Whether the instrument trades on weekends (true for crypto, false for forex)
+    pub trades_weekends: bool,
 }
 
 impl Default for ChartViewport {
@@ -153,11 +155,47 @@ impl Default for ChartViewport {
             decimal_places: 5,
             timeframe_interval: 14400, // Default to H4 (4 hours)
             total_slots: 0,
+            trades_weekends: false, // Default to forex behavior (skip weekends)
         }
     }
 }
 
 impl ChartViewport {
+    /// Check if a timestamp falls on a weekend (Saturday or Sunday)
+    pub fn is_weekend(timestamp: i64) -> bool {
+        use chrono::{TimeZone, Utc, Datelike};
+        let dt = Utc.timestamp_opt(timestamp, 0).single();
+        if let Some(dt) = dt {
+            let weekday = dt.weekday();
+            weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun
+        } else {
+            false
+        }
+    }
+
+    /// Count trading slots between two timestamps (skipping weekends if needed)
+    pub fn count_trading_slots(&self, from_ts: i64, to_ts: i64) -> i64 {
+        if self.timeframe_interval == 0 {
+            return 0;
+        }
+
+        if self.trades_weekends {
+            // For crypto: simple calculation, all days count
+            (to_ts - from_ts) / self.timeframe_interval
+        } else {
+            // For forex: skip weekend slots
+            let mut count = 0i64;
+            let mut ts = from_ts;
+            while ts < to_ts {
+                if !Self::is_weekend(ts) {
+                    count += 1;
+                }
+                ts += self.timeframe_interval;
+            }
+            count
+        }
+    }
+
     /// Convert price to Y coordinate in world space
     pub fn price_to_y(&self, price: f64) -> f32 {
         let range = self.price_max - self.price_min;
@@ -181,19 +219,40 @@ impl ChartViewport {
         x + self.candle_width / 2.0
     }
 
-    /// Convert timestamp to X coordinate in world space (handles gaps)
+    /// Convert timestamp to X coordinate in world space (handles gaps and weekend skipping)
     pub fn timestamp_to_x(&self, timestamp: i64) -> f32 {
         if self.timeframe_interval == 0 || self.time_start == 0 {
             return 0.0;
         }
-        // Calculate slot index based on timestamp
-        let slot_index = (timestamp - self.time_start) / self.timeframe_interval;
-        self.index_to_x(slot_index as usize)
+
+        if self.trades_weekends {
+            // For crypto: simple calculation, all days count
+            let slot_index = (timestamp - self.time_start) / self.timeframe_interval;
+            self.index_to_x(slot_index as usize)
+        } else {
+            // For forex: count only trading slots (skip weekends)
+            let slot_index = self.count_trading_slots(self.time_start, timestamp);
+            self.index_to_x(slot_index as usize)
+        }
     }
 
-    /// Convert slot index (time-based) to timestamp
+    /// Convert slot index (time-based) to timestamp (handles weekend skipping for forex)
     pub fn slot_to_timestamp(&self, slot: usize) -> i64 {
-        self.time_start + (slot as i64 * self.timeframe_interval)
+        if self.trades_weekends {
+            // For crypto: simple calculation
+            self.time_start + (slot as i64 * self.timeframe_interval)
+        } else {
+            // For forex: skip weekend timestamps
+            let mut ts = self.time_start;
+            let mut trading_slots = 0usize;
+            while trading_slots < slot {
+                ts += self.timeframe_interval;
+                if !Self::is_weekend(ts) {
+                    trading_slots += 1;
+                }
+            }
+            ts
+        }
     }
 
     /// Check if a price is within visible range

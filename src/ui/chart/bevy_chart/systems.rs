@@ -74,6 +74,7 @@ pub fn update_chart_viewport(
     viewport.position = Vec2::new(chart_left, chart_top);
     viewport.size = Vec2::new(chart_width.max(100.0), chart_height.max(100.0));
     viewport.decimal_places = instrument.decimal_places;
+    viewport.trades_weekends = instrument.trades_weekends;
 
     // Calculate candle width based on zoom
     let candle_base_width = 12.0;
@@ -91,33 +92,101 @@ pub fn update_chart_viewport(
         return;
     }
 
-    // Calculate total time slots in the data (including gaps)
-    let _total_slots = ((newest_timestamp - oldest_timestamp) / interval) as i64 + 1;
-
     // Calculate how many slots fit on screen
     let visible_slots = chart_state.visible_slot_count(viewport.size.x, viewport.candle_width) as i64;
+
+    use chrono::{Datelike, TimeZone, Utc};
+
+    // Helper to check if timestamp is on weekend
+    let is_weekend = |ts: i64| -> bool {
+        if let Some(dt) = Utc.timestamp_opt(ts, 0).single() {
+            let weekday = dt.weekday();
+            weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun
+        } else {
+            false
+        }
+    };
+
+    // Helper to count N trading slots forward from a timestamp (skipping weekends for forex)
+    let count_slots_forward = |start_ts: i64, slots: i64, skip_weekends: bool| -> i64 {
+        if !skip_weekends {
+            return start_ts + (slots * interval);
+        }
+        let mut ts = start_ts;
+        let mut counted = 0i64;
+        while counted < slots {
+            ts += interval;
+            if !is_weekend(ts) {
+                counted += 1;
+            }
+        }
+        ts
+    };
+
+    // Helper to count N trading slots backward from a timestamp (skipping weekends for forex)
+    let count_slots_backward = |end_ts: i64, slots: i64, skip_weekends: bool, min_ts: i64| -> i64 {
+        if !skip_weekends {
+            return end_ts - (slots * interval);
+        }
+        let mut ts = end_ts;
+        let mut counted = 0i64;
+        while counted < slots && ts > min_ts {
+            ts -= interval;
+            if !is_weekend(ts) {
+                counted += 1;
+            }
+        }
+        ts
+    };
+
+    let skip_weekends = !instrument.trades_weekends;
 
     // pan_offset determines which part of the time range to show:
     // - pan_offset = 0: show newest data (right edge at newest_timestamp)
     // - pan_offset > 0: show older data (scrolled left into history)
     // - pan_offset < 0: show future space (scrolled right past current)
 
-    // Calculate visible time range based on pan_offset
-    // The visible window ends at: newest_timestamp - (pan_offset * interval)
-    let visible_end_ts = newest_timestamp - (chart_state.pan_offset * interval);
-    let visible_start_ts = visible_end_ts - (visible_slots * interval);
+    // Calculate visible_end_ts based on pan_offset (skip weekends for forex)
+    let visible_end_ts = if chart_state.pan_offset >= 0 {
+        // Panning into history: count backwards from newest
+        count_slots_backward(newest_timestamp, chart_state.pan_offset, skip_weekends, oldest_timestamp)
+    } else {
+        // Panning into future: count forwards from newest
+        count_slots_forward(newest_timestamp, -chart_state.pan_offset, skip_weekends)
+    };
 
-    // Clamp to reasonable bounds
-    let visible_start_ts = visible_start_ts.max(oldest_timestamp - (visible_slots * interval));
-    let visible_end_ts = visible_end_ts.min(newest_timestamp + (visible_slots * interval));
+    // Calculate visible_start_ts by counting backwards from visible_end
+    let visible_start_ts = count_slots_backward(
+        visible_end_ts,
+        visible_slots,
+        skip_weekends,
+        oldest_timestamp - (visible_slots * interval * 2) // Safety margin
+    );
+
+    // Clamp to reasonable bounds (also accounting for weekends)
+    let visible_start_ts = visible_start_ts.max(
+        count_slots_backward(oldest_timestamp, visible_slots / 2, skip_weekends, 0)
+    );
+    let max_future = count_slots_forward(newest_timestamp, visible_slots, skip_weekends);
+    let visible_end_ts = visible_end_ts.min(max_future);
 
     viewport.time_start = visible_start_ts;
     viewport.time_end = visible_end_ts;
-    viewport.total_slots = ((visible_end_ts - visible_start_ts) / interval) as usize + 1;
+
+    // Calculate total_slots - for forex, count only trading slots
+    viewport.total_slots = if instrument.trades_weekends {
+        ((visible_end_ts - visible_start_ts) / interval) as usize + 1
+    } else {
+        viewport.count_trading_slots(visible_start_ts, visible_end_ts) as usize + 1
+    };
 
     // Calculate future_slots (empty space past the newest candle)
     viewport.future_slots = if visible_end_ts > newest_timestamp {
-        ((visible_end_ts - newest_timestamp) / interval) as usize
+        if instrument.trades_weekends {
+            ((visible_end_ts - newest_timestamp) / interval) as usize
+        } else {
+            viewport.count_trading_slots(newest_timestamp, visible_end_ts) as usize
+        }
     } else {
         0
     };
@@ -387,6 +456,15 @@ pub fn spawn_time_separators(
     while timestamp <= viewport.time_end && timestamp <= newest_timestamp {
         let dt = Utc.timestamp_opt(timestamp, 0).single();
         if let Some(dt) = dt {
+            // Skip weekends for forex instruments (trades_weekends = false)
+            if !viewport.trades_weekends {
+                let weekday = dt.weekday();
+                if weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun {
+                    timestamp += interval;
+                    continue;
+                }
+            }
+
             let current_day = dt.ordinal(); // Day of year (1-366)
             let current_week = dt.iso_week().week(); // Week number (1-53)
 
