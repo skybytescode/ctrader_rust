@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy_egui::EguiPlugin;
 use prost::Message;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,16 +19,16 @@ pub mod ui;
 pub mod db;
 
 use db::{Candle, CandleDatabase};
-use ui::{AppState, UiState, ChartState, Timeframe, ui_system, BevyChartPlugin};
+// ui_system is commented out but kept for easy toggle back to egui
+#[allow(unused_imports)]
+use ui::{AppState, UiState, ChartState, Timeframe, ui_system, BevyUiPlugin};
 
 /// Message types for communication between async tasks and Bevy
 #[derive(Debug, Clone)]
 pub enum PriceUpdate {
-    BtcPrice {
-        bid: f64,
-        ask: f64,
-    },
-    EurusdPrice {
+    /// Generic price update for any instrument
+    InstrumentPrice {
+        symbol: String,
         bid: f64,
         ask: f64,
     },
@@ -105,8 +104,7 @@ fn main() {
                 ..default()
             })
         )
-        .add_plugins(EguiPlugin)
-        .add_plugins(BevyChartPlugin)
+        .add_plugins(BevyUiPlugin)  // Pure Bevy UI (no chart, no egui)
         .init_resource::<AppState>()
         .init_resource::<UiState>()
         .init_resource::<ChartState>()
@@ -114,7 +112,7 @@ fn main() {
         .add_systems(Startup, (print_gpu_info, load_historical_data).chain())
         .add_systems(Update, process_price_updates)
         .add_systems(Update, process_load_more_requests)
-        .add_systems(Update, ui_system)
+        // .add_systems(Update, ui_system)  // DISABLED: Using BevyUiPlugin instead
         .run();
 }
 
@@ -185,9 +183,9 @@ fn load_historical_data(mut app_state: ResMut<AppState>, mut chart_state: ResMut
                     println!("Loaded ALL {} BTCUSD H4 candles from database", count);
                     if let Some(instrument) = app_state.instruments.get_mut("BTCUSD") {
                         instrument.candles.insert(Timeframe::H4, candles);
-                        // Auto-detect if this instrument trades on weekends
-                        instrument.detect_trades_weekends();
-                        println!("  BTCUSD trades_weekends: {}", instrument.trades_weekends);
+                        // BTCUSD is crypto - always trades 24/7 including weekends
+                        // Don't use auto-detection, keep trades_weekends = true
+                        println!("  BTCUSD trades_weekends: {} (crypto 24/7)", instrument.trades_weekends);
                     }
                     chart_state.set_total_candles("BTCUSD", Timeframe::H4, count);
                     chart_state.mark_all_data_loaded("BTCUSD", Timeframe::H4);
@@ -274,8 +272,11 @@ fn process_load_more_requests(
                                 candles.len()
                             };
 
-                            // Re-detect weekend trading with new data
-                            instrument.detect_trades_weekends();
+                            // Re-detect weekend trading with new data (only for unknown instruments)
+                            // Known crypto instruments (BTCUSD) already have trades_weekends=true
+                            if !instrument.trades_weekends {
+                                instrument.detect_trades_weekends();
+                            }
 
                             // Update total candles count
                             chart_state.set_total_candles(
@@ -391,27 +392,17 @@ fn process_price_updates(
         let now = chrono::Utc::now().timestamp();
 
         match update {
-            PriceUpdate::BtcPrice { bid, ask } => {
-                if let Some(instrument) = app_state.instruments.get_mut("BTCUSD") {
+            PriceUpdate::InstrumentPrice { symbol, bid, ask } => {
+                if let Some(instrument) = app_state.instruments.get_mut(&symbol) {
                     instrument.update_price(bid, ask);
 
-                    // Update 4-hour candles with real-time price
-                    let h4_candles = instrument.candles.entry(Timeframe::H4).or_insert_with(Vec::new);
-                    if let Some(completed) = update_candles_with_tick(h4_candles, Timeframe::H4, bid, now) {
-                        // A candle period just completed - save it to the database
-                        save_candle_to_db("BTCUSD", Timeframe::H4, &completed);
-                    }
-                }
-            }
-            PriceUpdate::EurusdPrice { bid, ask } => {
-                if let Some(instrument) = app_state.instruments.get_mut("EURUSD") {
-                    instrument.update_price(bid, ask);
-
-                    // Update 4-hour candles with real-time price
-                    let h4_candles = instrument.candles.entry(Timeframe::H4).or_insert_with(Vec::new);
-                    if let Some(completed) = update_candles_with_tick(h4_candles, Timeframe::H4, bid, now) {
-                        // A candle period just completed - save it to the database
-                        save_candle_to_db("EURUSD", Timeframe::H4, &completed);
+                    // Update 4-hour candles with real-time price (only for instruments with DB tables)
+                    if get_table_name(&symbol, Timeframe::H4).is_some() {
+                        let h4_candles = instrument.candles.entry(Timeframe::H4).or_insert_with(Vec::new);
+                        if let Some(completed) = update_candles_with_tick(h4_candles, Timeframe::H4, bid, now) {
+                            // A candle period just completed - save it to the database
+                            save_candle_to_db(&symbol, Timeframe::H4, &completed);
+                        }
                     }
                 }
             }
@@ -477,8 +468,41 @@ async fn run_session(tx: mpsc::Sender<PriceUpdate>) -> Result<(), Box<dyn std::e
 
     // 4. Message Loop (Reading Prices)
     let mut _auth_state = AuthState::NotAuthenticated;
-    let mut btc_symbol_id: Option<i64> = None;
-    let mut eurusd_symbol_id: Option<i64> = None;
+
+    // Map symbol_id -> symbol_name for all subscribed instruments
+    let mut symbol_id_to_name: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
+
+    // List of all instruments we want to subscribe to
+    let instruments_to_subscribe: Vec<&str> = vec![
+        // Forex
+        "EURUSD", "AUDUSD", "GBPUSD", "EURGBP", "EURAUD",
+        // Metals
+        "XAUUSD", "XPDUSD", "XPTUSD", "XAUAUD",
+        // Oil & Energy
+        "XTIUSD", "XNGUSD",
+        // Indices
+        "CHINA50", "SPXUSD",
+        // Cryptocurrencies
+        "BTCUSD", "BCHUSD", "ETHUSD", "LTCUSD", "AAVEUSD",
+        "AEROUSD", "ALGOUSD", "APTUSD", "ARBUSD", "ATOMUSD",
+        "AUSD", "CFXUSD", "CRVUSD", "ENSUSD", "ETCUSD",
+        "FARTCOINUSD", "FILUSD", "FLOWUSD", "GALAUSD",
+        "GRTUSD", "HBARUSD", "HYPEUSD", "ICPUSD", "IMXUSD",
+        "INJUSD", "IOTAUSD", "IPUSD", "JTOUSD", "JUPUSD",
+        "LDOUSD", "MANAUSD", "MORPHOUSD", "NEARUSD", "ONDOUSD",
+        "OPUSD", "PENGUUSD", "PYTHUSD", "RENDERUSD", "SANDUSD",
+        "STXUSD", "SUIUSD", "SUSD", "SYRUPUSD", "TAOUSD",
+        "THETAUSD", "TIAUSD", "TONUSD", "TRUMPUSD",
+        "VIRTUALUSD", "WIFUSD", "WLDUSD", "ADAUSD", "AVXUSD",
+        "DOGUSD", "KSMUSD", "UNIUSD", "XRPUSD", "XTZUSD",
+        "BNBUSD", "DOTUSD", "LNKUSD", "POLUSD", "SOLUSD",
+        "XLMUSD", "XMRUSD", "GLMUSD", "VETUSD", "ZECUSD",
+        "KAIAUSD", "SEIUSD", "MUSD", "ENAUSD", "FETUSD",
+        "CAKEUSD", "PENDLEUSD", "DEXEUSD", "QNTUSD", "COMPUSD",
+        "DYDXUSD", "XPLUSD", "STRKUSD", "1000xSHIB", "1000xPEPE",
+        "1000xBONK", "1000xFLOKI", "WLFIUSD", "ASTERUSD", "TWTUSD",
+        "COAIUSD", "MYXUSD", "2ZUSD", "1INCHUSD", "TRXUSD",
+    ];
 
     let mut last_heartbeat = tokio::time::Instant::now();
     let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30));
@@ -550,24 +574,17 @@ async fn run_session(tx: mpsc::Sender<PriceUpdate>) -> Result<(), Box<dyn std::e
                         if let Some(payload) = &msg.payload {
                             let res = openapi::ProtoOaSymbolsListRes::decode(payload.as_slice())?;
 
+                            // Build mapping from symbol_id to symbol_name for all our instruments
+                            let mut symbol_ids = Vec::new();
                             for symbol in res.symbol {
                                 if let Some(ref symbol_name) = symbol.symbol_name {
-                                    if symbol_name == "BTCUSD" || symbol_name == &target_symbol {
-                                        btc_symbol_id = Some(symbol.symbol_id);
-                                        println!("Found {} (ID: {})", symbol_name, symbol.symbol_id);
-                                    } else if symbol_name == "EURUSD" {
-                                        eurusd_symbol_id = Some(symbol.symbol_id);
+                                    // Check if this symbol is in our list of instruments to subscribe
+                                    if instruments_to_subscribe.contains(&symbol_name.as_str()) {
+                                        symbol_id_to_name.insert(symbol.symbol_id, symbol_name.clone());
+                                        symbol_ids.push(symbol.symbol_id);
                                         println!("Found {} (ID: {})", symbol_name, symbol.symbol_id);
                                     }
                                 }
-                            }
-
-                            let mut symbol_ids = Vec::new();
-                            if let Some(id) = btc_symbol_id {
-                                symbol_ids.push(id);
-                            }
-                            if let Some(id) = eurusd_symbol_id {
-                                symbol_ids.push(id);
                             }
 
                             if !symbol_ids.is_empty() {
@@ -579,7 +596,7 @@ async fn run_session(tx: mpsc::Sender<PriceUpdate>) -> Result<(), Box<dyn std::e
                                     subscribe_to_spot_timestamp: Some(true),
                                 };
                                 send_message(&mut tls_stream, openapi::ProtoOaPayloadType::ProtoOaSubscribeSpotsReq as u32, subscribe).await?;
-                                println!("Subscribe sent for all symbols");
+                                println!("Subscribe sent for all {} symbols", symbol_id_to_name.len());
                                 _auth_state = AuthState::Subscribed;
                             } else {
                                 println!("Error: No symbols found in account symbol list.");
@@ -595,15 +612,41 @@ async fn run_session(tx: mpsc::Sender<PriceUpdate>) -> Result<(), Box<dyn std::e
                             let bid = event.bid.unwrap_or(0) as f64 / 100_000.0;
                             let ask = event.ask.unwrap_or(0) as f64 / 100_000.0;
 
-                            if Some(symbol_id) == btc_symbol_id {
+                            // Look up the symbol name from our mapping
+                            if let Some(symbol_name) = symbol_id_to_name.get(&symbol_id) {
                                 if bid > 0.0 && ask > 0.0 {
-                                    println!("LIVE BTCUSD | Bid: {:.2} | Ask: {:.2}", bid, ask);
-                                    tx.send(PriceUpdate::BtcPrice { bid, ask }).await?;
-                                }
-                            } else if Some(symbol_id) == eurusd_symbol_id {
-                                if bid > 0.0 && ask > 0.0 {
-                                    println!("LIVE EURUSD | Bid: {:.5} | Ask: {:.5}", bid, ask);
-                                    tx.send(PriceUpdate::EurusdPrice { bid, ask }).await?;
+                                    // Use appropriate decimal places for display
+                                    let decimals = match symbol_name.as_str() {
+                                        "BTCUSD" | "ETHUSD" | "BCHUSD" | "LTCUSD" | "XAUUSD" |
+                                        "XPDUSD" | "XPTUSD" | "XAUAUD" | "CHINA50" | "SPXUSD" |
+                                        "AAVEUSD" | "ENSUSD" | "ETCUSD" | "ICPUSD" | "INJUSD" | "TAOUSD" |
+                                        "AVXUSD" | "KSMUSD" | "UNIUSD" | "BNBUSD" | "LNKUSD" |
+                                        "SOLUSD" | "XMRUSD" | "ZECUSD" | "QNTUSD" | "COMPUSD" => 2,
+                                        "ATOMUSD" | "FILUSD" | "XTIUSD" | "JTOUSD" | "LDOUSD" |
+                                        "NEARUSD" | "OPUSD" | "RENDERUSD" | "TIAUSD" | "TONUSD" | "TRUMPUSD" |
+                                        "WLDUSD" | "DOTUSD" | "CAKEUSD" | "PENDLEUSD" | "DYDXUSD" => 3,
+                                        "AEROUSD" | "ALGOUSD" | "APTUSD" | "ARBUSD" | "AUSD" |
+                                        "CFXUSD" | "CRVUSD" | "FLOWUSD" | "XNGUSD" | "GRTUSD" |
+                                        "HYPEUSD" | "IMXUSD" | "IOTAUSD" | "IPUSD" | "JUPUSD" |
+                                        "MANAUSD" | "MORPHOUSD" | "ONDOUSD" | "PYTHUSD" | "SANDUSD" |
+                                        "STXUSD" | "SUIUSD" | "SUSD" | "SYRUPUSD" | "THETAUSD" |
+                                        "VIRTUALUSD" | "WIFUSD" | "ADAUSD" | "XRPUSD" | "XTZUSD" |
+                                        "POLUSD" | "XLMUSD" | "GLMUSD" | "KAIAUSD" | "SEIUSD" |
+                                        "MUSD" | "ENAUSD" | "FETUSD" | "DEXEUSD" |
+                                        "XPLUSD" | "STRKUSD" | "WLFIUSD" | "ASTERUSD" |
+                                        "TWTUSD" | "COAIUSD" | "MYXUSD" | "2ZUSD" | "1INCHUSD" => 4,
+                                        "GALAUSD" | "EURUSD" | "AUDUSD" | "GBPUSD" | "EURGBP" |
+                                        "EURAUD" | "HBARUSD" | "PENGUUSD" | "DOGUSD" | "VETUSD" | "TRXUSD" |
+                                        "1000xSHIB" | "1000xPEPE" | "1000xBONK" | "1000xFLOKI" => 5,
+                                        "FARTCOINUSD" => 6,
+                                        _ => 5, // Default to 5 decimals
+                                    };
+                                    println!("LIVE {} | Bid: {:.prec$} | Ask: {:.prec$}", symbol_name, bid, ask, prec = decimals);
+                                    tx.send(PriceUpdate::InstrumentPrice {
+                                        symbol: symbol_name.clone(),
+                                        bid,
+                                        ask,
+                                    }).await?;
                                 }
                             }
                         }

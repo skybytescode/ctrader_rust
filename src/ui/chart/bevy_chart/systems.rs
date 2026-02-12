@@ -170,7 +170,16 @@ pub fn update_chart_viewport(
     let max_future = count_slots_forward(newest_timestamp, visible_slots, skip_weekends);
     let visible_end_ts = visible_end_ts.min(max_future);
 
-    viewport.time_start = visible_start_ts;
+    // Align time_start to interval boundary for consistent slot calculations
+    // This prevents flickering caused by time_start varying between frames
+    let aligned_start_ts = if instrument.trades_weekends && interval > 0 {
+        // For crypto: align to interval boundary (floor to nearest interval)
+        (visible_start_ts / interval) * interval
+    } else {
+        visible_start_ts
+    };
+
+    viewport.time_start = aligned_start_ts;
     viewport.time_end = visible_end_ts;
 
     // Calculate total_slots - for forex, count only trading slots
@@ -294,11 +303,41 @@ pub fn spawn_candle_entities(
         .filter(|(_, c)| c.timestamp >= viewport.time_start && c.timestamp <= viewport.time_end)
         .collect();
 
+    // Deduplicate candles by normalized slot index to prevent overlaps
+    // Normalize timestamps to interval boundaries to handle misaligned data
+    // Use BTreeMap for deterministic ordering (sorted by slot_index)
+    use std::collections::BTreeMap;
+    let mut candles_by_slot: BTreeMap<i64, (usize, &crate::db::Candle)> = BTreeMap::new();
+    for (idx, candle) in &visible_candles {
+        // Normalize the candle timestamp to its interval boundary
+        // This ensures candles with slightly misaligned timestamps group correctly
+        let normalized_ts = if viewport.timeframe_interval > 0 {
+            (candle.timestamp / viewport.timeframe_interval) * viewport.timeframe_interval
+        } else {
+            candle.timestamp
+        };
+        let slot_index = if viewport.timeframe_interval > 0 {
+            (normalized_ts - viewport.time_start) / viewport.timeframe_interval
+        } else {
+            *idx as i64
+        };
+        // Keep the candle with the later timestamp for each slot (most recent data)
+        candles_by_slot.entry(slot_index)
+            .and_modify(|existing| {
+                if candle.timestamp > existing.1.timestamp {
+                    *existing = (*idx, *candle);
+                }
+            })
+            .or_insert((*idx, *candle));
+    }
+    // BTreeMap iterates in sorted order by key, ensuring consistent rendering
+    let deduplicated_candles: Vec<_> = candles_by_slot.into_values().collect();
+
     // Spawn new candle entities
     let gap = 2.0;
     let body_width = (viewport.candle_width - gap).max(3.0);
 
-    for (idx, candle) in visible_candles.iter() {
+    for (idx, candle) in deduplicated_candles.iter() {
         let is_bullish = candle.close >= candle.open;
         let color = if is_bullish { chart_colors::BULLISH } else { chart_colors::BEARISH };
 
@@ -579,8 +618,34 @@ pub fn spawn_volume_entities(
         .filter(|(_, c)| c.timestamp >= viewport.time_start && c.timestamp <= viewport.time_end)
         .collect();
 
+    // Deduplicate candles by normalized slot index to prevent volume bar overlaps
+    // Use BTreeMap for deterministic ordering
+    use std::collections::BTreeMap;
+    let mut candles_by_slot: BTreeMap<i64, (usize, &crate::db::Candle)> = BTreeMap::new();
+    for (idx, candle) in &visible_candles {
+        // Normalize timestamp to interval boundary
+        let normalized_ts = if viewport.timeframe_interval > 0 {
+            (candle.timestamp / viewport.timeframe_interval) * viewport.timeframe_interval
+        } else {
+            candle.timestamp
+        };
+        let slot_index = if viewport.timeframe_interval > 0 {
+            (normalized_ts - viewport.time_start) / viewport.timeframe_interval
+        } else {
+            *idx as i64
+        };
+        candles_by_slot.entry(slot_index)
+            .and_modify(|existing| {
+                if candle.timestamp > existing.1.timestamp {
+                    *existing = (*idx, *candle);
+                }
+            })
+            .or_insert((*idx, *candle));
+    }
+    let deduplicated_candles: Vec<_> = candles_by_slot.into_values().collect();
+
     // Calculate max volume for scaling
-    let max_volume = visible_candles.iter().map(|(_, c)| c.volume).max().unwrap_or(1) as f64;
+    let max_volume = deduplicated_candles.iter().map(|(_, c)| c.volume).max().unwrap_or(1) as f64;
     if max_volume <= 0.0 {
         return;
     }
@@ -592,7 +657,7 @@ pub fn spawn_volume_entities(
     let gap = 2.0;
     let body_width = (viewport.candle_width - gap).max(3.0);
 
-    for (idx, candle) in visible_candles.iter() {
+    for (idx, candle) in deduplicated_candles.iter() {
         let is_bullish = candle.close >= candle.open;
         let color = if is_bullish { chart_colors::BULLISH_ALPHA } else { chart_colors::BEARISH_ALPHA };
 

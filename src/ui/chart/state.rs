@@ -378,32 +378,4 @@ impl ChartState {
     }
 }
 
-/// Professional color scheme for trading charts (cTrader style)
-pub mod colors {
-    use bevy_egui::egui::Color32;
-
-    // cTrader-style candlestick colors
-    pub const BULLISH: Color32 = Color32::from_rgb(0, 166, 115);       // Teal green
-    pub const BEARISH: Color32 = Color32::from_rgb(235, 115, 20);      // Orange
-
-    // Chart elements
-    pub const GRID: Color32 = Color32::from_rgb(38, 41, 51);           // Subtle dark grid
-    pub const CROSSHAIR: Color32 = Color32::from_rgb(128, 128, 140);   // Medium gray
-    pub const AXIS_TEXT: Color32 = Color32::from_rgb(153, 158, 166);   // Muted text color
-    pub const BACKGROUND: Color32 = Color32::from_rgb(15, 18, 23);     // Very dark background
-    pub const TOOLTIP_BG: Color32 = Color32::from_rgb(25, 28, 35);     // Tooltip background
-    pub const AXIS_BG: Color32 = Color32::from_rgb(20, 22, 28);        // Axis background
-
-    // Live price colors
-    pub const LIVE_PRICE: Color32 = Color32::from_rgb(242, 128, 25);   // Orange for live price
-    pub const LIVE_PRICE_TEXT: Color32 = Color32::from_rgb(255, 255, 255); // White text on price label
-
-    // Alpha colors for volume bars
-    pub fn bullish_alpha() -> Color32 {
-        Color32::from_rgba_unmultiplied(0, 166, 115, 128)
-    }
-
-    pub fn bearish_alpha() -> Color32 {
-        Color32::from_rgba_unmultiplied(235, 115, 20, 128)
-    }
-}
+// Note: Colors are now defined in bevy_ui/theme.rs for pure Bevy UI

@@ -225,13 +225,16 @@ impl ChartViewport {
             return 0.0;
         }
 
+        // Normalize timestamp to interval boundary for consistent positioning
+        let normalized_ts = (timestamp / self.timeframe_interval) * self.timeframe_interval;
+
         if self.trades_weekends {
             // For crypto: simple calculation, all days count
-            let slot_index = (timestamp - self.time_start) / self.timeframe_interval;
+            let slot_index = (normalized_ts - self.time_start) / self.timeframe_interval;
             self.index_to_x(slot_index as usize)
         } else {
             // For forex: count only trading slots (skip weekends)
-            let slot_index = self.count_trading_slots(self.time_start, timestamp);
+            let slot_index = self.count_trading_slots(self.time_start, normalized_ts);
             self.index_to_x(slot_index as usize)
         }
     }
