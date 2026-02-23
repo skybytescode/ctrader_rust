@@ -327,11 +327,11 @@ pub struct DbSubCardMaxBtnIcon {
     pub sub_type: DbSubCardType,
 }
 
-/// Timeframe options for Database buttons
+/// Data-type options for Database buttons
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BotTimeframe {
-    M1,
-    M5,
+    M1Candles,
+    TickData,
 }
 
 /// M1 / M5 button inside a Database sub-card

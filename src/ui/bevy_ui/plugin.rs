@@ -73,10 +73,7 @@ impl Plugin for BevyUiPlugin {
                 interactions::update_instrument_hover,
                 bot_dashboard::handle_main_card_max_btn,
                 bot_dashboard::update_main_card_expand,
-                bot_dashboard::handle_db_subcard_max_btn,
-                bot_dashboard::update_db_subcard_expand,
                 bot_dashboard::update_main_card_hover,
-                bot_dashboard::update_db_subcard_btn_hover,
                 bot_dashboard::handle_db_timeframe_btn_click,
                 bot_dashboard::update_db_timeframe_btn_hover,
             ).in_set(UiSystemSet::Interaction))

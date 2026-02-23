@@ -6,8 +6,7 @@ use crate::ui::bevy_ui::{
     BotDashboard, BotDashboardTitle,
     TopCardType, CardsContainer, MainCard, MainCardContent,
     MainCardMaxBtn, MainCardMaxBtnIcon,
-    DbSubCard, DbSubCardType, DbSubCardContent,
-    DbSubCardMaxBtn, DbSubCardMaxBtnIcon,
+    DbSubCard, DbSubCardType,
     DbTimeframeBtn, BotTimeframe,
     BotDashboardState,
     theme::{colors, fonts},
@@ -228,55 +227,20 @@ fn spawn_db_subcard(
         DbSubCard { sub_type },
     )).id();
 
-    // Sub-card header: title + [+] button
-    let header = commands.spawn((
-        Node {
-            width: Val::Percent(100.0),
-            flex_direction: FlexDirection::Row,
-            justify_content: JustifyContent::SpaceBetween,
-            align_items: AlignItems::Center,
-            ..default()
-        },
-    )).id();
-
+    // Sub-card header: title only (no expand button)
     commands.spawn((
         Text::new(title),
         TextFont { font_size: fonts::SIZE_NORMAL, ..default() },
         TextColor(colors::TEXT_PRIMARY),
-    )).set_parent(header);
+    )).set_parent(card);
 
-    let sub_btn = commands.spawn((
-        Node {
-            padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)),
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            ..default()
-        },
-        BackgroundColor(colors::BG_BUTTON),
-        BorderRadius::all(Val::Px(3.0)),
-        Interaction::default(),
-        DbSubCardMaxBtn { sub_type },
-    )).id();
-
-    commands.spawn((
-        Text::new("[+]"),
-        TextFont { font_size: fonts::SIZE_TINY, ..default() },
-        TextColor(colors::TEXT_PRIMARY),
-        DbSubCardMaxBtnIcon { sub_type },
-    )).set_parent(sub_btn);
-
-    commands.entity(header).add_child(sub_btn);
-    commands.entity(card).add_child(header);
-
-    // Sub-card content — Display::None removes it from layout
+    // Sub-card content — always visible
     let content = commands.spawn((
         Node {
-            display: Display::None,
             flex_direction: FlexDirection::Column,
             row_gap: Val::Px(6.0),
             ..default()
         },
-        DbSubCardContent { sub_type },
     )).id();
 
     if has_timeframe_btns {
@@ -287,8 +251,8 @@ fn spawn_db_subcard(
                 ..default()
             },
         )).id();
-        spawn_timeframe_btn(commands, btn_row, sub_type, BotTimeframe::M1);
-        spawn_timeframe_btn(commands, btn_row, sub_type, BotTimeframe::M5);
+        spawn_timeframe_btn(commands, btn_row, sub_type, BotTimeframe::M1Candles);
+        spawn_timeframe_btn(commands, btn_row, sub_type, BotTimeframe::TickData);
         commands.entity(content).add_child(btn_row);
     } else {
         let detail = match sub_type {
@@ -314,7 +278,7 @@ fn spawn_timeframe_btn(
     parent_card: DbSubCardType,
     timeframe: BotTimeframe,
 ) {
-    let label = match timeframe { BotTimeframe::M1 => "M1", BotTimeframe::M5 => "M5" };
+    let label = match timeframe { BotTimeframe::M1Candles => "M1 Candles", BotTimeframe::TickData => "Tick Data" };
 
     let btn = commands.spawn((
         Node {
@@ -342,20 +306,20 @@ fn spawn_timeframe_btn(
 // Systems
 // ============================================================================
 
-/// Show/hide dashboard and update title when selected instrument changes
+/// Show/hide dashboard and update title.
+/// Dashboard is visible only when an instrument is selected AND the sidebar is expanded.
 pub fn update_dashboard_visibility(
+    ui_state: Res<crate::ui::UiState>,
     chart_state: Res<ChartState>,
     mut dashboard_query: Query<&mut Visibility, With<BotDashboard>>,
     mut title_query: Query<&mut Text, With<BotDashboardTitle>>,
 ) {
-    if !chart_state.is_changed() { return; }
+    if !chart_state.is_changed() && !ui_state.is_changed() { return; }
+
+    let show = chart_state.selected_instrument.is_some() && ui_state.sidebar_expanded;
 
     for mut vis in dashboard_query.iter_mut() {
-        *vis = if chart_state.selected_instrument.is_some() {
-            Visibility::Visible
-        } else {
-            Visibility::Hidden
-        };
+        *vis = if show { Visibility::Visible } else { Visibility::Hidden };
     }
 
     if let Some(ref symbol) = chart_state.selected_instrument {
@@ -488,48 +452,6 @@ pub fn update_main_card_expand(
     }
 }
 
-/// Handle click on a DB sub-card's [+]/[-] button
-pub fn handle_db_subcard_max_btn(
-    mut state: ResMut<BotDashboardState>,
-    query: Query<(&Interaction, &DbSubCardMaxBtn), Changed<Interaction>>,
-) {
-    for (interaction, btn) in query.iter() {
-        if *interaction == Interaction::Pressed {
-            if state.expanded_db_sub == Some(btn.sub_type) {
-                state.expanded_db_sub = None;
-            } else {
-                state.expanded_db_sub = Some(btn.sub_type);
-            }
-        }
-    }
-}
-
-/// Update DB sub-card content display based on accordion state
-pub fn update_db_subcard_expand(
-    state: Res<BotDashboardState>,
-    mut content_query: Query<(&DbSubCardContent, &mut Node)>,
-    mut icon_query: Query<(&DbSubCardMaxBtnIcon, &mut Text)>,
-) {
-    if !state.is_changed() { return; }
-
-    let expanded = state.expanded_db_sub;
-
-    for (content, mut node) in content_query.iter_mut() {
-        node.display = match expanded {
-            Some(t) if t == content.sub_type => Display::Flex,
-            _ => Display::None,
-        };
-    }
-
-    for (icon, mut text) in icon_query.iter_mut() {
-        let new_label = match expanded {
-            Some(t) if t == icon.sub_type => "[-]",
-            _ => "[+]",
-        };
-        if text.0 != new_label { text.0 = new_label.to_string(); }
-    }
-}
-
 /// Hover effect for main card [+]/[-] buttons
 pub fn update_main_card_hover(
     mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<MainCardMaxBtn>)>,
@@ -544,21 +466,7 @@ pub fn update_main_card_hover(
     }
 }
 
-/// Hover effect for DB sub-card [+]/[-] buttons
-pub fn update_db_subcard_btn_hover(
-    mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<DbSubCardMaxBtn>)>,
-) {
-    for (interaction, mut bg) in query.iter_mut() {
-        let new_color = match interaction {
-            Interaction::Hovered => colors::BG_BUTTON_ACTIVE,
-            Interaction::Pressed => colors::ACCENT_BLUE,
-            Interaction::None    => colors::BG_BUTTON,
-        };
-        if bg.0 != new_color { bg.0 = new_color; }
-    }
-}
-
-/// Hover effect for M1/M5 timeframe buttons
+/// Hover effect for M1 Candles / Tick Data buttons
 pub fn update_db_timeframe_btn_hover(
     mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<DbTimeframeBtn>)>,
 ) {
@@ -586,7 +494,7 @@ pub fn handle_db_timeframe_btn_click(
                 DbSubCardType::Status        => "Status",
                 DbSubCardType::Dom           => "DoM",
             };
-            let tf = match btn.timeframe { BotTimeframe::M1 => "M1", BotTimeframe::M5 => "M5" };
+            let tf = match btn.timeframe { BotTimeframe::M1Candles => "M1 Candles", BotTimeframe::TickData => "Tick Data" };
             println!("[{}] {} {} clicked", symbol, card_label, tf);
         }
     }
