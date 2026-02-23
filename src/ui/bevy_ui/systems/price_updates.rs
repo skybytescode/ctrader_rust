@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crate::ui::AppState;
 use crate::ui::chart::TickDirection;
 use crate::ui::bevy_ui::{
-    BidPrice, AskPrice, ConnectionStatusLabel, HeaderInstrumentLabel,
+    BidPrice, AskPrice, SpreadPrice, ConnectionStatusLabel, HeaderInstrumentLabel,
     LivePriceText, PriceFormatCache,
     theme::colors,
 };
@@ -94,6 +94,61 @@ pub fn update_ask_colors(
                 colors::BEARISH
             } else {
                 colors::TEXT_PRIMARY
+            };
+
+            if text_color.0 != new_color {
+                text_color.0 = new_color;
+            }
+        }
+    }
+}
+
+/// Update spread display when prices change
+pub fn update_spread_prices(
+    app_state: Res<AppState>,
+    mut query: Query<(&SpreadPrice, &mut Text)>,
+) {
+    if !app_state.is_changed() {
+        return;
+    }
+
+    for (spread_price, mut text) in query.iter_mut() {
+        if let Some(instrument) = app_state.instruments.get(&spread_price.symbol) {
+            let pip_mult = if instrument.decimal_places <= 2 {
+                10f64.powi(instrument.decimal_places as i32)
+            } else {
+                10f64.powi(instrument.decimal_places as i32 - 1)
+            };
+            let spread = (instrument.ask - instrument.bid) * pip_mult;
+            let dp = if instrument.decimal_places <= 2 { 0 } else { 1 };
+            let formatted = format!("{:.dp$}", spread, dp = dp);
+            if text.0 != formatted {
+                text.0 = formatted;
+            }
+        }
+    }
+}
+
+/// Update spread color: red if spread widened, green if narrowed, white if same
+pub fn update_spread_colors(
+    app_state: Res<AppState>,
+    mut query: Query<(&SpreadPrice, &mut TextColor)>,
+) {
+    if !app_state.is_changed() {
+        return;
+    }
+
+    for (spread_price, mut text_color) in query.iter_mut() {
+        if let Some(instrument) = app_state.instruments.get(&spread_price.symbol) {
+            let current_spread = instrument.ask - instrument.bid;
+            let prev_spread = instrument.prev_ask - instrument.prev_bid;
+
+            let new_color = if current_spread > prev_spread {
+                colors::BEARISH  // spread widened = bad = red/orange
+            } else if current_spread < prev_spread {
+                colors::BULLISH  // spread narrowed = good = green
+            } else {
+                colors::TEXT_PRIMARY  // unchanged = white
             };
 
             if text_color.0 != new_color {

@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 use std::collections::HashSet;
+use crate::ui::bevy_ui::components::{TopCardType, DbSubCardType};
 
 /// State for the tooltip popup
 #[derive(Resource, Default)]
@@ -123,6 +124,15 @@ impl PriceFormatCache {
     pub fn clear(&mut self) {
         self.cache.clear();
     }
+}
+
+/// Tracks which bot dashboard card is currently expanded (accordion state)
+#[derive(Resource, Default)]
+pub struct BotDashboardState {
+    /// Which top-level card is expanded (Database, TrainModel, etc.)
+    pub expanded_top: Option<TopCardType>,
+    /// Which Database sub-card is expanded (HistoryBot, UpdateHistory, etc.)
+    pub expanded_db_sub: Option<DbSubCardType>,
 }
 
 /// Tracks which UI elements need rebuilding

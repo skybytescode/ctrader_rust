@@ -25,14 +25,8 @@ pub fn spawn_icon_bar(commands: &mut Commands, parent: Entity) {
         IconBar,
     )).id();
 
-    // Indicators button
-    spawn_icon_button(commands, bar, ActiveView::Indicators, "📊", "Indicators");
-
-    // News button
-    spawn_icon_button(commands, bar, ActiveView::News, "📰", "News");
-
-    // Analysis button
-    spawn_icon_button(commands, bar, ActiveView::Analysis, "🔬", "Analysis");
+    // Bot button (using ASCII — Bevy default font doesn't render emojis)
+    spawn_icon_button(commands, bar, ActiveView::Bots, "[B]", "Bots");
 
     commands.entity(parent).add_child(bar);
 }

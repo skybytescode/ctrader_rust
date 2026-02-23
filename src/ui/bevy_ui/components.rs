@@ -3,7 +3,7 @@
 //! These components mark entities for querying and interaction handling
 
 use bevy::prelude::*;
-use crate::ui::{ActiveView, SidebarTab, SymbolCategory, Timeframe};
+use crate::ui::{ActiveView, SymbolCategory, Timeframe};
 
 // ============================================================================
 // Root and Camera
@@ -69,16 +69,6 @@ pub struct IconLabel {
 // Sidebar Components
 // ============================================================================
 
-/// Tab button in the sidebar (Watchlists / All Symbols)
-#[derive(Component)]
-pub struct TabButton {
-    pub tab: SidebarTab,
-}
-
-/// Search input field
-#[derive(Component)]
-pub struct SearchInput;
-
 /// Container for the instrument list (scrollable viewport)
 #[derive(Component)]
 pub struct InstrumentListContainer;
@@ -87,15 +77,9 @@ pub struct InstrumentListContainer;
 #[derive(Component)]
 pub struct InstrumentListViewport;
 
-/// Category header (collapsible)
+/// Category header row
 #[derive(Component)]
 pub struct CategoryHeader {
-    pub category: SymbolCategory,
-}
-
-/// Arrow indicator for category expand/collapse
-#[derive(Component)]
-pub struct CategoryArrow {
     pub category: SymbolCategory,
 }
 
@@ -103,7 +87,7 @@ pub struct CategoryArrow {
 #[derive(Component)]
 pub struct InstrumentRow {
     pub symbol: String,
-    pub list_index: usize,  // Position in virtualized list
+    pub list_index: usize,
 }
 
 /// Symbol name text in an instrument row
@@ -124,9 +108,9 @@ pub struct AskPrice {
     pub symbol: String,
 }
 
-/// Checkmark indicator showing instrument is subscribed
+/// Spread display in an instrument row
 #[derive(Component)]
-pub struct SubscribedIndicator {
+pub struct SpreadPrice {
     pub symbol: String,
 }
 
@@ -246,3 +230,113 @@ pub struct ConnectionStatusLabel;
 /// Displays selected instrument in top panel
 #[derive(Component)]
 pub struct HeaderInstrumentLabel;
+
+// ============================================================================
+// Bot Dashboard Components
+// ============================================================================
+
+/// Marker for the bot dashboard root panel
+#[derive(Component)]
+pub struct BotDashboard;
+
+/// Title text in the dashboard header (shows instrument name)
+#[derive(Component)]
+pub struct BotDashboardTitle;
+
+// ============================================================================
+// Bot Dashboard — Top-Level Card Components
+// ============================================================================
+
+/// Identifies one of the 4 top-level dashboard cards
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TopCardType {
+    Database,
+    TrainModel,
+    StartPause,
+    CurrentStatus,
+}
+
+/// Container holding all 4 main cards in a Column+Wrap layout
+#[derive(Component)]
+pub struct CardsContainer;
+
+/// Marker for a flex row containing 2 main cards (row_index: 0 or 1)
+#[derive(Component)]
+pub struct MainCardRow {
+    pub row_index: u8,
+}
+
+/// Marker for a top-level main card container
+#[derive(Component)]
+pub struct MainCard {
+    pub card_type: TopCardType,
+}
+
+/// Expandable content area inside a main card (hidden when collapsed)
+#[derive(Component)]
+pub struct MainCardContent {
+    pub card_type: TopCardType,
+}
+
+/// The [+]/[-] toggle button on a main card
+#[derive(Component)]
+pub struct MainCardMaxBtn {
+    pub card_type: TopCardType,
+}
+
+/// The text inside the [+]/[-] button (so it can be updated)
+#[derive(Component)]
+pub struct MainCardMaxBtnIcon {
+    pub card_type: TopCardType,
+}
+
+// ============================================================================
+// Database Sub-Panel Components
+// ============================================================================
+
+/// Sub-card types inside the Database panel
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DbSubCardType {
+    HistoryBot,
+    UpdateHistory,
+    Status,
+    Dom,
+}
+
+/// Marker for a sub-card inside the Database panel
+#[derive(Component)]
+pub struct DbSubCard {
+    pub sub_type: DbSubCardType,
+}
+
+/// Expandable content area inside a DB sub-card (hidden when collapsed)
+#[derive(Component)]
+pub struct DbSubCardContent {
+    pub sub_type: DbSubCardType,
+}
+
+/// The [+]/[-] toggle button on a DB sub-card
+#[derive(Component)]
+pub struct DbSubCardMaxBtn {
+    pub sub_type: DbSubCardType,
+}
+
+/// The text inside the DB sub-card [+]/[-] button
+#[derive(Component)]
+pub struct DbSubCardMaxBtnIcon {
+    pub sub_type: DbSubCardType,
+}
+
+/// Timeframe options for Database buttons
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BotTimeframe {
+    M1,
+    M5,
+}
+
+/// M1 / M5 button inside a Database sub-card
+#[derive(Component)]
+pub struct DbTimeframeBtn {
+    pub parent_card: DbSubCardType,
+    pub timeframe: BotTimeframe,
+}

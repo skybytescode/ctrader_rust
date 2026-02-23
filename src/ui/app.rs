@@ -17,6 +17,7 @@ impl Default for AppState {
         instruments.insert("EURUSD".to_string(), InstrumentData::new("EURUSD", 5, false));
         instruments.insert("AUDUSD".to_string(), InstrumentData::new("AUDUSD", 5, false));
         instruments.insert("GBPUSD".to_string(), InstrumentData::new("GBPUSD", 5, false));
+        instruments.insert("USDCHF".to_string(), InstrumentData::new("USDCHF", 5, false));
         instruments.insert("EURGBP".to_string(), InstrumentData::new("EURGBP", 5, false));
         instruments.insert("EURAUD".to_string(), InstrumentData::new("EURAUD", 5, false));
 
@@ -161,115 +162,30 @@ impl AppState {
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum ActiveView {
     #[default]
-    Indicators,
-    News,
-    Analysis,
+    Bots,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum SidebarTab {
-    Watchlists,
-    #[default]
-    AllSymbols,
-}
-
-/// Categories for the All Symbols view (cTrader style)
+/// Categories for the sidebar instrument list
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SymbolCategory {
-    PopularMarkets,
-    Metals,
-    Oil,
-    Forex,
-    Indices,
-    Commodities,
-    Cryptocurrencies,
+    TradingBots,
 }
 
 impl SymbolCategory {
     pub fn all() -> &'static [SymbolCategory] {
-        &[
-            SymbolCategory::PopularMarkets,
-            SymbolCategory::Metals,
-            SymbolCategory::Oil,
-            SymbolCategory::Forex,
-            SymbolCategory::Indices,
-            SymbolCategory::Commodities,
-            SymbolCategory::Cryptocurrencies,
-        ]
+        &[SymbolCategory::TradingBots]
     }
 
     pub fn label(&self) -> &'static str {
         match self {
-            SymbolCategory::PopularMarkets => "Popular markets",
-            SymbolCategory::Metals => "Metals",
-            SymbolCategory::Oil => "Oil",
-            SymbolCategory::Forex => "Forex",
-            SymbolCategory::Indices => "Indices",
-            SymbolCategory::Commodities => "Commodities",
-            SymbolCategory::Cryptocurrencies => "Cryptocurrencies",
+            SymbolCategory::TradingBots => "Trading Bots",
         }
     }
 
     /// Get instruments that belong to this category
     pub fn instruments(&self) -> &'static [&'static str] {
         match self {
-            // Popular Markets is a mix of ALL instruments
-            SymbolCategory::PopularMarkets => &[
-                // Forex
-                "EURUSD", "AUDUSD", "GBPUSD", "EURGBP", "EURAUD",
-                // Metals
-                "XAUUSD", "XPDUSD", "XPTUSD", "XAUAUD",
-                // Oil & Energy
-                "XTIUSD", "XNGUSD",
-                // Indices
-                "CHINA50", "SPXUSD",
-                // Cryptocurrencies
-                "BTCUSD", "BCHUSD", "ETHUSD", "LTCUSD", "AAVEUSD",
-                "AEROUSD", "ALGOUSD", "APTUSD", "ARBUSD", "ATOMUSD",
-                "AUSD", "CFXUSD", "CRVUSD", "ENSUSD", "ETCUSD",
-                "FARTCOINUSD", "FILUSD", "FLOWUSD", "GALAUSD",
-                "GRTUSD", "HBARUSD", "HYPEUSD", "ICPUSD", "IMXUSD",
-                "INJUSD", "IOTAUSD", "IPUSD", "JTOUSD", "JUPUSD",
-                "LDOUSD", "MANAUSD", "MORPHOUSD", "NEARUSD", "ONDOUSD",
-                "OPUSD", "PENGUUSD", "PYTHUSD", "RENDERUSD", "SANDUSD",
-                "STXUSD", "SUIUSD", "SUSD", "SYRUPUSD", "TAOUSD",
-                "THETAUSD", "TIAUSD", "TONUSD", "TRUMPUSD",
-                "VIRTUALUSD", "WIFUSD", "WLDUSD", "ADAUSD", "AVXUSD",
-                "DOGUSD", "KSMUSD", "UNIUSD", "XRPUSD", "XTZUSD",
-                "BNBUSD", "DOTUSD", "LNKUSD", "POLUSD", "SOLUSD",
-                "XLMUSD", "XMRUSD", "GLMUSD", "VETUSD", "ZECUSD",
-                "KAIAUSD", "SEIUSD", "MUSD", "ENAUSD", "FETUSD",
-                "CAKEUSD", "PENDLEUSD", "DEXEUSD", "QNTUSD", "COMPUSD",
-                "DYDXUSD", "XPLUSD", "STRKUSD", "1000xSHIB", "1000xPEPE",
-                "1000xBONK", "1000xFLOKI", "WLFIUSD", "ASTERUSD", "TWTUSD",
-                "COAIUSD", "MYXUSD", "2ZUSD", "1INCHUSD", "TRXUSD",
-            ],
-            SymbolCategory::Metals => &["XAUUSD", "XPDUSD", "XPTUSD", "XAUAUD"],
-            SymbolCategory::Oil => &["XTIUSD", "XNGUSD"],
-            SymbolCategory::Forex => &["EURUSD", "AUDUSD", "GBPUSD", "EURGBP", "EURAUD"],
-            SymbolCategory::Indices => &["CHINA50", "SPXUSD"],
-            SymbolCategory::Commodities => &["XNGUSD"],
-            SymbolCategory::Cryptocurrencies => &[
-                "BTCUSD", "BCHUSD", "ETHUSD", "LTCUSD", "AAVEUSD",
-                "AEROUSD", "ALGOUSD", "APTUSD", "ARBUSD", "ATOMUSD",
-                "AUSD", "CFXUSD", "CRVUSD", "ENSUSD", "ETCUSD",
-                "FARTCOINUSD", "FILUSD", "FLOWUSD", "GALAUSD",
-                "GRTUSD", "HBARUSD", "HYPEUSD", "ICPUSD", "IMXUSD",
-                "INJUSD", "IOTAUSD", "IPUSD", "JTOUSD", "JUPUSD",
-                "LDOUSD", "MANAUSD", "MORPHOUSD", "NEARUSD", "ONDOUSD",
-                "OPUSD", "PENGUUSD", "PYTHUSD", "RENDERUSD", "SANDUSD",
-                "STXUSD", "SUIUSD", "SUSD", "SYRUPUSD", "TAOUSD",
-                "THETAUSD", "TIAUSD", "TONUSD", "TRUMPUSD",
-                "VIRTUALUSD", "WIFUSD", "WLDUSD", "ADAUSD", "AVXUSD",
-                "DOGUSD", "KSMUSD", "UNIUSD", "XRPUSD", "XTZUSD",
-                "BNBUSD", "DOTUSD", "LNKUSD", "POLUSD", "SOLUSD",
-                "XLMUSD", "XMRUSD", "GLMUSD", "VETUSD", "ZECUSD",
-                "KAIAUSD", "SEIUSD", "MUSD", "ENAUSD", "FETUSD",
-                "CAKEUSD", "PENDLEUSD", "DEXEUSD", "QNTUSD", "COMPUSD",
-                "DYDXUSD", "XPLUSD", "STRKUSD", "1000xSHIB", "1000xPEPE",
-                "1000xBONK", "1000xFLOKI", "WLFIUSD", "ASTERUSD", "TWTUSD",
-                "COAIUSD", "MYXUSD", "2ZUSD", "1INCHUSD", "TRXUSD",
-            ],
+            SymbolCategory::TradingBots => &["EURUSD", "GBPUSD", "USDCHF", "XAUUSD"],
         }
     }
 }
@@ -278,23 +194,18 @@ impl SymbolCategory {
 pub struct UiState {
     pub active_view: ActiveView,
     pub sidebar_expanded: bool,
-    pub sidebar_tab: SidebarTab,
     pub expanded_categories: HashSet<SymbolCategory>,
-    pub favorite_symbols: HashSet<String>,
 }
 
 impl Default for UiState {
     fn default() -> Self {
         let mut expanded_categories = HashSet::new();
-        // Popular markets expanded by default
-        expanded_categories.insert(SymbolCategory::PopularMarkets);
+        expanded_categories.insert(SymbolCategory::TradingBots);
 
         Self {
-            active_view: ActiveView::Indicators,
+            active_view: ActiveView::Bots,
             sidebar_expanded: true,
-            sidebar_tab: SidebarTab::AllSymbols,
             expanded_categories,
-            favorite_symbols: HashSet::new(),
         }
     }
 }

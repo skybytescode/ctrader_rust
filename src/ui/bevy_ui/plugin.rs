@@ -32,6 +32,7 @@ impl Plugin for BevyUiPlugin {
             .init_resource::<UiInteractionState>()
             .init_resource::<PriceFormatCache>()
             .init_resource::<UiRebuildFlags>()
+            .init_resource::<BotDashboardState>()
 
             // System set ordering
             .configure_sets(Update, (
@@ -56,20 +57,28 @@ impl Plugin for BevyUiPlugin {
                 price_updates::update_ask_prices,
                 price_updates::update_bid_colors,
                 price_updates::update_ask_colors,
+                price_updates::update_spread_prices,
+                price_updates::update_spread_colors,
                 price_updates::update_connection_status,
                 price_updates::clear_price_cache,
                 icon_bar::update_icon_button_styles,
-                sidebar::update_tab_button_styles,
+                bot_dashboard::update_dashboard_visibility,
             ).in_set(UiSystemSet::Update))
 
             // Interaction systems
             .add_systems(Update, (
                 interactions::handle_icon_button_click,
-                interactions::handle_tab_click,
-                interactions::handle_category_click,
                 interactions::handle_instrument_click,
                 interactions::handle_list_scroll,
                 interactions::update_instrument_hover,
+                bot_dashboard::handle_main_card_max_btn,
+                bot_dashboard::update_main_card_expand,
+                bot_dashboard::handle_db_subcard_max_btn,
+                bot_dashboard::update_db_subcard_expand,
+                bot_dashboard::update_main_card_hover,
+                bot_dashboard::update_db_subcard_btn_hover,
+                bot_dashboard::handle_db_timeframe_btn_click,
+                bot_dashboard::update_db_timeframe_btn_hover,
             ).in_set(UiSystemSet::Interaction))
 
             // Render systems (virtualization)
@@ -121,10 +130,13 @@ fn setup_ui(mut commands: Commands) {
     // Icon bar
     icon_bar::spawn_icon_bar(&mut commands, main_content);
 
-    // Sidebar (takes remaining space for now)
+    // Sidebar
     sidebar::spawn_sidebar(&mut commands, main_content);
+
+    // Bot dashboard (main content area, right of sidebar)
+    bot_dashboard::spawn_bot_dashboard(&mut commands, main_content);
 
     commands.entity(root).add_child(main_content);
 
-    println!("Bevy UI initialized (watchlist mode)");
+    println!("Bevy UI initialized (watchlist + bot dashboard)");
 }

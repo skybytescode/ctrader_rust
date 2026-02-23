@@ -1,7 +1,7 @@
 //! Layout systems for UI visibility and sizing
 
 use bevy::prelude::*;
-use crate::ui::{UiState, AppState};
+use crate::ui::{UiState, AppState, SymbolCategory};
 use crate::ui::bevy_ui::{
     Sidebar, VirtualizedScrollState, UiRebuildFlags,
 };
@@ -43,24 +43,16 @@ pub fn update_virtualized_scroll(
     // Calculate visible count from viewport height
     scroll_state.visible_count = (viewport_height / scroll_state.item_height).ceil() as usize + 1;
 
-    // Calculate total items based on current view
-    scroll_state.total_items = match ui_state.sidebar_tab {
-        crate::ui::SidebarTab::Watchlists => ui_state.favorite_symbols.len(),
-        crate::ui::SidebarTab::AllSymbols => {
-            calculate_expanded_item_count(&ui_state, &app_state)
-        }
-    };
+    // Calculate total items (category headers + expanded instruments)
+    scroll_state.total_items = calculate_expanded_item_count(&ui_state, &app_state);
 
     // Update first visible index from scroll offset
     scroll_state.update_from_scroll();
     scroll_state.clamp_scroll();
 }
 
-/// Calculate total number of visible items in All Symbols view
-/// (accounts for expanded/collapsed categories)
+/// Calculate total number of visible items
 fn calculate_expanded_item_count(ui_state: &UiState, app_state: &AppState) -> usize {
-    use crate::ui::SymbolCategory;
-
     let mut count = 0;
 
     for category in SymbolCategory::all() {
@@ -69,9 +61,7 @@ fn calculate_expanded_item_count(ui_state: &UiState, app_state: &AppState) -> us
 
         // Add instruments if category is expanded
         if ui_state.expanded_categories.contains(category) {
-            let instruments = category.instruments();
-            // Only count instruments that exist in app_state
-            for symbol in instruments {
+            for symbol in category.instruments() {
                 if app_state.instruments.contains_key(*symbol) {
                     count += 1;
                 }
@@ -83,51 +73,34 @@ fn calculate_expanded_item_count(ui_state: &UiState, app_state: &AppState) -> us
 }
 
 /// Get the item at a specific index in the virtualized list
-/// Returns (symbol, is_category_header, category)
 pub fn get_item_at_index(
     index: usize,
     ui_state: &UiState,
     app_state: &AppState,
 ) -> VirtualizedListItem {
-    use crate::ui::{SidebarTab, SymbolCategory};
+    let mut current_index = 0;
 
-    match ui_state.sidebar_tab {
-        SidebarTab::Watchlists => {
-            // Simple list of favorite symbols
-            let symbols: Vec<_> = ui_state.favorite_symbols.iter().collect();
-            if let Some(symbol) = symbols.get(index) {
-                VirtualizedListItem::Instrument((*symbol).clone())
-            } else {
-                VirtualizedListItem::Empty
-            }
+    for category in SymbolCategory::all() {
+        // Check if this index is the category header
+        if current_index == index {
+            return VirtualizedListItem::CategoryHeader(*category);
         }
-        SidebarTab::AllSymbols => {
-            // Categories with expandable instruments
-            let mut current_index = 0;
+        current_index += 1;
 
-            for category in SymbolCategory::all() {
-                // Check if this index is the category header
-                if current_index == index {
-                    return VirtualizedListItem::CategoryHeader(*category);
-                }
-                current_index += 1;
-
-                // If category is expanded, iterate through its instruments
-                if ui_state.expanded_categories.contains(category) {
-                    for symbol in category.instruments() {
-                        if app_state.instruments.contains_key(*symbol) {
-                            if current_index == index {
-                                return VirtualizedListItem::Instrument((*symbol).to_string());
-                            }
-                            current_index += 1;
-                        }
+        // If category is expanded, iterate through its instruments
+        if ui_state.expanded_categories.contains(category) {
+            for symbol in category.instruments() {
+                if app_state.instruments.contains_key(*symbol) {
+                    if current_index == index {
+                        return VirtualizedListItem::Instrument((*symbol).to_string());
                     }
+                    current_index += 1;
                 }
             }
-
-            VirtualizedListItem::Empty
         }
     }
+
+    VirtualizedListItem::Empty
 }
 
 /// Represents an item in the virtualized list

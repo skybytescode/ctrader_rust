@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy::input::mouse::{MouseWheel, MouseScrollUnit};
 use crate::ui::{UiState, ChartState};
 use crate::ui::bevy_ui::{
-    IconButton, TabButton, CategoryHeader, InstrumentRow,
+    IconButton, InstrumentRow,
     TimeframeButton, ZoomButton, ResetButton, ToggleButton, ToggleType,
     InstrumentListViewport, ScrollbarThumb, PriceAxisPanel, TimeAxisPanel,
     VirtualizedScrollState, UiInteractionState,
@@ -24,34 +24,6 @@ pub fn handle_icon_button_click(
                 // Switch view and expand sidebar
                 ui_state.active_view = icon_button.view;
                 ui_state.sidebar_expanded = true;
-            }
-        }
-    }
-}
-
-/// Handle sidebar tab button clicks
-pub fn handle_tab_click(
-    mut ui_state: ResMut<UiState>,
-    query: Query<(&Interaction, &TabButton), Changed<Interaction>>,
-) {
-    for (interaction, tab_button) in query.iter() {
-        if *interaction == Interaction::Pressed {
-            ui_state.sidebar_tab = tab_button.tab;
-        }
-    }
-}
-
-/// Handle category header clicks (expand/collapse)
-pub fn handle_category_click(
-    mut ui_state: ResMut<UiState>,
-    query: Query<(&Interaction, &CategoryHeader), Changed<Interaction>>,
-) {
-    for (interaction, category_header) in query.iter() {
-        if *interaction == Interaction::Pressed {
-            if ui_state.expanded_categories.contains(&category_header.category) {
-                ui_state.expanded_categories.remove(&category_header.category);
-            } else {
-                ui_state.expanded_categories.insert(category_header.category);
             }
         }
     }

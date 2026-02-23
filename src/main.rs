@@ -475,7 +475,7 @@ async fn run_session(tx: mpsc::Sender<PriceUpdate>) -> Result<(), Box<dyn std::e
     // List of all instruments we want to subscribe to
     let instruments_to_subscribe: Vec<&str> = vec![
         // Forex
-        "EURUSD", "AUDUSD", "GBPUSD", "EURGBP", "EURAUD",
+        "EURUSD", "AUDUSD", "GBPUSD", "USDCHF", "EURGBP", "EURAUD",
         // Metals
         "XAUUSD", "XPDUSD", "XPTUSD", "XAUAUD",
         // Oil & Energy
@@ -635,7 +635,7 @@ async fn run_session(tx: mpsc::Sender<PriceUpdate>) -> Result<(), Box<dyn std::e
                                         "MUSD" | "ENAUSD" | "FETUSD" | "DEXEUSD" |
                                         "XPLUSD" | "STRKUSD" | "WLFIUSD" | "ASTERUSD" |
                                         "TWTUSD" | "COAIUSD" | "MYXUSD" | "2ZUSD" | "1INCHUSD" => 4,
-                                        "GALAUSD" | "EURUSD" | "AUDUSD" | "GBPUSD" | "EURGBP" |
+                                        "GALAUSD" | "EURUSD" | "AUDUSD" | "GBPUSD" | "USDCHF" | "EURGBP" |
                                         "EURAUD" | "HBARUSD" | "PENGUUSD" | "DOGUSD" | "VETUSD" | "TRXUSD" |
                                         "1000xSHIB" | "1000xPEPE" | "1000xBONK" | "1000xFLOKI" => 5,
                                         "FARTCOINUSD" => 6,
