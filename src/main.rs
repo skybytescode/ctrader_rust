@@ -78,8 +78,7 @@ fn main() {
             .expect("Failed to create tokio runtime");
 
         rt.block_on(async move {
-            // Start news scraper
-            news::spawn_news_scraper();
+            // News scraper disabled (no UI integration)
 
             // Run price streaming with reconnection
             // request_rx passed by &mut so pending requests survive reconnects
@@ -192,23 +191,6 @@ fn load_historical_data(mut app_state: ResMut<AppState>, mut chart_state: ResMut
                     chart_state.mark_all_data_loaded("EURUSD", Timeframe::H4);
                 }
                 Err(e) => println!("Failed to load EURUSD H4 data: {}", e),
-            }
-
-            // Load ALL BTCUSD H4 data (table name: btcusd_btcusd_hour4)
-            match db.get_all_candles("btcusd_btcusd_hour4") {
-                Ok(candles) => {
-                    let count = candles.len();
-                    println!("Loaded ALL {} BTCUSD H4 candles from database", count);
-                    if let Some(instrument) = app_state.instruments.get_mut("BTCUSD") {
-                        instrument.candles.insert(Timeframe::H4, candles);
-                        // BTCUSD is crypto - always trades 24/7 including weekends
-                        // Don't use auto-detection, keep trades_weekends = true
-                        println!("  BTCUSD trades_weekends: {} (crypto 24/7)", instrument.trades_weekends);
-                    }
-                    chart_state.set_total_candles("BTCUSD", Timeframe::H4, count);
-                    chart_state.mark_all_data_loaded("BTCUSD", Timeframe::H4);
-                }
-                Err(e) => println!("Failed to load BTCUSD H4 data: {}", e),
             }
 
             println!("Historical data loading complete.");
@@ -499,37 +481,8 @@ async fn run_session(
     // Map symbol_id -> symbol_name for all subscribed instruments
     let mut symbol_id_to_name: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
 
-    // List of all instruments we want to subscribe to
-    let instruments_to_subscribe: Vec<&str> = vec![
-        // Forex
-        "EURUSD", "AUDUSD", "GBPUSD", "USDCHF", "EURGBP", "EURAUD",
-        // Metals
-        "XAUUSD", "XPDUSD", "XPTUSD", "XAUAUD",
-        // Oil & Energy
-        "XTIUSD", "XNGUSD",
-        // Indices
-        "CHINA50", "SPXUSD",
-        // Cryptocurrencies
-        "BTCUSD", "BCHUSD", "ETHUSD", "LTCUSD", "AAVEUSD",
-        "AEROUSD", "ALGOUSD", "APTUSD", "ARBUSD", "ATOMUSD",
-        "AUSD", "CFXUSD", "CRVUSD", "ENSUSD", "ETCUSD",
-        "FARTCOINUSD", "FILUSD", "FLOWUSD", "GALAUSD",
-        "GRTUSD", "HBARUSD", "HYPEUSD", "ICPUSD", "IMXUSD",
-        "INJUSD", "IOTAUSD", "IPUSD", "JTOUSD", "JUPUSD",
-        "LDOUSD", "MANAUSD", "MORPHOUSD", "NEARUSD", "ONDOUSD",
-        "OPUSD", "PENGUUSD", "PYTHUSD", "RENDERUSD", "SANDUSD",
-        "STXUSD", "SUIUSD", "SUSD", "SYRUPUSD", "TAOUSD",
-        "THETAUSD", "TIAUSD", "TONUSD", "TRUMPUSD",
-        "VIRTUALUSD", "WIFUSD", "WLDUSD", "ADAUSD", "AVXUSD",
-        "DOGUSD", "KSMUSD", "UNIUSD", "XRPUSD", "XTZUSD",
-        "BNBUSD", "DOTUSD", "LNKUSD", "POLUSD", "SOLUSD",
-        "XLMUSD", "XMRUSD", "GLMUSD", "VETUSD", "ZECUSD",
-        "KAIAUSD", "SEIUSD", "MUSD", "ENAUSD", "FETUSD",
-        "CAKEUSD", "PENDLEUSD", "DEXEUSD", "QNTUSD", "COMPUSD",
-        "DYDXUSD", "XPLUSD", "STRKUSD", "1000xSHIB", "1000xPEPE",
-        "1000xBONK", "1000xFLOKI", "WLFIUSD", "ASTERUSD", "TWTUSD",
-        "COAIUSD", "MYXUSD", "2ZUSD", "1INCHUSD", "TRXUSD",
-    ];
+    // Only subscribe to EURUSD — all other bot pipeline data is downloaded on-demand
+    let instruments_to_subscribe: Vec<&str> = vec!["EURUSD"];
 
     let mut last_heartbeat = tokio::time::Instant::now();
     let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30));
