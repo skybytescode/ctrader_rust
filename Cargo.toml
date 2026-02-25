@@ -8,10 +8,6 @@ default-run = "ctrader_rust"
 name = "ctrader_rust"
 path = "src/main.rs"
 
-[[bin]]
-name = "load_historical_data"
-path = "src/bin/load_historical_data.rs"
-
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 tokio-rustls = "0.24"
@@ -30,5 +26,4 @@ serde_json = "1.0"
 bevy = "0.15"
 # Database for historical candlestick data
 duckdb = { version = "1.0", features = ["bundled"] }
-csv = "1.3"
 
