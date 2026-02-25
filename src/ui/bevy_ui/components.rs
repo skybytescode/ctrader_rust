@@ -332,6 +332,7 @@ pub struct DbSubCardMaxBtnIcon {
 pub enum BotTimeframe {
     M1Candles,
     TickData,
+    MLFeatures,
 }
 
 /// M1 / M5 button inside a Database sub-card
@@ -340,3 +341,27 @@ pub struct DbTimeframeBtn {
     pub parent_card: DbSubCardType,
     pub timeframe: BotTimeframe,
 }
+
+/// Status text shown in the Database card bottom (first/last record info)
+#[derive(Component)]
+pub struct DbStatusText;
+
+/// M1 candle info text (light blue) in the Database card status area
+#[derive(Component)]
+pub struct M1InfoText;
+
+/// Merged tick info text (yellow) in the Database card status area
+#[derive(Component)]
+pub struct TickInfoText;
+
+/// ML features info text (green) in the Database card status area
+#[derive(Component)]
+pub struct MlInfoText;
+
+/// Status text inside the History BoT sub-card (download progress)
+#[derive(Component)]
+pub struct HistoryBotStatusText;
+
+/// Status text inside the Update History sub-card (update progress)
+#[derive(Component)]
+pub struct UpdateHistoryStatusText;

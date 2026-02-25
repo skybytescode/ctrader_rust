@@ -126,6 +126,34 @@ impl PriceFormatCache {
     }
 }
 
+/// Tracks the multi-step tick download/update workflow (bid → ask → merge)
+///
+/// History BoT flow:      CheckingBid → (DownloadingBid) → CheckingAsk → (DownloadingAsk) → Merging
+/// Update History flow:   CheckingBidForUpdate → CheckingAskForUpdate → UpdatingBid → UpdatingAsk → Merging
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickWorkflowStep {
+    #[default]
+    Idle,
+    /// History BoT: checking if bid ticks exist
+    CheckingBid,
+    /// History BoT: downloading full bid tick history
+    DownloadingBid,
+    /// History BoT: checking if ask ticks exist
+    CheckingAsk,
+    /// History BoT: downloading full ask tick history
+    DownloadingAsk,
+    /// Update History: checking last bid tick timestamp before updating
+    CheckingBidForUpdate,
+    /// Update History: checking last ask tick timestamp before updating
+    CheckingAskForUpdate,
+    /// Update History: downloading new bid ticks (UpdateLatest)
+    UpdatingBid,
+    /// Update History: downloading new ask ticks (UpdateLatest)
+    UpdatingAsk,
+    /// Both flows: running the merge
+    Merging,
+}
+
 /// Tracks which bot dashboard card is currently expanded (accordion state)
 #[derive(Resource, Default)]
 pub struct BotDashboardState {
@@ -133,6 +161,28 @@ pub struct BotDashboardState {
     pub expanded_top: Option<TopCardType>,
     /// Which Database sub-card is expanded (HistoryBot, UpdateHistory, etc.)
     pub expanded_db_sub: Option<DbSubCardType>,
+    /// Download progress message shown inside the History BoT sub-card
+    pub download_message: Option<String>,
+    /// First/last record info shown in the bottom status area
+    pub data_status_message: Option<String>,
+    /// M1 candle info (first/last) — persisted across actions
+    pub m1_info: Option<String>,
+    /// Tick data info (first/last) — persisted across actions
+    pub tick_info: Option<String>,
+    /// Whether a download is currently in progress
+    pub is_downloading: bool,
+    /// Number of rows downloaded so far
+    pub download_progress: u64,
+    /// Current step in the tick bid+ask+merge workflow
+    pub tick_workflow: TickWorkflowStep,
+    /// Status message shown inside the Update History sub-card
+    pub update_history_message: Option<String>,
+    /// True when the current action was triggered from Update History (not History BoT)
+    pub is_update_mode: bool,
+    /// Rows added during an Update History M1 action (held until CheckStatus completes)
+    pub pending_update_rows: u64,
+    /// ML features table info (first/last row) — shown in green in the status area
+    pub ml_features_info: Option<String>,
 }
 
 /// Tracks which UI elements need rebuilding

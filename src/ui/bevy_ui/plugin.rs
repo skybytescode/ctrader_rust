@@ -63,6 +63,18 @@ impl Plugin for BevyUiPlugin {
                 price_updates::clear_price_cache,
                 icon_bar::update_icon_button_styles,
                 bot_dashboard::update_dashboard_visibility,
+                bot_dashboard::process_data_responses,
+                // Must run AFTER process_data_responses so they see the updated state
+                bot_dashboard::update_history_bot_status
+                    .after(bot_dashboard::process_data_responses),
+                bot_dashboard::update_update_history_status
+                    .after(bot_dashboard::process_data_responses),
+                bot_dashboard::update_m1_info_text
+                    .after(bot_dashboard::process_data_responses),
+                bot_dashboard::update_tick_info_text
+                    .after(bot_dashboard::process_data_responses),
+                bot_dashboard::update_ml_info_text
+                    .after(bot_dashboard::process_data_responses),
             ).in_set(UiSystemSet::Update))
 
             // Interaction systems

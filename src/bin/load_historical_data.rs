@@ -8,10 +8,10 @@ mod db;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting historical data loading process...");
 
-    let base_csv_dir = Path::new("instruments_db/csv_files");
-    let main_db_path = Path::new("instruments_db/all_instruments.duckdb");
+    let base_csv_dir = Path::new("Bots_db/csv_files");
+    let main_db_path = Path::new("Bots_db/Algo_EURUSD.duckdb");
 
-    // Ensure the instruments_db directory exists
+    // Ensure the Bots_db directory exists
     // The main_db_path ensures the parent directory exists
     fs::create_dir_all(main_db_path.parent().unwrap())?;
 
