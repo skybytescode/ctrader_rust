@@ -1,13 +1,12 @@
 //! Bot dashboard widget — accordion-expand cards for the selected instrument
 
 use bevy::prelude::*;
-use crate::ui::ChartState;
 use crate::ui::bevy_ui::{
     BotDashboard, BotDashboardTitle,
     TopCardType, CardsContainer, MainCard, MainCardContent,
     MainCardMaxBtn, MainCardMaxBtnIcon,
     DbSubCard, DbSubCardType,
-    DbTimeframeBtn, DbStatusText, HistoryBotStatusText, UpdateHistoryStatusText, BotTimeframe,
+    DbTimeframeBtn, HistoryBotStatusText, UpdateHistoryStatusText, BotTimeframe,
     M1InfoText, TickInfoText, MlInfoText,
     BotDashboardState, TickWorkflowStep,
     theme::{colors, fonts},
@@ -361,19 +360,18 @@ fn spawn_timeframe_btn(
 /// Dashboard is visible only when an instrument is selected AND the sidebar is expanded.
 pub fn update_dashboard_visibility(
     ui_state: Res<crate::ui::UiState>,
-    chart_state: Res<ChartState>,
     mut dashboard_query: Query<&mut Visibility, With<BotDashboard>>,
     mut title_query: Query<&mut Text, With<BotDashboardTitle>>,
 ) {
-    if !chart_state.is_changed() && !ui_state.is_changed() { return; }
+    if !ui_state.is_changed() { return; }
 
-    let show = chart_state.selected_instrument.is_some() && ui_state.sidebar_expanded;
+    let show = ui_state.selected_instrument.is_some() && ui_state.sidebar_expanded;
 
     for mut vis in dashboard_query.iter_mut() {
         *vis = if show { Visibility::Visible } else { Visibility::Hidden };
     }
 
-    if let Some(ref symbol) = chart_state.selected_instrument {
+    if let Some(ref symbol) = ui_state.selected_instrument {
         for mut text in title_query.iter_mut() {
             let new_title = format!("{} Bot Dashboard", symbol);
             if text.0 != new_title { text.0 = new_title; }
@@ -533,7 +531,7 @@ pub fn update_db_timeframe_btn_hover(
 
 /// Handle M1 Candles / Tick Data button clicks — sends data requests
 pub fn handle_db_timeframe_btn_click(
-    chart_state: Res<ChartState>,
+    ui_state: Res<crate::ui::UiState>,
     symbol_map: Res<SymbolIdMap>,
     mut dashboard_state: ResMut<BotDashboardState>,
     request_sender: Res<DataRequestSender>,
@@ -542,7 +540,7 @@ pub fn handle_db_timeframe_btn_click(
     for (interaction, btn) in query.iter() {
         if *interaction != Interaction::Pressed { continue; }
 
-        let symbol = match chart_state.selected_instrument.as_deref() {
+        let symbol = match ui_state.selected_instrument.as_deref() {
             Some(s) => s,
             None => {
                 dashboard_state.download_message = Some("No instrument selected.".into());

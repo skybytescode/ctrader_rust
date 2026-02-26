@@ -26,9 +26,7 @@ use data_retrieval::{
     DataRequestSender, DataResponseReceiver, SymbolIdMap,
     trendbar_to_candle, decode_tick_data, get_data_table_name,
 };
-// ui_system is commented out but kept for easy toggle back to egui
-#[allow(unused_imports)]
-use ui::{AppState, UiState, ChartState, Timeframe, ui_system, BevyUiPlugin};
+use ui::{AppState, UiState, BevyUiPlugin};
 
 /// Message types for communication between async tasks and Bevy
 #[derive(Debug, Clone)]
@@ -118,18 +116,15 @@ fn main() {
                 ..default()
             })
         )
-        .add_plugins(BevyUiPlugin)  // Pure Bevy UI (no chart, no egui)
+        .add_plugins(BevyUiPlugin)
         .init_resource::<AppState>()
         .init_resource::<UiState>()
-        .init_resource::<ChartState>()
         .init_resource::<SymbolIdMap>()
         .insert_resource(PriceUpdateReceiver { receiver: rx })
         .insert_resource(DataRequestSender { sender: data_req_tx })
         .insert_resource(DataResponseReceiver { receiver: data_resp_rx })
-        .add_systems(Startup, (print_gpu_info, load_historical_data).chain())
+        .add_systems(Startup, print_gpu_info)
         .add_systems(Update, process_price_updates)
-        .add_systems(Update, process_load_more_requests)
-        // .add_systems(Update, ui_system)  // DISABLED: Using BevyUiPlugin instead
         .run();
 }
 
@@ -168,220 +163,6 @@ fn print_gpu_info(
     println!("======================================\n");
 }
 
-/// System to load historical data from DuckDB on startup
-fn load_historical_data(mut app_state: ResMut<AppState>, mut chart_state: ResMut<ChartState>) {
-    println!("Loading ALL historical data from DuckDB...");
-
-    let db_path = "Bots_db/Algo_EURUSD.duckdb";
-
-    match CandleDatabase::new(db_path) {
-        Ok(db) => {
-            // Load ALL EURUSD H4 data (table name: eurusd_eurusd_hour4)
-            match db.get_all_candles("eurusd_eurusd_hour4") {
-                Ok(candles) => {
-                    let count = candles.len();
-                    println!("Loaded ALL {} EURUSD H4 candles from database", count);
-                    if let Some(instrument) = app_state.instruments.get_mut("EURUSD") {
-                        instrument.candles.insert(Timeframe::H4, candles);
-                        // Auto-detect weekend trading from candle data
-                        instrument.detect_trades_weekends();
-                        println!("  EURUSD trades_weekends: {}", instrument.trades_weekends);
-                    }
-                    chart_state.set_total_candles("EURUSD", Timeframe::H4, count);
-                    chart_state.mark_all_data_loaded("EURUSD", Timeframe::H4);
-                }
-                Err(e) => println!("Failed to load EURUSD H4 data: {}", e),
-            }
-
-            println!("Historical data loading complete.");
-        }
-        Err(e) => {
-            println!("Warning: Could not open database {}: {}", db_path, e);
-            println!("Charts will show live data only.");
-        }
-    }
-}
-
-/// Get DuckDB table name for a symbol/timeframe combination
-fn get_table_name(symbol: &str, timeframe: Timeframe) -> Option<&'static str> {
-    match (symbol, timeframe) {
-        ("EURUSD", Timeframe::H4) => Some("eurusd_eurusd_hour4"),
-        ("BTCUSD", Timeframe::H4) => Some("btcusd_btcusd_hour4"),
-        // Add more timeframes as they become available in the database
-        _ => None,
-    }
-}
-
-/// System to process load more data requests (lazy loading from DuckDB)
-fn process_load_more_requests(
-    mut app_state: ResMut<AppState>,
-    mut chart_state: ResMut<ChartState>,
-) {
-    // Check if there's a pending request and we're not already loading
-    if chart_state.is_loading {
-        return;
-    }
-
-    let request = match chart_state.load_more_request.take() {
-        Some(r) => r,
-        None => return,
-    };
-
-    // Get the table name for this symbol/timeframe
-    let table_name = match get_table_name(&request.symbol, request.timeframe) {
-        Some(name) => name,
-        None => {
-            println!("No database table for {}/{:?}", request.symbol, request.timeframe);
-            return;
-        }
-    };
-
-    // Mark as loading
-    chart_state.is_loading = true;
-
-    let db_path = "Bots_db/Algo_EURUSD.duckdb";
-
-    match CandleDatabase::new(db_path) {
-        Ok(db) => {
-            match db.get_candles_before(table_name, request.before_timestamp, request.count) {
-                Ok(older_candles) => {
-                    if older_candles.is_empty() {
-                        // No more data available - mark as all loaded
-                        println!("All data loaded for {}/{:?}", request.symbol, request.timeframe);
-                        chart_state.mark_all_data_loaded(&request.symbol, request.timeframe);
-                    } else {
-                        println!(
-                            "Loaded {} older candles for {}/{:?}",
-                            older_candles.len(),
-                            request.symbol,
-                            request.timeframe
-                        );
-
-                        // Prepend older candles to existing data
-                        if let Some(instrument) = app_state.instruments.get_mut(&request.symbol) {
-                            let candle_count = {
-                                let candles = instrument
-                                    .candles
-                                    .entry(request.timeframe)
-                                    .or_insert_with(Vec::new);
-
-                                // Prepend older candles (they should be in chronological order)
-                                let mut new_candles = older_candles;
-                                new_candles.append(candles);
-                                *candles = new_candles;
-                                candles.len()
-                            };
-
-                            // Re-detect weekend trading with new data (only for unknown instruments)
-                            // Known crypto instruments (BTCUSD) already have trades_weekends=true
-                            if !instrument.trades_weekends {
-                                instrument.detect_trades_weekends();
-                            }
-
-                            // Update total candles count
-                            chart_state.set_total_candles(
-                                &request.symbol,
-                                request.timeframe,
-                                candle_count,
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    println!(
-                        "Failed to load older candles for {}/{:?}: {}",
-                        request.symbol, request.timeframe, e
-                    );
-                }
-            }
-
-            // Update total count from database
-            if let Ok(total) = db.count_candles(table_name) {
-                chart_state.set_total_candles(&request.symbol, request.timeframe, total as usize);
-            }
-        }
-        Err(e) => {
-            println!("Failed to open database: {}", e);
-        }
-    }
-
-    chart_state.is_loading = false;
-}
-
-/// Helper to update candles for a specific timeframe with a new price tick
-/// Returns the completed candle if a new period started (the previous candle is now complete)
-/// Creates live candles at proper timestamps - gaps are handled by the rendering system
-fn update_candles_with_tick(candles: &mut Vec<Candle>, timeframe: Timeframe, bid: f64, now: i64) -> Option<Candle> {
-    let interval = timeframe.seconds();
-    let bucket_start = (now / interval) * interval;
-
-    if let Some(last_candle) = candles.last_mut() {
-        if last_candle.timestamp == bucket_start {
-            // Update current candle
-            last_candle.close = bid;
-            if bid > last_candle.high { last_candle.high = bid; }
-            if bid < last_candle.low { last_candle.low = bid; }
-            last_candle.volume += 1;
-            None // No completed candle
-        } else if bucket_start > last_candle.timestamp {
-            // Check if it's the immediate next period (for saving completed candles)
-            let gap = bucket_start - last_candle.timestamp;
-            let is_continuous = gap <= interval * 2; // Within 2 periods = continuous
-
-            // Always create the new candle at its proper timestamp
-            // The rendering system will show gaps with empty space and separators
-            candles.push(Candle::new(bucket_start, bid, bid, bid, bid, 1));
-
-            if is_continuous {
-                // Previous candle completed normally - save it
-                let completed_candle = candles.get(candles.len() - 2).cloned();
-                completed_candle
-            } else {
-                // Gap exists - don't save the old candle as "completed"
-                // (it was already complete, just not saved because app wasn't running)
-                None
-            }
-        } else {
-            // bucket_start < last_candle.timestamp - ignore (out of order tick)
-            None
-        }
-    } else {
-        // First candle - create it at proper timestamp
-        candles.push(Candle::new(bucket_start, bid, bid, bid, bid, 1));
-        None
-    }
-}
-
-/// Helper to save a completed candle to DuckDB
-fn save_candle_to_db(symbol: &str, timeframe: Timeframe, candle: &Candle) {
-    let table_name = match get_table_name(symbol, timeframe) {
-        Some(name) => name,
-        None => {
-            println!("No database table configured for {}/{:?}", symbol, timeframe);
-            return;
-        }
-    };
-
-    let db_path = "Bots_db/Algo_EURUSD.duckdb";
-    match CandleDatabase::new(db_path) {
-        Ok(db) => {
-            match db.insert_candle(table_name, candle) {
-                Ok(_) => {
-                    let dt = chrono::DateTime::from_timestamp(candle.timestamp, 0)
-                        .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
-                    println!(
-                        "✓ Saved completed {} {:?} candle to DB: {} O:{:.5} H:{:.5} L:{:.5} C:{:.5}",
-                        symbol, timeframe, dt, candle.open, candle.high, candle.low, candle.close
-                    );
-                }
-                Err(e) => println!("Failed to save candle to DB: {}", e),
-            }
-        }
-        Err(e) => println!("Failed to open database for saving: {}", e),
-    }
-}
-
 /// System to process price updates from the async tasks
 fn process_price_updates(
     mut app_state: ResMut<AppState>,
@@ -390,21 +171,10 @@ fn process_price_updates(
 ) {
     // Process all pending updates
     while let Ok(update) = receiver.receiver.try_recv() {
-        let now = chrono::Utc::now().timestamp();
-
         match update {
             PriceUpdate::InstrumentPrice { symbol, bid, ask } => {
                 if let Some(instrument) = app_state.instruments.get_mut(&symbol) {
                     instrument.update_price(bid, ask);
-
-                    // Update 4-hour candles with real-time price (only for instruments with DB tables)
-                    if get_table_name(&symbol, Timeframe::H4).is_some() {
-                        let h4_candles = instrument.candles.entry(Timeframe::H4).or_insert_with(Vec::new);
-                        if let Some(completed) = update_candles_with_tick(h4_candles, Timeframe::H4, bid, now) {
-                            // A candle period just completed - save it to the database
-                            save_candle_to_db(&symbol, Timeframe::H4, &completed);
-                        }
-                    }
                 }
             }
             PriceUpdate::ConnectionStatus(status) => {

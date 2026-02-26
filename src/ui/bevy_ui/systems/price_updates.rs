@@ -2,13 +2,11 @@
 
 use bevy::prelude::*;
 use crate::ui::AppState;
-use crate::ui::chart::TickDirection;
 use crate::ui::bevy_ui::{
-    BidPrice, AskPrice, SpreadPrice, ConnectionStatusLabel, HeaderInstrumentLabel,
-    LivePriceText, PriceFormatCache,
+    BidPrice, AskPrice, SpreadPrice, ConnectionStatusLabel,
+    PriceFormatCache,
     theme::colors,
 };
-use crate::ui::ChartState;
 
 /// Update bid price text when prices change
 pub fn update_bid_prices(
@@ -171,69 +169,6 @@ pub fn update_connection_status(
         let new_text = format!("Status: {}", app_state.connection_status);
         if text.0 != new_text {
             text.0 = new_text;
-        }
-    }
-}
-
-/// Update header instrument label
-pub fn update_header_instrument(
-    chart_state: Res<ChartState>,
-    mut query: Query<(&mut Text, &mut Visibility), With<HeaderInstrumentLabel>>,
-) {
-    if !chart_state.is_changed() {
-        return;
-    }
-
-    for (mut text, mut visibility) in query.iter_mut() {
-        if let Some(ref symbol) = chart_state.selected_instrument {
-            text.0 = symbol.clone();
-            *visibility = Visibility::Visible;
-        } else {
-            *visibility = Visibility::Hidden;
-        }
-    }
-}
-
-/// Update live price marker text and color
-pub fn update_live_price_marker(
-    app_state: Res<AppState>,
-    chart_state: Res<ChartState>,
-    mut query: Query<(&mut Text, &mut TextColor, &mut BackgroundColor), With<LivePriceText>>,
-    mut cache: ResMut<PriceFormatCache>,
-) {
-    if !app_state.is_changed() && !chart_state.is_changed() {
-        return;
-    }
-
-    let Some(ref symbol) = chart_state.selected_instrument else {
-        return;
-    };
-
-    let Some(instrument) = app_state.instruments.get(symbol) else {
-        return;
-    };
-
-    for (mut text, mut text_color, mut bg_color) in query.iter_mut() {
-        let mid_price = instrument.mid_price();
-        let formatted = cache.format(mid_price, instrument.decimal_places);
-
-        if text.0 != formatted {
-            text.0 = formatted;
-        }
-
-        // Color based on tick direction
-        let tick_color = match instrument.tick_direction {
-            TickDirection::Up => colors::BULLISH,
-            TickDirection::Down => colors::BEARISH,
-        };
-
-        if bg_color.0 != tick_color {
-            bg_color.0 = tick_color;
-        }
-
-        // Text always white on colored background
-        if text_color.0 != colors::TEXT_PRIMARY {
-            text_color.0 = colors::TEXT_PRIMARY;
         }
     }
 }

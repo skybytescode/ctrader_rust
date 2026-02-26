@@ -5,7 +5,7 @@
 
 use bevy::prelude::*;
 use std::collections::HashSet;
-use crate::ui::{UiState, AppState, ChartState};
+use crate::ui::{UiState, AppState};
 use crate::ui::bevy_ui::{
     InstrumentRow, InstrumentListViewport, BidPrice, AskPrice, SpreadPrice, SymbolName,
     CategoryHeader,
@@ -20,7 +20,6 @@ pub fn spawn_visible_rows(
     scroll_state: Res<VirtualizedScrollState>,
     ui_state: Res<UiState>,
     app_state: Res<AppState>,
-    chart_state: Res<ChartState>,
     existing_rows: Query<(Entity, &InstrumentRow)>,
     viewport_query: Query<Entity, With<InstrumentListViewport>>,
 ) {
@@ -61,7 +60,7 @@ pub fn spawn_visible_rows(
             }
             VirtualizedListItem::Instrument(symbol) => {
                 if let Some(instrument) = app_state.instruments.get(&symbol) {
-                    let is_selected = chart_state.selected_instrument.as_ref() == Some(&symbol);
+                    let is_selected = ui_state.selected_instrument.as_ref() == Some(&symbol);
                     spawn_instrument_row(
                         &mut commands,
                         viewport_entity,
@@ -116,15 +115,15 @@ pub fn update_row_positions(
 
 /// Update selection highlighting
 pub fn update_row_selection(
-    chart_state: Res<ChartState>,
+    ui_state: Res<UiState>,
     mut row_query: Query<(&InstrumentRow, &mut BackgroundColor)>,
 ) {
-    if !chart_state.is_changed() {
+    if !ui_state.is_changed() {
         return;
     }
 
     for (row, mut bg_color) in row_query.iter_mut() {
-        let is_selected = chart_state.selected_instrument.as_ref() == Some(&row.symbol);
+        let is_selected = ui_state.selected_instrument.as_ref() == Some(&row.symbol);
         let new_color = if is_selected {
             colors::BG_SELECTED
         } else {
