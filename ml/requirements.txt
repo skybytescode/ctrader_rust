@@ -1,9 +1,13 @@
-# Model 1 — Technical Indicators XGBoost
+# ML Pipeline — Models 1 & 2
 # Install with: pip install -r ml/requirements.txt
 
 # Core ML
 xgboost>=2.0
 scikit-learn>=1.4
+
+# Model 2 — Regime Detection (HMM)
+hmmlearn>=0.3
+joblib>=1.3
 
 # Data / Features
 pandas>=2.1

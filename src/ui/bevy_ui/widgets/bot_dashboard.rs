@@ -1376,9 +1376,9 @@ pub fn handle_ml_model_btn_click(
                     continue;
                 }
 
-                // Only Model 1 has a training script so far
                 let module = match btn.model {
                     MlSubCardType::Model1 => Some("ml.model1_technical.train"),
+                    MlSubCardType::Model2 => Some("ml.model2_regime.train"),
                     _ => None,
                 };
 
@@ -1529,7 +1529,7 @@ fn read_ml_model_status(model: MlSubCardType) -> String {
             "ml/trained/model1_technical.json",
             "Model 1  Technical Indicators (XGBoost)",
         ),
-        MlSubCardType::Model2 => return "Model 2 (Regime HMM) — not yet trained.".to_string(),
+        MlSubCardType::Model2 => return read_model2_status(),
         MlSubCardType::Model3 => return "Model 3 (Chart Patterns CNN) — not yet trained.".to_string(),
         MlSubCardType::Model4 => return "Model 4 (News & Calendar) — not yet trained.".to_string(),
         MlSubCardType::Model5 => return "Model 5 (Order Flow XGBoost) — not yet trained.".to_string(),
@@ -1587,6 +1587,75 @@ fn read_ml_model_status(model: MlSubCardType) -> String {
             let prec = fold["precision"].as_f64().unwrap_or(0.0);
             let sigs = fold["signals"].as_u64().unwrap_or(0);
             lines.push(format!("  {}: AUC={:.3}  Prec={:.3}  Signals={}", year, auc, prec, sigs));
+        }
+    }
+
+    if let Ok(meta) = std::fs::metadata(model_path) {
+        if let Ok(modified) = meta.modified() {
+            let datetime = chrono::DateTime::<chrono::Local>::from(modified);
+            lines.push(String::new());
+            lines.push(format!("Last trained: {}", datetime.format("%Y-%m-%d %H:%M")));
+        }
+    }
+
+    lines.join("\n")
+}
+
+/// Parse model2_metrics.json and format a human-readable status string.
+fn read_model2_status() -> String {
+    let metrics_path = "ml/trained/model2_metrics.json";
+    let model_path   = "ml/trained/model2_regime.pkl";
+
+    let raw = match std::fs::read_to_string(metrics_path) {
+        Ok(s)  => s,
+        Err(_) => return "Model 2 (Regime HMM) — not yet trained.\nPress 'Update Training' to train.".to_string(),
+    };
+    let v: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v)  => v,
+        Err(e) => return format!("Could not parse model2_metrics.json: {}", e),
+    };
+
+    let n_states  = v["n_states"].as_u64().unwrap_or(0);
+    let n_feat    = v["n_features"].as_u64().unwrap_or(0);
+    let n_bars    = v["train_bars"].as_u64().unwrap_or(0);
+    let stride    = v["stride"].as_u64().unwrap_or(1);
+    let ll        = v["log_likelihood"].as_f64().unwrap_or(0.0);
+    let aic       = v["aic"].as_f64().unwrap_or(0.0);
+    let bic       = v["bic"].as_f64().unwrap_or(0.0);
+    let n_params  = v["n_params"].as_u64().unwrap_or(0);
+    let n_restart = v["n_restarts"].as_u64().unwrap_or(0);
+
+    let range_start = v["train_range"][0].as_str().unwrap_or("?");
+    let range_end   = v["train_range"][1].as_str().unwrap_or("?");
+    let start_short = &range_start[..10.min(range_start.len())];
+    let end_short   = &range_end[..10.min(range_end.len())];
+
+    let mut lines = Vec::new();
+    lines.push("Model 2  Regime Detection (GaussianHMM)".to_string());
+    lines.push("--------------------------------------".to_string());
+    lines.push(format!("States: {}  |  Features: {}  |  Restarts: {}", n_states, n_feat, n_restart));
+    lines.push(format!("Train obs : {} (every {}nd bar)", n_bars, stride));
+    lines.push(format!("Train range: {} -> {}", start_short, end_short));
+    lines.push(String::new());
+    lines.push("--- Fit quality ---".to_string());
+    lines.push(format!("Log-likelihood: {:.2}", ll));
+    lines.push(format!("AIC    : {:.2}", aic));
+    lines.push(format!("BIC    : {:.2}", bic));
+    lines.push(format!("Params : {}", n_params));
+
+    if let Some(stats) = v["state_stats"].as_array() {
+        lines.push(String::new());
+        lines.push("--- Regime states ---".to_string());
+        for s in stats {
+            let label    = s["label"].as_str().unwrap_or("?");
+            let pct      = s["pct_bars"].as_f64().unwrap_or(0.0);
+            let avg_dur  = s["avg_duration_bars"].as_f64().unwrap_or(0.0);
+            let ret_pips = s["mean_return_pips"].as_f64().unwrap_or(0.0);
+            let vol      = s["mean_vol_20"].as_f64().unwrap_or(0.0);
+            lines.push(format!(
+                "  {:<16}: {:5.1}%  dur={:.0}m  ret={:+.4}p  vol={:.6}",
+                label, pct, avg_dur, ret_pips, vol
+            ));
         }
     }
 
@@ -1661,7 +1730,24 @@ fn read_ml_model_features(model: MlSubCardType) -> String {
             "  dist 23.6 / 38.2 / 50.0 / 61.8\n",
             "  fib_position (0=low, 1=high)",
         ).to_string(),
-        MlSubCardType::Model2 => "Model 2 (Regime HMM) - features not yet defined.".to_string(),
+        MlSubCardType::Model2 => concat!(
+            "8 features  (unsupervised — no labels)\n",
+            "\n",
+            "log_return          bar log-return\n",
+            "realized_vol_20     20-bar rolling std of log-returns\n",
+            "realized_vol_5      5-bar rolling std (fast vol)\n",
+            "atr_ratio           ATR(14) / close\n",
+            "hl_range            (high - low) / close\n",
+            "spread_mean_pips    mean bid-ask spread in bar\n",
+            "return_abs_20       20-bar mean of |log_return|\n",
+            "vol_ratio           realized_vol_5 / realized_vol_20\n",
+            "\n",
+            "Model: GaussianHMM  covariance=full\n",
+            "States: 4  (Trending Up / Down / Ranging / Volatile)\n",
+            "Data: all 24h bars from 2013  (no session filter)\n",
+            "Stride: every 3rd bar -> ~1.6M observations\n",
+            "Restarts: 5  (best log-likelihood selected)",
+        ).to_string(),
         MlSubCardType::Model3 => "Model 3 (Chart Patterns CNN) - features not yet defined.".to_string(),
         MlSubCardType::Model4 => "Model 4 (News & Calendar) - features not yet defined.".to_string(),
         MlSubCardType::Model5 => "Model 5 (Order Flow) - features not yet defined.".to_string(),
