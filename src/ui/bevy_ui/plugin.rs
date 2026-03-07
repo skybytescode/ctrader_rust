@@ -33,6 +33,8 @@ impl Plugin for BevyUiPlugin {
             .init_resource::<PriceFormatCache>()
             .init_resource::<UiRebuildFlags>()
             .init_resource::<BotDashboardState>()
+            .init_resource::<MlTrainState>()
+            .init_resource::<MlScrollbarDragState>()
 
             // System set ordering
             .configure_sets(Update, (
@@ -75,6 +77,9 @@ impl Plugin for BevyUiPlugin {
                     .after(bot_dashboard::process_data_responses),
                 bot_dashboard::update_ml_info_text
                     .after(bot_dashboard::process_data_responses),
+                bot_dashboard::poll_ml_training,
+                bot_dashboard::update_ml_model_info_text
+                    .after(bot_dashboard::poll_ml_training),
             ).in_set(UiSystemSet::Update))
 
             // Interaction systems
@@ -82,12 +87,17 @@ impl Plugin for BevyUiPlugin {
                 interactions::handle_icon_button_click,
                 interactions::handle_instrument_click,
                 interactions::handle_list_scroll,
+                interactions::handle_ml_info_scroll,
+                interactions::update_ml_scrollbar,
+                interactions::handle_ml_scrollbar_drag,
                 interactions::update_instrument_hover,
                 bot_dashboard::handle_main_card_max_btn,
                 bot_dashboard::update_main_card_expand,
                 bot_dashboard::update_main_card_hover,
                 bot_dashboard::handle_db_timeframe_btn_click,
                 bot_dashboard::update_db_timeframe_btn_hover,
+                bot_dashboard::handle_ml_model_btn_click,
+                bot_dashboard::update_ml_model_btn_hover,
             ).in_set(UiSystemSet::Interaction))
 
             // Render systems (virtualization)

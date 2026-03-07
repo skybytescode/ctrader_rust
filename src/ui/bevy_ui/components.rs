@@ -203,3 +203,70 @@ pub struct HistoryBotStatusText;
 
 #[derive(Component)]
 pub struct UpdateHistoryStatusText;
+
+// ============================================================================
+// Train Model Sub-Panel Components
+// ============================================================================
+
+/// Which model the sub-card represents (0-indexed repr for array indexing)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(usize)]
+pub enum MlSubCardType {
+    Model1 = 0,
+    Model2 = 1,
+    Model3 = 2,
+    Model4 = 3,
+    Model5 = 4,
+    Model6 = 5,
+}
+
+impl MlSubCardType {
+    pub fn all() -> [MlSubCardType; 6] {
+        [
+            MlSubCardType::Model1,
+            MlSubCardType::Model2,
+            MlSubCardType::Model3,
+            MlSubCardType::Model4,
+            MlSubCardType::Model5,
+            MlSubCardType::Model6,
+        ]
+    }
+}
+
+#[derive(Component)]
+pub struct MlSubCard {
+    pub sub_type: MlSubCardType,
+}
+
+/// Which action button inside an ML sub-card was clicked
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MlBtnType {
+    Status,
+    Train,
+    FeatureCount,
+}
+
+/// Button inside an ML model sub-card (Status or Update Training)
+#[derive(Component)]
+pub struct MlModelBtn {
+    pub model: MlSubCardType,
+    pub btn_type: MlBtnType,
+}
+
+/// Status / training-output text area inside an ML model sub-card
+#[derive(Component)]
+pub struct MlModelInfoText {
+    pub model: MlSubCardType,
+}
+
+/// Scroll container wrapping the MlModelInfoText — used for mouse-wheel scrolling
+#[derive(Component)]
+pub struct MlInfoScrollArea {
+    pub model: MlSubCardType,
+}
+
+/// Draggable thumb inside the scrollbar track for an ML model info area
+#[derive(Component)]
+pub struct MlScrollbarThumb {
+    pub model: MlSubCardType,
+}

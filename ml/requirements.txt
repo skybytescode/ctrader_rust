@@ -1,0 +1,17 @@
+# Model 1 — Technical Indicators XGBoost
+# Install with: pip install -r ml/requirements.txt
+
+# Core ML
+xgboost>=2.0
+scikit-learn>=1.4
+
+# Data / Features
+pandas>=2.1
+numpy>=1.26
+pandas-ta>=0.3.14b
+
+# DuckDB connector (same DB used by the Rust app)
+duckdb>=1.0
+
+# Optional: faster Parquet caching of large datasets
+pyarrow>=14.0

@@ -8,7 +8,9 @@ use crate::ui::bevy_ui::{
     DbSubCard, DbSubCardType,
     DbTimeframeBtn, HistoryBotStatusText, UpdateHistoryStatusText, BotTimeframe,
     M1InfoText, TickInfoText, MlInfoText,
-    BotDashboardState, TickWorkflowStep,
+    MlSubCardType, MlSubCard, MlBtnType, MlModelBtn, MlModelInfoText,
+    MlInfoScrollArea, MlScrollbarThumb,
+    BotDashboardState, TickWorkflowStep, MlTrainState,
     theme::{colors, fonts},
 };
 use crate::data_retrieval::{
@@ -75,7 +77,7 @@ pub fn spawn_bot_dashboard(commands: &mut Commands, parent: Entity) {
 
     spawn_main_card(commands, cards, TopCardType::Database,      "Database",        true);
     spawn_main_card(commands, cards, TopCardType::StartPause,    "Start / Pause",   false);
-    spawn_main_card(commands, cards, TopCardType::TrainModel,    "Train Model",     false);
+    spawn_main_card(commands, cards, TopCardType::TrainModel,    "Train Model",     true);
     spawn_main_card(commands, cards, TopCardType::CurrentStatus, "Current Status",  false);
 
     commands.entity(dashboard).add_child(cards);
@@ -165,13 +167,14 @@ fn spawn_main_card(
         MainCardContent { card_type },
     )).id();
 
-    if is_database {
+    if card_type == TopCardType::Database {
         spawn_database_content(commands, content);
+    } else if card_type == TopCardType::TrainModel {
+        spawn_train_model_content(commands, content);
     } else {
-        // Placeholder content for non-Database cards
+        // Placeholder content for other cards
         let placeholder = match card_type {
-            TopCardType::TrainModel  => "No model trained yet.",
-            TopCardType::StartPause  => "Bot is stopped.",
+            TopCardType::StartPause    => "Bot is stopped.",
             TopCardType::CurrentStatus => "P&L: --\nTrades: 0",
             _ => "",
         };
@@ -226,6 +229,198 @@ fn spawn_database_content(commands: &mut Commands, parent: Entity) {
         TextColor(Color::srgb(0.30, 0.95, 0.55)),
         MlInfoText,
     )).set_parent(parent);
+}
+
+/// Spawn the content inside the Train Model accordion card.
+/// Mirrors the Database card layout: a 2-column wrapping grid of model sub-cards.
+fn spawn_train_model_content(commands: &mut Commands, parent: Entity) {
+    let grid = commands.spawn((
+        Node {
+            width: Val::Percent(100.0),
+            flex_grow: 1.0,
+            flex_direction: FlexDirection::Row,
+            flex_wrap: FlexWrap::Wrap,
+            column_gap: Val::Px(10.0),
+            row_gap: Val::Px(10.0),
+            ..default()
+        },
+    )).id();
+
+    let model_titles = [
+        "Model 1",
+        "Model 2",
+        "Model 3",
+        "Model 4",
+        "Model 5",
+        "Model 6",
+    ];
+
+    for model in MlSubCardType::all() {
+        spawn_ml_subcard(commands, grid, model, model_titles[model as usize]);
+    }
+
+    commands.entity(parent).add_child(grid);
+}
+
+/// Spawn one ML model sub-card (mirrors spawn_db_subcard layout).
+fn spawn_ml_subcard(
+    commands: &mut Commands,
+    parent: Entity,
+    model: MlSubCardType,
+    title: &str,
+) {
+    let card = commands.spawn((
+        Node {
+            flex_basis: Val::Percent(47.0),
+            flex_grow: 1.0,
+            min_height: Val::Px(90.0),
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::all(Val::Px(10.0)),
+            row_gap: Val::Px(6.0),
+            ..default()
+        },
+        BackgroundColor(colors::BG_SIDEBAR),
+        BorderRadius::all(Val::Px(6.0)),
+        MlSubCard { sub_type: model },
+    )).id();
+
+    // Title
+    commands.spawn((
+        Text::new(title),
+        TextFont { font_size: fonts::SIZE_NORMAL, ..default() },
+        TextColor(colors::TEXT_PRIMARY),
+    )).set_parent(card);
+
+    // Button row: [Status] [Update Training] [*]
+    let btn_row = commands.spawn((
+        Node {
+            flex_direction: FlexDirection::Row,
+            flex_wrap: FlexWrap::Wrap,
+            column_gap: Val::Px(6.0),
+            row_gap: Val::Px(4.0),
+            ..default()
+        },
+    )).id();
+
+    let status_btn = commands.spawn((
+        Node {
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(colors::BG_BUTTON),
+        BorderRadius::all(Val::Px(4.0)),
+        Interaction::default(),
+        MlModelBtn { model, btn_type: MlBtnType::Status },
+    )).id();
+    commands.spawn((
+        Text::new("Status"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_PRIMARY),
+    )).set_parent(status_btn);
+
+    let train_btn = commands.spawn((
+        Node {
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(colors::BG_BUTTON),
+        BorderRadius::all(Val::Px(4.0)),
+        Interaction::default(),
+        MlModelBtn { model, btn_type: MlBtnType::Train },
+    )).id();
+    commands.spawn((
+        Text::new("Update Training"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_PRIMARY),
+    )).set_parent(train_btn);
+
+    let feat_btn = commands.spawn((
+        Node {
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(colors::BG_BUTTON),
+        BorderRadius::all(Val::Px(4.0)),
+        Interaction::default(),
+        MlModelBtn { model, btn_type: MlBtnType::FeatureCount },
+    )).id();
+    commands.spawn((
+        Text::new("Feature Count"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_PRIMARY),
+    )).set_parent(feat_btn);
+
+    commands.entity(btn_row).add_children(&[status_btn, train_btn, feat_btn]);
+    commands.entity(card).add_child(btn_row);
+
+    // Scrollable info area: [scroll_content | scrollbar_track]
+    let scroll_wrapper = commands.spawn((
+        Node {
+            flex_direction: FlexDirection::Row,
+            width: Val::Percent(100.0),
+            max_height: Val::Px(220.0),
+            column_gap: Val::Px(3.0),
+            ..default()
+        },
+    )).id();
+
+    let scroll_area = commands.spawn((
+        Node {
+            flex_direction: FlexDirection::Column,
+            overflow: Overflow::scroll_y(),
+            flex_grow: 1.0,
+            ..default()
+        },
+        ScrollPosition::default(),
+        Interaction::default(),
+        MlInfoScrollArea { model },
+    )).id();
+    commands.spawn((
+        Text::new("Press Status to check model info, or Update Training to retrain."),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_MUTED),
+        MlModelInfoText { model },
+    )).set_parent(scroll_area);
+
+    // Scrollbar track
+    let track = commands.spawn((
+        Node {
+            width: Val::Px(4.0),
+            height: Val::Percent(100.0),
+            flex_direction: FlexDirection::Column,
+            overflow: Overflow::clip(),
+            ..default()
+        },
+        BackgroundColor(colors::BG_DARK),
+        BorderRadius::all(Val::Px(2.0)),
+    )).id();
+
+    // Scrollbar thumb (absolute-positioned inside track)
+    let thumb = commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Px(40.0),
+            top: Val::Px(0.0),
+            ..default()
+        },
+        BackgroundColor(colors::BG_BUTTON_ACTIVE),
+        BorderRadius::all(Val::Px(2.0)),
+        Interaction::default(),
+        MlScrollbarThumb { model },
+    )).id();
+
+    commands.entity(track).add_child(thumb);
+    commands.entity(scroll_wrapper).add_children(&[scroll_area, track]);
+    commands.entity(card).add_child(scroll_wrapper);
+
+    commands.entity(parent).add_child(card);
 }
 
 /// Spawn one sub-card inside Database
@@ -479,9 +674,11 @@ pub fn update_main_card_expand(
         }
     }
 
-    // Database content always visible; other cards show only when expanded
+    // Database and Train Model content always visible; others show only when expanded
     for (content, mut node) in content_query.iter_mut() {
-        node.display = if content.card_type == TopCardType::Database {
+        node.display = if content.card_type == TopCardType::Database
+            || content.card_type == TopCardType::TrainModel
+        {
             Display::Flex
         } else {
             match expanded {
@@ -1143,5 +1340,331 @@ pub fn update_update_history_status(
         if text.0 != msg {
             text.0 = msg.to_string();
         }
+    }
+}
+
+// ============================================================================
+// Model 1 systems
+// ============================================================================
+
+/// Handle Status and Update Training button clicks for Model 1.
+/// Handle Status / Update Training button clicks for any ML model sub-card.
+pub fn handle_ml_model_btn_click(
+    mut state: ResMut<MlTrainState>,
+    query: Query<(&Interaction, &MlModelBtn), Changed<Interaction>>,
+) {
+    for (interaction, btn) in query.iter() {
+        if *interaction != Interaction::Pressed { continue; }
+
+        match btn.btn_type {
+            MlBtnType::Status => {
+                let last = state.get(btn.model).last_trained.clone();
+                let mut text = read_ml_model_status(btn.model);
+                if let Some(ts) = last {
+                    text.push_str(&format!("\n\nLast trained: {}", ts));
+                }
+                state.get_mut(btn.model).status_text = text;
+            }
+            MlBtnType::FeatureCount => {
+                let text = read_ml_model_features(btn.model);
+                state.get_mut(btn.model).status_text = text;
+            }
+            MlBtnType::Train => {
+                let model_state = state.get_mut(btn.model);
+                if model_state.is_training {
+                    model_state.status_text = "Training already in progress...".to_string();
+                    continue;
+                }
+
+                // Only Model 1 has a training script so far
+                let module = match btn.model {
+                    MlSubCardType::Model1 => Some("ml.model1_technical.train"),
+                    _ => None,
+                };
+
+                if let Some(module_path) = module {
+                    let (tx, rx) = std::sync::mpsc::channel::<String>();
+                    model_state.is_training = true;
+                    model_state.status_text = "Starting training...\n".to_string();
+                    model_state.training_rx = Some(std::sync::Mutex::new(rx));
+
+                    let module_path = module_path.to_string();
+                    std::thread::spawn(move || {
+                        let python = "C:/Users/kushn/AppData/Local/Programs/Python/Python314/python.exe";
+                        let result = std::process::Command::new(python)
+                            .args(["-u", "-m", &module_path])   // -u = unbuffered stdout
+                            .current_dir("C:/Users/kushn/RustProjects/ctrader_rust")
+                            .env("PYTHONIOENCODING", "utf-8")   // fix Windows pipe encoding (Errno 22)
+                            .stdout(std::process::Stdio::piped())
+                            .stderr(std::process::Stdio::piped())
+                            .spawn();
+
+                        match result {
+                            Err(e) => {
+                                let _ = tx.send(format!("ERROR: failed to start Python: {}", e));
+                                let _ = tx.send("__DONE__".to_string());
+                            }
+                            Ok(mut child) => {
+                                use std::io::BufRead;
+                                // Stream stdout live
+                                if let Some(stdout) = child.stdout.take() {
+                                    let reader = std::io::BufReader::new(stdout);
+                                    for line in reader.lines() {
+                                        match line {
+                                            Ok(l)  => { let _ = tx.send(l); }
+                                            Err(_) => break,
+                                        }
+                                    }
+                                }
+                                // Capture stderr (errors / tracebacks)
+                                if let Some(stderr) = child.stderr.take() {
+                                    let reader = std::io::BufReader::new(stderr);
+                                    for line in reader.lines().flatten() {
+                                        if !line.trim().is_empty() {
+                                            let _ = tx.send(format!("ERR: {}", line));
+                                        }
+                                    }
+                                }
+                                let status = child.wait().unwrap_or_else(|_| {
+                                    std::process::ExitStatus::default()
+                                });
+                                let _ = tx.send(format!(
+                                    "Training finished (exit code: {})",
+                                    status.code().unwrap_or(-1)
+                                ));
+                                let _ = tx.send("__DONE__".to_string());
+                            }
+                        }
+                    });
+                } else {
+                    model_state.status_text =
+                        "Training script not yet implemented for this model.".to_string();
+                }
+            }
+        }
+    }
+}
+
+/// Poll all model training threads each frame; append stdout to status_text.
+pub fn poll_ml_training(mut state: ResMut<MlTrainState>) {
+    for i in 0..6 {
+        if !state.states[i].is_training { continue; }
+
+        let mut lines: Vec<String> = Vec::new();
+        let mut done = false;
+
+        if let Some(ref mutex) = state.states[i].training_rx {
+            if let Ok(rx) = mutex.try_lock() {
+                loop {
+                    match rx.try_recv() {
+                        Ok(line) if line == "__DONE__" => { done = true; break; }
+                        Ok(line)                       => lines.push(line),
+                        Err(_)                         => break,
+                    }
+                }
+            }
+        }
+
+        if !lines.is_empty() {
+            state.states[i].status_text.push('\n');
+            state.states[i].status_text.push_str(&lines.join("\n"));
+            let count = state.states[i].status_text.lines().count();
+            if count > 60 {
+                let new_text = state.states[i].status_text
+                    .lines()
+                    .skip(count - 60)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                state.states[i].status_text = new_text;
+            }
+        }
+
+        if done {
+            let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            state.states[i].last_trained = Some(timestamp.clone());
+            state.states[i].status_text
+                .push_str(&format!("\n\nLast trained: {}", timestamp));
+            state.states[i].is_training = false;
+            state.states[i].training_rx = None;
+        }
+    }
+}
+
+/// Sync each MlModelInfoText entity with the corresponding model's status_text.
+pub fn update_ml_model_info_text(
+    state: Res<MlTrainState>,
+    mut query: Query<(&MlModelInfoText, &mut Text)>,
+) {
+    if !state.is_changed() { return; }
+    for (info, mut text) in query.iter_mut() {
+        let model_text = &state.get(info.model).status_text;
+        if text.0 != *model_text {
+            text.0 = model_text.clone();
+        }
+    }
+}
+
+/// Hover effect for ML model buttons
+pub fn update_ml_model_btn_hover(
+    mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<MlModelBtn>)>,
+) {
+    for (interaction, mut bg) in query.iter_mut() {
+        let new_color = match interaction {
+            Interaction::Hovered => colors::BG_BUTTON_ACTIVE,
+            Interaction::Pressed => colors::ACCENT_BLUE,
+            Interaction::None    => colors::BG_BUTTON,
+        };
+        if bg.0 != new_color { bg.0 = new_color; }
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Read metrics JSON for a given ML model and format a human-readable summary.
+fn read_ml_model_status(model: MlSubCardType) -> String {
+    // Only Model 1 has metrics yet; others show a placeholder
+    let (metrics_path, model_path, model_name) = match model {
+        MlSubCardType::Model1 => (
+            "ml/trained/model1_metrics.json",
+            "ml/trained/model1_technical.json",
+            "Model 1  Technical Indicators (XGBoost)",
+        ),
+        MlSubCardType::Model2 => return "Model 2 (Regime HMM) — not yet trained.".to_string(),
+        MlSubCardType::Model3 => return "Model 3 (Chart Patterns CNN) — not yet trained.".to_string(),
+        MlSubCardType::Model4 => return "Model 4 (News & Calendar) — not yet trained.".to_string(),
+        MlSubCardType::Model5 => return "Model 5 (Order Flow XGBoost) — not yet trained.".to_string(),
+        MlSubCardType::Model6 => return "Model 6 (Ensemble XGBoost) — not yet trained.".to_string(),
+    };
+
+    let raw = match std::fs::read_to_string(metrics_path) {
+        Ok(s)  => s,
+        Err(e) => return format!("Could not read {}: {}", metrics_path, e),
+    };
+    let v: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v)  => v,
+        Err(e) => return format!("Could not parse metrics JSON: {}", e),
+    };
+
+    let avg   = &v["avg_metrics"];
+    let cfg   = &v["config"];
+    let folds = v["fold_metrics"].as_array();
+
+    let roc_auc   = avg["roc_auc"].as_f64().unwrap_or(0.0);
+    let accuracy  = avg["accuracy"].as_f64().unwrap_or(0.0);
+    let precision = avg["precision"].as_f64().unwrap_or(0.0);
+    let log_loss  = avg["log_loss"].as_f64().unwrap_or(0.0);
+    let n_feat    = v["n_features_used"].as_u64().unwrap_or(0);
+    let target_p  = cfg["target_pips"].as_u64().unwrap_or(0);
+    let stop_p    = cfg["stop_pips"].as_u64().unwrap_or(0);
+    let horizon   = cfg["horizon_bars"].as_u64().unwrap_or(0);
+    let n_folds   = folds.map(|f| f.len()).unwrap_or(0);
+
+    let test_years: Vec<String> = folds
+        .map(|f| f.iter()
+            .filter_map(|m| m["test_year"].as_u64().map(|y| y.to_string()))
+            .collect())
+        .unwrap_or_default();
+
+    let mut lines = Vec::new();
+    lines.push(model_name.to_string());
+    lines.push("--------------------------------------".to_string());
+    lines.push(format!("Label: +{}p target / -{}p stop / {}m horizon", target_p, stop_p, horizon));
+    lines.push(format!("Features used  : {}", n_feat));
+    lines.push(format!("Walk-fwd folds : {} (test years: {})", n_folds, test_years.join(", ")));
+    lines.push(String::new());
+    lines.push("--- Avg walk-forward metrics ---".to_string());
+    lines.push(format!("ROC-AUC  : {:.4}", roc_auc));
+    lines.push(format!("Accuracy : {:.4}", accuracy));
+    lines.push(format!("Precision: {:.4}  (at threshold 0.55)", precision));
+    lines.push(format!("Log-loss : {:.4}", log_loss));
+
+    if let Some(folds_arr) = folds {
+        lines.push(String::new());
+        lines.push("--- Per-fold ---".to_string());
+        for fold in folds_arr {
+            let year = fold["test_year"].as_u64().unwrap_or(0);
+            let auc  = fold["roc_auc"].as_f64().unwrap_or(0.0);
+            let prec = fold["precision"].as_f64().unwrap_or(0.0);
+            let sigs = fold["signals"].as_u64().unwrap_or(0);
+            lines.push(format!("  {}: AUC={:.3}  Prec={:.3}  Signals={}", year, auc, prec, sigs));
+        }
+    }
+
+    if let Ok(meta) = std::fs::metadata(model_path) {
+        if let Ok(modified) = meta.modified() {
+            let datetime = chrono::DateTime::<chrono::Local>::from(modified);
+            lines.push(String::new());
+            lines.push(format!("Last trained: {}", datetime.format("%Y-%m-%d %H:%M")));
+        }
+    }
+
+    lines.join("\n")
+}
+
+/// Return a feature-category breakdown for a given ML model.
+fn read_ml_model_features(model: MlSubCardType) -> String {
+    match model {
+        MlSubCardType::Model1 => concat!(
+            "~97 computed -> top 55 selected by XGBoost gain\n",
+            "\n",
+            "Trend (MA)        10\n",
+            "  EMA 5/10/21/50/100/200, SMA 20\n",
+            "  ema5/21, ema21/50, ema50/200 cross\n",
+            "\n",
+            "Momentum          14\n",
+            "  RSI 14/5, MACD line/signal/hist\n",
+            "  Stoch K/D, CCI, WilliamsR\n",
+            "  ROC 10, Momentum, ADX / +DI / -DI\n",
+            "\n",
+            "Volatility         7\n",
+            "  ATR 14 + ratio, BB width/pos\n",
+            "  StdDev 20, KC width, Squeeze\n",
+            "\n",
+            "Price / Returns    9\n",
+            "  return 1/5/15/30/60m\n",
+            "  hl_range, body, upper/lower wick\n",
+            "\n",
+            "S/R Levels         7\n",
+            "  SwingHigh/Low x3 periods, Pivot\n",
+            "\n",
+            "Ranges / Slopes    8\n",
+            "  Range + Slope for 5/15/30/60m\n",
+            "\n",
+            "Candlesticks       8\n",
+            "  Doji, Hammer, ShootingStar\n",
+            "  Engulf x2, InsideBar, PinBar x2\n",
+            "\n",
+            "Time / Session     7\n",
+            "  Hour sin/cos, DOW sin/cos\n",
+            "  London, NewYork, Overlap\n",
+            "\n",
+            "Volume             4\n",
+            "  VolRatio, OBV x2, MFI 14\n",
+            "\n",
+            "Consecutive        4\n",
+            "  BullStreak, BearStreak\n",
+            "  SinceSwingHigh, SinceSwingLow\n",
+            "\n",
+            "Tick Features      6\n",
+            "  TickRatio, SpreadMean/Max/Std\n",
+            "  WideRatio, SpreadCost%\n",
+            "\n",
+            "VWAP               3\n",
+            "  dist_vwap, vwap_slope_5, above_vwap\n",
+            "\n",
+            "Ichimoku Cloud     5\n",
+            "  dist_cloud_top, dist_cloud_bot\n",
+            "  cloud_thickness, above_cloud\n",
+            "  tenkan_vs_kijun\n",
+            "\n",
+            "Fibonacci          5\n",
+            "  dist 23.6 / 38.2 / 50.0 / 61.8\n",
+            "  fib_position (0=low, 1=high)",
+        ).to_string(),
+        MlSubCardType::Model2 => "Model 2 (Regime HMM) - features not yet defined.".to_string(),
+        MlSubCardType::Model3 => "Model 3 (Chart Patterns CNN) - features not yet defined.".to_string(),
+        MlSubCardType::Model4 => "Model 4 (News & Calendar) - features not yet defined.".to_string(),
+        MlSubCardType::Model5 => "Model 5 (Order Flow) - features not yet defined.".to_string(),
+        MlSubCardType::Model6 => "Model 6 (Ensemble) - features not yet defined.".to_string(),
     }
 }

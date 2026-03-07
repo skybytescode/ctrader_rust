@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use std::collections::HashSet;
-use crate::ui::bevy_ui::components::{TopCardType, DbSubCardType};
+use crate::ui::bevy_ui::components::{TopCardType, DbSubCardType, MlSubCardType};
 
 /// State for the tooltip popup
 #[derive(Resource, Default)]
@@ -213,5 +213,64 @@ impl UiRebuildFlags {
     /// Reset all flags
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+}
+
+// ============================================================================
+// ML Training State (all 6 models)
+// ============================================================================
+
+/// Per-model training state held inside MlTrainState.
+pub struct MlModelState {
+    /// Text shown in this model's status area (Status output or training log)
+    pub status_text: String,
+    /// True while the Python training process is running for this model
+    pub is_training: bool,
+    /// Timestamp of the last completed training run (local time, formatted)
+    pub last_trained: Option<String>,
+    /// Channel receiver for streaming stdout from the background thread.
+    /// Wrapped in Mutex so MlTrainState is Sync (required by Bevy Resource).
+    pub training_rx: Option<std::sync::Mutex<std::sync::mpsc::Receiver<String>>>,
+}
+
+impl Default for MlModelState {
+    fn default() -> Self {
+        Self {
+            status_text: String::new(),
+            is_training: false,
+            last_trained: None,
+            training_rx: None,
+        }
+    }
+}
+
+/// Drag state for ML info scrollbar thumbs
+#[derive(Resource, Default)]
+pub struct MlScrollbarDragState {
+    pub model:            Option<MlSubCardType>,
+    pub cursor_y_start:   f32,
+    pub scroll_start:     f32,
+}
+
+/// Resource that tracks training state for all 6 ML models.
+#[derive(Resource)]
+pub struct MlTrainState {
+    pub states: [MlModelState; 6],
+}
+
+impl Default for MlTrainState {
+    fn default() -> Self {
+        Self {
+            states: std::array::from_fn(|_| MlModelState::default()),
+        }
+    }
+}
+
+impl MlTrainState {
+    pub fn get(&self, model: MlSubCardType) -> &MlModelState {
+        &self.states[model as usize]
+    }
+    pub fn get_mut(&mut self, model: MlSubCardType) -> &mut MlModelState {
+        &mut self.states[model as usize]
     }
 }
