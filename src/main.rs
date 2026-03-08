@@ -251,8 +251,13 @@ async fn run_session(
     // Map symbol_id -> symbol_name for all subscribed instruments
     let mut symbol_id_to_name: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
 
-    // Only subscribe to EURUSD — all other bot pipeline data is downloaded on-demand
+    // Symbols to subscribe to live spot prices
     let instruments_to_subscribe: Vec<&str> = vec!["EURUSD"];
+    // All symbols whose IDs we need (cross-pairs for M1 data downloads, ID lookup only)
+    let instruments_need_id: Vec<&str> = vec![
+        "EURUSD",
+        "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "EURJPY",
+    ];
 
     let mut last_heartbeat = tokio::time::Instant::now();
     let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30));
@@ -327,29 +332,31 @@ async fn run_session(
                         if let Some(payload) = &msg.payload {
                             let res = openapi::ProtoOaSymbolsListRes::decode(payload.as_slice())?;
 
-                            // Build mapping from symbol_id to symbol_name for all our instruments
-                            let mut symbol_ids = Vec::new();
+                            // Build mapping from symbol_id to symbol_name.
+                            // Capture IDs for all needed symbols; only subscribe to spot prices for EURUSD.
+                            let mut spot_subscribe_ids = Vec::new();
                             for symbol in res.symbol {
                                 if let Some(ref symbol_name) = symbol.symbol_name {
-                                    // Check if this symbol is in our list of instruments to subscribe
-                                    if instruments_to_subscribe.contains(&symbol_name.as_str()) {
+                                    if instruments_need_id.contains(&symbol_name.as_str()) {
                                         symbol_id_to_name.insert(symbol.symbol_id, symbol_name.clone());
-                                        symbol_ids.push(symbol.symbol_id);
                                         println!("Found {} (ID: {})", symbol_name, symbol.symbol_id);
+                                        if instruments_to_subscribe.contains(&symbol_name.as_str()) {
+                                            spot_subscribe_ids.push(symbol.symbol_id);
+                                        }
                                     }
                                 }
                             }
 
-                            if !symbol_ids.is_empty() {
-                                println!("Subscribing to {} symbols...", symbol_ids.len());
+                            if !spot_subscribe_ids.is_empty() {
+                                println!("Subscribing to {} spot symbol(s)...", spot_subscribe_ids.len());
                                 let subscribe = openapi::ProtoOaSubscribeSpotsReq {
                                     payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaSubscribeSpotsReq as i32),
                                     ctid_trader_account_id: account_id,
-                                    symbol_id: symbol_ids,
+                                    symbol_id: spot_subscribe_ids,
                                     subscribe_to_spot_timestamp: Some(true),
                                 };
                                 send_message(&mut tls_stream, openapi::ProtoOaPayloadType::ProtoOaSubscribeSpotsReq as u32, subscribe).await?;
-                                println!("Subscribe sent for all {} symbols", symbol_id_to_name.len());
+                                println!("Subscribe sent. ID map has {} symbols", symbol_id_to_name.len());
                                 _auth_state = AuthState::Subscribed;
 
                                 // Send reverse mapping (name -> id) to Bevy for data retrieval
