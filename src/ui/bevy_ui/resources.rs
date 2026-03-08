@@ -183,6 +183,9 @@ pub struct BotDashboardState {
     pub pending_update_rows: u64,
     /// ML features table info (first/last row) — shown in green in the status area
     pub ml_features_info: Option<String>,
+    /// Per-symbol status text for the 5 cross-pair M1 buttons in History BoT.
+    /// Key = symbol (e.g. "GBPUSD"), value = display string shown next to the button.
+    pub cross_pair_status: std::collections::HashMap<String, String>,
 }
 
 /// Tracks which UI elements need rebuilding

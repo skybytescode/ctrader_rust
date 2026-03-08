@@ -270,3 +270,22 @@ pub struct MlInfoScrollArea {
 pub struct MlScrollbarThumb {
     pub model: MlSubCardType,
 }
+
+// ============================================================================
+// Cross-Pair Data Buttons (History BoT)
+// ============================================================================
+
+/// The 5 cross-pairs downloaded as M1 correlation features for Model 1.
+pub const CROSS_PAIRS: [&str; 5] = ["GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "EURJPY"];
+
+/// Button for one cross-pair M1 download inside the History Bot sub-card.
+#[derive(Component)]
+pub struct CrossPairBtn {
+    pub symbol: &'static str,
+}
+
+/// Status text next to a cross-pair button (shows candle count / date range).
+#[derive(Component)]
+pub struct CrossPairStatusText {
+    pub symbol: &'static str,
+}

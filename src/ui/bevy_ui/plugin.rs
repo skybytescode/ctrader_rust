@@ -80,6 +80,8 @@ impl Plugin for BevyUiPlugin {
                 bot_dashboard::poll_ml_training,
                 bot_dashboard::update_ml_model_info_text
                     .after(bot_dashboard::poll_ml_training),
+                bot_dashboard::update_cross_pair_status_text
+                    .after(bot_dashboard::process_data_responses),
             ).in_set(UiSystemSet::Update))
 
             // Interaction systems
@@ -98,6 +100,8 @@ impl Plugin for BevyUiPlugin {
                 bot_dashboard::update_db_timeframe_btn_hover,
                 bot_dashboard::handle_ml_model_btn_click,
                 bot_dashboard::update_ml_model_btn_hover,
+                bot_dashboard::handle_cross_pair_btn_click,
+                bot_dashboard::update_cross_pair_btn_hover,
             ).in_set(UiSystemSet::Interaction))
 
             // Render systems (virtualization)

@@ -10,6 +10,7 @@ use crate::ui::bevy_ui::{
     M1InfoText, TickInfoText, MlInfoText,
     MlSubCardType, MlSubCard, MlBtnType, MlModelBtn, MlModelInfoText,
     MlInfoScrollArea, MlScrollbarThumb,
+    CrossPairBtn, CrossPairStatusText, CROSS_PAIRS,
     BotDashboardState, TickWorkflowStep, MlTrainState,
     theme::{colors, fonts},
 };
@@ -487,6 +488,7 @@ fn spawn_db_subcard(
                 TextColor(colors::TEXT_MUTED),
                 HistoryBotStatusText,
             )).set_parent(content);
+            spawn_cross_pair_section(commands, content);
         } else if sub_type == DbSubCardType::UpdateHistory {
             commands.spawn((
                 Text::new(""),
@@ -545,6 +547,62 @@ fn spawn_timeframe_btn(
     )).set_parent(btn);
 
     commands.entity(parent).add_child(btn);
+}
+
+/// Spawn the cross-pair M1 section inside the History BoT sub-card content.
+/// Adds a label + one row per pair in CROSS_PAIRS.
+fn spawn_cross_pair_section(commands: &mut Commands, parent: Entity) {
+    commands.spawn((
+        Text::new("Cross-Pair M1 Data:"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_MUTED),
+    )).set_parent(parent);
+
+    for &symbol in CROSS_PAIRS.iter() {
+        spawn_cross_pair_row(commands, parent, symbol);
+    }
+}
+
+/// Spawn one cross-pair row: [SYMBOL btn] [status text]
+fn spawn_cross_pair_row(commands: &mut Commands, parent: Entity, symbol: &'static str) {
+    let row = commands.spawn((
+        Node {
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(8.0),
+            ..default()
+        },
+    )).id();
+
+    let btn = commands.spawn((
+        Node {
+            padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            min_width: Val::Px(72.0),
+            ..default()
+        },
+        BackgroundColor(colors::BG_BUTTON),
+        BorderRadius::all(Val::Px(4.0)),
+        Interaction::default(),
+        CrossPairBtn { symbol },
+    )).id();
+
+    commands.spawn((
+        Text::new(symbol),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_PRIMARY),
+    )).set_parent(btn);
+
+    let status = commands.spawn((
+        Text::new("--"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_MUTED),
+        CrossPairStatusText { symbol },
+    )).id();
+
+    commands.entity(row).add_children(&[btn, status]);
+    commands.entity(parent).add_child(row);
 }
 
 // ============================================================================
@@ -890,6 +948,10 @@ pub fn handle_db_timeframe_btn_click(
     }
 }
 
+fn is_cross_pair(symbol: &str) -> bool {
+    CROSS_PAIRS.contains(&symbol)
+}
+
 /// Process data responses from the network task and update dashboard state.
 /// For tick data, orchestrates the bid → ask → merge workflow via `TickWorkflowStep`.
 pub fn process_data_responses(
@@ -905,6 +967,14 @@ pub fn process_data_responses(
         match response {
             DataResponse::StatusFound { symbol, kind, count, first_record, last_record, .. } => {
                 match kind {
+                    DataKind::M1Candles if is_cross_pair(&symbol) => {
+                        // Cross-pair: route to the per-symbol status map
+                        let msg = format!(
+                            "{} M1 bars\n{}\n{}\nConsider updating",
+                            count, first_record, last_record
+                        );
+                        dashboard_state.cross_pair_status.insert(symbol, msg);
+                    }
                     DataKind::M1Candles => {
                         let info = format!("{} M1 candles in DB\n{}\n{}", count, first_record, last_record);
                         dashboard_state.m1_info = Some(info);
@@ -1009,6 +1079,20 @@ pub fn process_data_responses(
             }
             DataResponse::StatusEmpty { symbol, kind } => {
                 match kind {
+                    DataKind::M1Candles if is_cross_pair(&symbol) => {
+                        // Cross-pair: auto-start download
+                        dashboard_state.cross_pair_status.insert(
+                            symbol.clone(),
+                            "Downloading...".to_string(),
+                        );
+                        if let Some(&symbol_id) = symbol_map.name_to_id.get(&symbol) {
+                            let _ = request_sender.sender.try_send(DataRequest {
+                                symbol, symbol_id, kind,
+                                action: DataAction::RetrieveFull,
+                                force_rebuild: false,
+                            });
+                        }
+                    }
                     DataKind::M1Candles => {
                         dashboard_state.download_message = Some(format!(
                             "{} M1 candles: nothing in DB. Starting full download...", symbol
@@ -1085,9 +1169,11 @@ pub fn process_data_responses(
                     }
                 }
             }
-            DataResponse::Progress { downloaded_rows, message, .. } => {
+            DataResponse::Progress { symbol, downloaded_rows, message, .. } => {
                 dashboard_state.download_progress = downloaded_rows;
-                if dashboard_state.is_update_mode {
+                if is_cross_pair(&symbol) {
+                    dashboard_state.cross_pair_status.insert(symbol, message);
+                } else if dashboard_state.is_update_mode {
                     dashboard_state.update_history_message = Some(message);
                 } else {
                     dashboard_state.download_message = Some(message);
@@ -1095,6 +1181,21 @@ pub fn process_data_responses(
             }
             DataResponse::Complete { symbol, kind, total_rows } => {
                 match kind {
+                    DataKind::M1Candles if is_cross_pair(&symbol) => {
+                        // Cross-pair download complete: auto-check to populate first/last dates
+                        dashboard_state.cross_pair_status.insert(
+                            symbol.clone(),
+                            format!("Done ({} rows). Loading info...", total_rows),
+                        );
+                        if let Some(&symbol_id) = symbol_map.name_to_id.get(&symbol) {
+                            let _ = request_sender.sender.try_send(DataRequest {
+                                symbol, symbol_id,
+                                kind: DataKind::M1Candles,
+                                action: DataAction::CheckStatus,
+                                force_rebuild: false,
+                            });
+                        }
+                    }
                     DataKind::M1Candles => {
                         dashboard_state.is_downloading = false;
                         dashboard_state.download_progress = 0;
@@ -1507,6 +1608,77 @@ pub fn update_ml_model_info_text(
 /// Hover effect for ML model buttons
 pub fn update_ml_model_btn_hover(
     mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<MlModelBtn>)>,
+) {
+    for (interaction, mut bg) in query.iter_mut() {
+        let new_color = match interaction {
+            Interaction::Hovered => colors::BG_BUTTON_ACTIVE,
+            Interaction::Pressed => colors::ACCENT_BLUE,
+            Interaction::None    => colors::BG_BUTTON,
+        };
+        if bg.0 != new_color { bg.0 = new_color; }
+    }
+}
+
+// ============================================================================
+// Cross-pair systems
+// ============================================================================
+
+/// Handle click on a cross-pair button — CheckStatus if data exists, else auto-download.
+pub fn handle_cross_pair_btn_click(
+    symbol_map: Res<SymbolIdMap>,
+    mut dashboard_state: ResMut<BotDashboardState>,
+    request_sender: Res<DataRequestSender>,
+    query: Query<(&Interaction, &CrossPairBtn), Changed<Interaction>>,
+) {
+    for (interaction, btn) in query.iter() {
+        if *interaction != Interaction::Pressed { continue; }
+
+        let symbol_id = match symbol_map.name_to_id.get(btn.symbol) {
+            Some(&id) => id,
+            None => {
+                dashboard_state.cross_pair_status.insert(
+                    btn.symbol.to_string(),
+                    "Symbol ID not found. Wait for connection.".to_string(),
+                );
+                continue;
+            }
+        };
+
+        dashboard_state.cross_pair_status.insert(
+            btn.symbol.to_string(),
+            "Checking...".to_string(),
+        );
+
+        let _ = request_sender.sender.try_send(DataRequest {
+            symbol: btn.symbol.to_string(),
+            symbol_id,
+            kind: DataKind::M1Candles,
+            action: DataAction::CheckStatus,
+            force_rebuild: false,
+        });
+    }
+}
+
+/// Sync CrossPairStatusText entities from the cross_pair_status HashMap.
+pub fn update_cross_pair_status_text(
+    dashboard_state: Res<BotDashboardState>,
+    mut query: Query<(&CrossPairStatusText, &mut Text)>,
+) {
+    if !dashboard_state.is_changed() { return; }
+    for (status_text, mut text) in query.iter_mut() {
+        let msg = dashboard_state.cross_pair_status
+            .get(status_text.symbol)
+            .map(|s| s.as_str())
+            .unwrap_or("--");
+        if text.0 != msg {
+            text.0 = msg.to_string();
+        }
+    }
+}
+
+/// Hover effect for cross-pair buttons
+pub fn update_cross_pair_btn_hover(
+    mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<CrossPairBtn>)>,
 ) {
     for (interaction, mut bg) in query.iter_mut() {
         let new_color = match interaction {
