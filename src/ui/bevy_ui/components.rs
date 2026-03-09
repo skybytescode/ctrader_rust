@@ -289,3 +289,19 @@ pub struct CrossPairBtn {
 pub struct CrossPairStatusText {
     pub symbol: &'static str,
 }
+
+// ============================================================================
+// Cross-Pair Update Buttons (Update History)
+// ============================================================================
+
+/// Button for one cross-pair M1 update inside the Update History sub-card.
+#[derive(Component)]
+pub struct CrossPairUpdateBtn {
+    pub symbol: &'static str,
+}
+
+/// Status text next to a cross-pair update button (shows rows added / last date).
+#[derive(Component)]
+pub struct CrossPairUpdateStatusText {
+    pub symbol: &'static str,
+}

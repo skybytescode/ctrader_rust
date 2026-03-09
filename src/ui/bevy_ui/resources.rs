@@ -186,6 +186,10 @@ pub struct BotDashboardState {
     /// Per-symbol status text for the 5 cross-pair M1 buttons in History BoT.
     /// Key = symbol (e.g. "GBPUSD"), value = display string shown next to the button.
     pub cross_pair_status: std::collections::HashMap<String, String>,
+    /// Per-symbol status text for the 5 cross-pair update buttons in Update History.
+    pub cross_pair_update_status: std::collections::HashMap<String, String>,
+    /// Symbols currently being updated via Update History cross-pair buttons.
+    pub updating_cross_pairs: std::collections::HashSet<String>,
 }
 
 /// Tracks which UI elements need rebuilding
