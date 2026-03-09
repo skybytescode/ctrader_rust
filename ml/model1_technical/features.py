@@ -362,6 +362,172 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# ── Cross-pair features ────────────────────────────────────────────────────────
+
+CROSS_PAIRS_SYMS = ["gbpusd", "usdjpy", "usdchf", "audusd", "eurjpy"]
+
+
+def load_cross_pair_candles(db_path: str = DB_PATH) -> dict:
+    """
+    Load M1 close prices for all 5 cross-pairs from DuckDB.
+    Returns {symbol: pd.Series(close, index=DatetimeIndex)}.
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    result = {}
+    for sym in CROSS_PAIRS_SYMS:
+        table = f"{sym}_m1"
+        try:
+            df = con.execute(
+                f"SELECT timestamp, close FROM {table} ORDER BY timestamp"
+            ).df()
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+            df = df.set_index("timestamp")
+            result[sym] = df["close"]
+            print(f"  {sym.upper()}: {len(df):,} bars")
+        except Exception as e:
+            print(f"  WARNING: could not load {table}: {e}")
+    con.close()
+    return result
+
+
+def compute_cross_pair_features(main_df: pd.DataFrame, cross_closes: dict) -> pd.DataFrame:
+    """
+    Compute cross-pair correlation features aligned to EURUSD M1 timestamps.
+
+    For each of the 5 cross-pairs (25 features total):
+        {SYM}_return_1m    — 1-bar percentage return
+        {SYM}_return_5m    — 5-bar percentage return
+        {SYM}_rsi14        — RSI(14)
+        {SYM}_vs_ema21     — distance from EMA(21) normalised by close
+        {SYM}_momentum_10  — 10-bar price momentum
+
+    Composite features (3 additional):
+        usd_strength_5m    — avg 5m return of USD-long pairs minus USD-short pairs
+                             (proxy for DXY momentum; USDJPY+USDCHF-AUDUSD)
+        risk_sentiment_5m  — AUDUSD 5m return (positive = risk-on)
+        eur_divergence_5m  — EURUSD 5m return minus EURJPY 5m return
+                             (positive = EUR strengthening vs JPY but not USD)
+    """
+    out = pd.DataFrame(index=main_df.index)
+
+    for sym, close_series in cross_closes.items():
+        # Forward-fill to handle any gaps (e.g., different tick times)
+        close = close_series.reindex(main_df.index, method="ffill")
+        s = sym.upper()
+
+        out[f"{s}_return_1m"]   = close.pct_change(1)
+        out[f"{s}_return_5m"]   = close.pct_change(5)
+        out[f"{s}_rsi14"]       = ta.rsi(close, 14)
+        ema21 = close.ewm(span=21, adjust=False).mean()
+        out[f"{s}_vs_ema21"]    = (close - ema21) / (close + 1e-10)
+        out[f"{s}_momentum_10"] = (close - close.shift(10)) / (close + 1e-10)
+
+    # USD strength: average of USD-long minus USD-short 5m momentum
+    usd_components = []
+    for sym in ["usdjpy", "usdchf"]:
+        if sym in cross_closes:
+            usd_components.append(
+                cross_closes[sym].reindex(main_df.index, method="ffill").pct_change(5)
+            )
+    if "audusd" in cross_closes:
+        usd_components.append(
+            -cross_closes["audusd"].reindex(main_df.index, method="ffill").pct_change(5)
+        )
+    if usd_components:
+        out["usd_strength_5m"] = pd.concat(usd_components, axis=1).mean(axis=1)
+
+    # Risk-on/risk-off: AUDUSD rises in risk-on environments
+    if "audusd" in cross_closes:
+        out["risk_sentiment_5m"] = (
+            cross_closes["audusd"].reindex(main_df.index, method="ffill").pct_change(5)
+        )
+
+    # EUR divergence: EURUSD 5m momentum minus EURJPY 5m momentum
+    # Positive → EUR strengthening vs JPY but not vs USD → JPY weakness
+    if "eurjpy" in cross_closes:
+        eurusd_ret = main_df["close"].pct_change(5)
+        eurjpy_ret = cross_closes["eurjpy"].reindex(main_df.index, method="ffill").pct_change(5)
+        out["eur_divergence_5m"] = eurusd_ret - eurjpy_ret
+
+    print(f"Computed {out.shape[1]} cross-pair features "
+          f"({len(cross_closes)} pairs x 5 + {out.shape[1] - len(cross_closes) * 5} composite)")
+    return out
+
+
+# ── Market regime feature (from Model 2 HMM) ─────────────────────────────────
+
+def add_regime_feature(df_features: pd.DataFrame, main_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Load the trained Model 2 GaussianHMM and predict market regime for each bar.
+
+    Adds two features:
+        regime_state     — integer 0-3 (Viterbi decoded state)
+        regime_prob_max  — posterior probability of the most-likely state
+
+    The HMM is unsupervised (trained without labels) so using it as a feature
+    does not introduce look-ahead bias from future trade outcomes.
+    Falls back gracefully if Model 2 is not available.
+    """
+    model2_path = "ml/trained/model2_regime.pkl"
+    try:
+        import pickle
+        with open(model2_path, "rb") as f:
+            hmm_model = pickle.load(f)
+    except FileNotFoundError:
+        print(f"  Model 2 not found at {model2_path} — skipping regime feature")
+        return df_features
+    except Exception as e:
+        print(f"  Could not load Model 2: {e} — skipping regime feature")
+        return df_features
+
+    # Recompute Model 2's 8 features (same as model2/features.py)
+    close   = main_df["close"]
+    log_ret = np.log(close / close.shift(1))
+    vol20   = log_ret.rolling(20).std()
+    vol5    = log_ret.rolling(5).std()
+    atr14   = ta.atr(main_df["high"], main_df["low"], close, 14)
+    hl_rng  = (main_df["high"] - main_df["low"]) / (close + 1e-10)
+    ret_abs = log_ret.abs().rolling(20).mean()
+    vol_rat = vol5 / (vol20 + 1e-10)
+
+    spread = (
+        df_features["spread_mean_pips"].fillna(0.0)
+        if "spread_mean_pips" in df_features.columns
+        else pd.Series(0.0, index=main_df.index)
+    )
+
+    hmm_feats = pd.DataFrame({
+        "log_return":       log_ret,
+        "realized_vol_20":  vol20,
+        "realized_vol_5":   vol5,
+        "atr_ratio":        atr14 / (close + 1e-10),
+        "hl_range":         hl_rng,
+        "spread_mean_pips": spread,
+        "return_abs_20":    ret_abs,
+        "vol_ratio":        vol_rat,
+    }, index=main_df.index).fillna(0.0)
+
+    X_hmm = hmm_feats.to_numpy(dtype=np.float64)
+
+    try:
+        # Viterbi decoding: best state sequence
+        states = hmm_model.predict(X_hmm)
+        # Posterior state probabilities (T × n_components)
+        _, posteriors = hmm_model.score_samples(X_hmm)
+        prob_max = posteriors.max(axis=1)
+
+        df_features = df_features.copy()
+        df_features["regime_state"]    = states.astype(np.float32)
+        df_features["regime_prob_max"] = prob_max.astype(np.float32)
+        unique_states, counts = np.unique(states, return_counts=True)
+        state_pcts = {int(s): f"{c/len(states)*100:.1f}%" for s, c in zip(unique_states, counts)}
+        print(f"  Regime feature added — state distribution: {state_pcts}")
+    except Exception as e:
+        print(f"  Warning: regime prediction failed: {e}")
+
+    return df_features
+
+
 def get_feature_names() -> list[str]:
     """Return the ordered list of all feature column names."""
     # Build a tiny dummy DataFrame to get column order

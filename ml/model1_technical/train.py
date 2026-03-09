@@ -40,6 +40,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from ml.model1_technical.features import (
     load_candles, load_tick_features, add_tick_features, compute_features,
+    load_cross_pair_candles, compute_cross_pair_features, add_regime_feature,
 )
 from ml.model1_technical.labels import build_dataset
 
@@ -63,17 +64,17 @@ CONFIG = {
 
     # XGBoost hyperparameters
     "xgb_params": {
-        "n_estimators":       500,
-        "max_depth":          5,
+        "n_estimators":       800,
+        "max_depth":          4,     # shallower → less overfitting on 5M rows
         "learning_rate":      0.05,
-        "subsample":          0.8,
-        "colsample_bytree":   0.8,
-        "min_child_weight":   10,   # prevents overfitting on small groups
-        "reg_alpha":          0.1,  # L1 regularization
-        "reg_lambda":         1.0,  # L2 regularization
-        "scale_pos_weight":   1.0,  # adjust if class imbalance > 60/40
+        "subsample":          0.75,
+        "colsample_bytree":   0.7,
+        "min_child_weight":   20,    # require larger leaf nodes → conservative splits
+        "reg_alpha":          0.3,   # L1 regularization (feature sparsity)
+        "reg_lambda":         1.5,   # L2 regularization
+        "scale_pos_weight":   1.0,   # set per-fold from class balance
         "eval_metric":        "logloss",
-        "early_stopping_rounds": 30,
+        "early_stopping_rounds": 40,
         "random_state":       42,
         "n_jobs":             -1,
         "verbosity":          0,
@@ -121,7 +122,7 @@ def walk_forward_splits(dataset: pd.DataFrame, n_folds: int):
 
 
 def evaluate_fold(y_true, y_proba, threshold: float, fold_label: str) -> dict:
-    """Compute all metrics for one fold."""
+    """Compute all metrics for one fold, with precision-recall at multiple thresholds."""
     y_pred = (y_proba >= threshold).astype(int)
 
     acc   = accuracy_score(y_true, y_pred)
@@ -129,15 +130,21 @@ def evaluate_fold(y_true, y_proba, threshold: float, fold_label: str) -> dict:
     rec   = recall_score(y_true, y_pred, zero_division=0)
     auc   = roc_auc_score(y_true, y_proba)
     ll    = log_loss(y_true, y_proba)
-    n_sig = int(y_pred.sum())   # trades taken at this threshold
+    n_sig = int(y_pred.sum())
 
     print(f"\n  {fold_label}")
-    print(f"    Accuracy  : {acc:.4f}")
-    print(f"    Precision : {prec:.4f}  (win rate at threshold {threshold})")
-    print(f"    Recall    : {rec:.4f}")
     print(f"    ROC-AUC   : {auc:.4f}")
     print(f"    Log-loss  : {ll:.4f}")
-    print(f"    Signals   : {n_sig:,} / {len(y_pred):,} bars ({n_sig/len(y_pred)*100:.1f}%)")
+    print(f"    Accuracy  : {acc:.4f}")
+    print(f"    Threshold breakdown:")
+    for t in [0.50, 0.52, 0.55, 0.58, 0.60, 0.65]:
+        yp = (y_proba >= t).astype(int)
+        p  = precision_score(y_true, yp, zero_division=0)
+        r  = recall_score(y_true, yp, zero_division=0)
+        ns = int(yp.sum())
+        print(f"      t={t:.2f}  prec={p:.3f}  recall={r:.3f}  signals={ns:,}")
+    print(f"    At t={threshold}: Precision={prec:.4f}  Recall={rec:.4f}  "
+          f"Signals={n_sig:,} / {len(y_pred):,} ({n_sig/len(y_pred)*100:.1f}%)")
 
     if n_sig > 0:
         print(classification_report(y_true, y_pred,
@@ -184,7 +191,7 @@ def train():
     print("\n[2/5] Computing features...")
     df_features = compute_features(df_raw)
 
-    # Join tick-level features (spread, tick_count) — improves model ~2-3% AUC
+    # Join tick-level features (spread, tick_count)
     print("\n      Loading tick features from eurusd_tick_features_m1...")
     df_ticks = load_tick_features(CONFIG["db_path"])
     df_features = add_tick_features(
@@ -193,7 +200,22 @@ def train():
     del df_ticks
     gc.collect()
 
-    # Downcast to float32 to halve memory (84 cols × 5.5M rows × 4 bytes = ~1.85 GB vs 3.7 GB)
+    # Load and join cross-pair M1 features (25 pair features + 3 composite)
+    print("\n      Loading cross-pair M1 data (GBPUSD, USDJPY, USDCHF, AUDUSD, EURJPY)...")
+    cross_closes = load_cross_pair_candles(CONFIG["db_path"])
+    if cross_closes:
+        df_cross = compute_cross_pair_features(df_raw, cross_closes)
+        df_features = df_features.join(df_cross, how="left")
+        del df_cross
+    del cross_closes
+    gc.collect()
+
+    # Add Model 2 market regime as feature (regime_state, regime_prob_max)
+    print("\n      Adding Model 2 regime feature...")
+    df_features = add_regime_feature(df_features, df_raw)
+    gc.collect()
+
+    # Downcast to float32 to halve memory
     df_features = df_features.astype("float32")
     gc.collect()
 
@@ -281,7 +303,7 @@ def train():
     print("\n[5/5] Training final model on full dataset...")
 
     # First pass: use best fold model to get feature importance
-    top_features = prune_features(best_model, feature_cols, keep_top=55)
+    top_features = prune_features(best_model, feature_cols, keep_top=70)
     top_idx      = [feature_cols.index(f) for f in top_features]
     X_pruned     = X[:, top_idx]
 

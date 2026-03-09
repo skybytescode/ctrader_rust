@@ -1985,7 +1985,7 @@ fn read_model2_status() -> String {
 fn read_ml_model_features(model: MlSubCardType) -> String {
     match model {
         MlSubCardType::Model1 => concat!(
-            "~97 computed -> top 55 selected by XGBoost gain\n",
+            "~125 computed -> top 70 selected by XGBoost gain\n",
             "\n",
             "Trend (MA)        10\n",
             "  EMA 5/10/21/50/100/200, SMA 20\n",
@@ -2039,7 +2039,17 @@ fn read_ml_model_features(model: MlSubCardType) -> String {
             "\n",
             "Fibonacci          5\n",
             "  dist 23.6 / 38.2 / 50.0 / 61.8\n",
-            "  fib_position (0=low, 1=high)",
+            "  fib_position (0=low, 1=high)\n",
+            "\n",
+            "Cross-Pair        28\n",
+            "  GBPUSD/USDJPY/USDCHF/AUDUSD/EURJPY\n",
+            "  return_1m/5m, RSI14, vs_EMA21, mom10\n",
+            "  usd_strength_5m, risk_sentiment_5m\n",
+            "  eur_divergence_5m\n",
+            "\n",
+            "Market Regime      2\n",
+            "  regime_state (Model 2 HMM 0-3)\n",
+            "  regime_prob_max (confidence)",
         ).to_string(),
         MlSubCardType::Model2 => concat!(
             "8 features  (unsupervised — no labels)\n",
