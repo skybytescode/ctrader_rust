@@ -2,3 +2,33 @@
 
 # Environment variables with sensitive credentials
 .env
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+*.nbc
+*.nbi
+
+# DuckDB database and temp files
+Bots_db/
+*.duckdb
+*.duckdb.wal
+
+# ML model weights (large binaries — metrics/feature names are tracked)
+ml/trained/*.json
+ml/trained/*.pkl
+ml/trained/*.pt
+ml/trained/*.txt
+!ml/trained/*_metrics*.json
+
+# Claude Code settings
+.claude/
+
+# Econcal proxy (separate git repo)
+econcal/
+
+# Runtime artifacts
+scraper_log.txt
+econcal_comparison_*.txt
+FXSTREET_CONTEXT.md
+nul
