@@ -272,11 +272,23 @@ pub struct MlScrollbarThumb {
 }
 
 // ============================================================================
+// DoM Capture (Model 6 — Realtime Algorithms)
+// ============================================================================
+
+/// Button to start/pause DoM depth capture
+#[derive(Component)]
+pub struct DomCaptureBtn;
+
+/// Status text for DoM capture
+#[derive(Component)]
+pub struct DomCaptureStatusText;
+
+// ============================================================================
 // Cross-Pair Data Buttons (History BoT)
 // ============================================================================
 
-/// The 5 cross-pairs downloaded as M1 correlation features for Model 1.
-pub const CROSS_PAIRS: [&str; 5] = ["GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "EURJPY"];
+/// The 6 cross-pairs downloaded as M1 correlation features for Model 1.
+pub const CROSS_PAIRS: [&str; 6] = ["GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "EURJPY", "XAUUSD"];
 
 /// Button for one cross-pair M1 download inside the History Bot sub-card.
 #[derive(Component)]
@@ -305,3 +317,27 @@ pub struct CrossPairUpdateBtn {
 pub struct CrossPairUpdateStatusText {
     pub symbol: &'static str,
 }
+
+// ============================================================================
+// Economic Calendar Button (History BoT)
+// ============================================================================
+
+/// Button that triggers economic calendar scrape or shows last record.
+#[derive(Component)]
+pub struct EconCalBtn;
+
+/// Status text shown next to the Economic Calendar button.
+#[derive(Component)]
+pub struct EconCalStatusText;
+
+// ============================================================================
+// Economic Calendar Update Button (Update History)
+// ============================================================================
+
+/// Button that appends new EC events since the last stored record.
+#[derive(Component)]
+pub struct EconCalUpdateBtn;
+
+/// Status text shown next to the EC update button.
+#[derive(Component)]
+pub struct EconCalUpdateStatusText;

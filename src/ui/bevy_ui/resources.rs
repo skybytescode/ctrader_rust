@@ -190,6 +190,22 @@ pub struct BotDashboardState {
     pub cross_pair_update_status: std::collections::HashMap<String, String>,
     /// Symbols currently being updated via Update History cross-pair buttons.
     pub updating_cross_pairs: std::collections::HashSet<String>,
+    /// Status text shown next to the Economic Calendar button.
+    pub econ_cal_status: String,
+    /// True while the econcal Python script is running.
+    pub econ_cal_is_running: bool,
+    /// Channel receiver for streaming stdout from the econcal background thread.
+    pub econ_cal_rx: Option<std::sync::Mutex<std::sync::mpsc::Receiver<String>>>,
+    /// Status text shown next to the EC Update button in Update History.
+    pub econ_cal_update_status: String,
+    /// True while update_econcal.py is running.
+    pub econ_cal_update_is_running: bool,
+    /// Channel receiver for the EC update background thread.
+    pub econ_cal_update_rx: Option<std::sync::Mutex<std::sync::mpsc::Receiver<String>>>,
+    /// True while DoM depth capture is active.
+    pub dom_capture_active: bool,
+    /// Status text shown next to DoM capture button.
+    pub dom_capture_status: String,
 }
 
 /// Tracks which UI elements need rebuilding

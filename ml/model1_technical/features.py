@@ -265,6 +265,26 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     out["is_pin_bar_bull"] = ((lower_w > hl * 0.60) & is_bull).astype(float)
     out["is_pin_bar_bear"] = ((upper_w > hl * 0.60) & ~is_bull).astype(float)
 
+    # Morning star (3-bar bullish reversal)
+    bar1_bear  = close.shift(2) < open_.shift(2)
+    bar1_body  = (open_.shift(2) - close.shift(2)).clip(lower=0)
+    bar2_body  = (close.shift(1) - open_.shift(1)).abs()
+    bar3_bull  = close > open_
+    bar3_above = close > (open_.shift(2) + close.shift(2)) / 2
+    out["is_morning_star"] = (
+        bar1_bear & (bar2_body < bar1_body * 0.3) & bar3_bull & bar3_above
+    ).astype(float)
+
+    # Evening star (3-bar bearish reversal)
+    bar1_bull_es = close.shift(2) > open_.shift(2)
+    bar1_body_es = (close.shift(2) - open_.shift(2)).clip(lower=0)
+    bar2_body_es = (close.shift(1) - open_.shift(1)).abs()
+    bar3_bear_es = close < open_
+    bar3_below   = close < (open_.shift(2) + close.shift(2)) / 2
+    out["is_evening_star"] = (
+        bar1_bull_es & (bar2_body_es < bar1_body_es * 0.3) & bar3_bear_es & bar3_below
+    ).astype(float)
+
     # ── 7. Time / Session ────────────────────────────────────────────────────
     hour_frac = df.index.hour + df.index.minute / 60.0
     out["hour_sin"] = np.sin(2 * np.pi * hour_frac / 24)
@@ -358,18 +378,124 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     # Normalized position within the full swing range [0 = at low, 1 = at high]
     out["fib_position"] = (close - swing_l) / fib_range
 
+    # ── 14. Williams Fractals ─────────────────────────────────────────────────
+    # Fractal high: bar[i-2].high > bar[i-4,i-3,i-1,i].high (confirmed 2 bars later)
+    # Shift(2) means the fractal is already confirmed — no look-ahead.
+    frac_high_mask = (
+        (high.shift(2) > high.shift(4)) &
+        (high.shift(2) > high.shift(3)) &
+        (high.shift(2) > high.shift(1)) &
+        (high.shift(2) > high)
+    )
+    frac_low_mask = (
+        (low.shift(2) < low.shift(4)) &
+        (low.shift(2) < low.shift(3)) &
+        (low.shift(2) < low.shift(1)) &
+        (low.shift(2) < low)
+    )
+    frac_h_level = high.shift(2).where(frac_high_mask).ffill()
+    frac_l_level = low.shift(2).where(frac_low_mask).ffill()
+    out["dist_fractal_high"] = (frac_h_level - close) / (close + 1e-10)
+    out["dist_fractal_low"]  = (close - frac_l_level) / (close + 1e-10)
+
+    # ── 15. Daily Pivot Points ────────────────────────────────────────────────
+    # Computed from previous day's OHLC — no look-ahead
+    daily = df.resample("1D").agg({"high": "max", "low": "min", "close": "last"})
+    daily = daily.shift(1)  # use previous day's values
+    d_pivot = (daily["high"] + daily["low"] + daily["close"]) / 3
+    d_r1    = 2 * d_pivot - daily["low"]
+    d_s1    = 2 * d_pivot - daily["high"]
+    d_r2    = d_pivot + (daily["high"] - daily["low"])
+    d_s2    = d_pivot - (daily["high"] - daily["low"])
+    for tag, lvl in [("pivot", d_pivot), ("r1", d_r1), ("s1", d_s1),
+                     ("r2", d_r2), ("s2", d_s2)]:
+        filled = lvl.reindex(df.index, method="ffill")
+        out[f"dist_daily_{tag}"] = (close - filled) / (close + 1e-10)
+
+    # ── 15b. Weekly Pivot Points ──────────────────────────────────────────────
+    # Defragment before adding 3 more columns
+    out = out.copy()
+    # Computed from previous week's OHLC (Monday-anchored) — no look-ahead
+    weekly = df.resample("W-MON").agg({"high": "max", "low": "min", "close": "last"})
+    weekly = weekly.shift(1)  # use previous week's values
+    w_pivot = (weekly["high"] + weekly["low"] + weekly["close"]) / 3
+    w_r1    = 2 * w_pivot - weekly["low"]
+    w_s1    = 2 * w_pivot - weekly["high"]
+    for tag, lvl in [("pivot", w_pivot), ("r1", w_r1), ("s1", w_s1)]:
+        filled = lvl.reindex(df.index, method="ffill")
+        out[f"dist_weekly_{tag}"] = (close - filled) / (close + 1e-10)
+
+    # ── 16. Multi-Timeframe Features (M5 / H1 / H4) ──────────────────────────
+    # Defragment before adding more columns via reindex assignments
+    out = out.copy()
+
+    # Each series is shifted by 1 bar on its own timeframe before reindexing
+    # so the value is only visible after the bar closes — no look-ahead.
+
+    def _safe_rsi(close_s: pd.Series, period: int) -> pd.Series:
+        """Return RSI series, or all-NaN series if data is too short."""
+        result = ta.rsi(close_s, period)
+        if result is None:
+            return pd.Series(np.nan, index=close_s.index)
+        return result
+
+    def _safe_adx(h: pd.Series, l: pd.Series, c: pd.Series, period: int) -> pd.Series:
+        result = ta.adx(h, l, c, period)
+        if result is None:
+            return pd.Series(np.nan, index=c.index)
+        return result.iloc[:, 0]
+
+    # M5
+    m5 = df.resample("5min").agg({"open": "first", "high": "max",
+                                   "low": "min",  "close": "last",
+                                   "volume": "sum"}).dropna()
+    m5_close_lag = m5["close"].shift(1)
+    m5_rsi   = _safe_rsi(m5["close"], 14).shift(1)
+    m5_ema21 = m5["close"].ewm(span=21, adjust=False).mean().shift(1)
+    m5_adx   = _safe_adx(m5["high"], m5["low"], m5["close"], 14).shift(1)
+    out["m5_rsi14"]    = m5_rsi.reindex(df.index,   method="ffill")
+    out["m5_vs_ema21"] = ((m5_close_lag - m5_ema21) / (m5_close_lag + 1e-10)).reindex(
+        df.index, method="ffill")
+    out["m5_adx"]      = m5_adx.reindex(df.index,   method="ffill")
+
+    # H1
+    h1 = df.resample("1h").agg({"open": "first", "high": "max",
+                                  "low": "min",  "close": "last",
+                                  "volume": "sum"}).dropna()
+    h1_close_lag = h1["close"].shift(1)
+    h1_rsi   = _safe_rsi(h1["close"], 14).shift(1)
+    h1_ema21 = h1["close"].ewm(span=21, adjust=False).mean().shift(1)
+    h1_adx   = _safe_adx(h1["high"], h1["low"], h1["close"], 14).shift(1)
+    h1_ret3  = h1["close"].pct_change(3).shift(1)   # 3-bar H1 = 3h momentum
+    out["h1_rsi14"]    = h1_rsi.reindex(df.index,   method="ffill")
+    out["h1_vs_ema21"] = ((h1_close_lag - h1_ema21) / (h1_close_lag + 1e-10)).reindex(
+        df.index, method="ffill")
+    out["h1_adx"]      = h1_adx.reindex(df.index,   method="ffill")
+    out["h1_ret_3h"]   = h1_ret3.reindex(df.index,  method="ffill")
+
+    # H4
+    h4 = df.resample("4h").agg({"open": "first", "high": "max",
+                                  "low": "min",  "close": "last",
+                                  "volume": "sum"}).dropna()
+    h4_close_lag = h4["close"].shift(1)
+    h4_rsi   = _safe_rsi(h4["close"], 14).shift(1)
+    h4_ema21 = h4["close"].ewm(span=21, adjust=False).mean().shift(1)
+    out["h4_rsi14"]    = h4_rsi.reindex(df.index,   method="ffill")
+    out["h4_vs_ema21"] = ((h4_close_lag - h4_ema21) / (h4_close_lag + 1e-10)).reindex(
+        df.index, method="ffill")
+
     print(f"Computed {out.shape[1]} features over {len(out):,} bars")
-    return out
+    return out.copy()  # defragment after many column assignments
 
 
 # ── Cross-pair features ────────────────────────────────────────────────────────
 
-CROSS_PAIRS_SYMS = ["gbpusd", "usdjpy", "usdchf", "audusd", "eurjpy"]
+CROSS_PAIRS_SYMS = ["gbpusd", "usdjpy", "usdchf", "audusd", "eurjpy", "xauusd"]
 
 
 def load_cross_pair_candles(db_path: str = DB_PATH) -> dict:
     """
-    Load M1 close prices for all 5 cross-pairs from DuckDB.
+    Load M1 close prices for all 6 cross-pairs from DuckDB.
     Returns {symbol: pd.Series(close, index=DatetimeIndex)}.
     """
     con = duckdb.connect(db_path, read_only=True)
@@ -394,12 +520,14 @@ def compute_cross_pair_features(main_df: pd.DataFrame, cross_closes: dict) -> pd
     """
     Compute cross-pair correlation features aligned to EURUSD M1 timestamps.
 
-    For each of the 5 cross-pairs (25 features total):
+    For each of the 6 cross-pairs (42 features total):
         {SYM}_return_1m    — 1-bar percentage return
         {SYM}_return_5m    — 5-bar percentage return
+        {SYM}_return_60m   — 60-bar (1h) percentage return
         {SYM}_rsi14        — RSI(14)
         {SYM}_vs_ema21     — distance from EMA(21) normalised by close
         {SYM}_momentum_10  — 10-bar price momentum
+        {SYM}_corr_20      — 20-bar rolling correlation with EURUSD returns
 
     Composite features (3 additional):
         usd_strength_5m    — avg 5m return of USD-long pairs minus USD-short pairs
@@ -410,17 +538,22 @@ def compute_cross_pair_features(main_df: pd.DataFrame, cross_closes: dict) -> pd
     """
     out = pd.DataFrame(index=main_df.index)
 
+    eur_ret1 = main_df["close"].pct_change(1)  # EURUSD 1m returns for correlation
+
     for sym, close_series in cross_closes.items():
         # Forward-fill to handle any gaps (e.g., different tick times)
         close = close_series.reindex(main_df.index, method="ffill")
         s = sym.upper()
 
-        out[f"{s}_return_1m"]   = close.pct_change(1)
+        ret1 = close.pct_change(1)
+        out[f"{s}_return_1m"]   = ret1
         out[f"{s}_return_5m"]   = close.pct_change(5)
+        out[f"{s}_return_60m"]  = close.pct_change(60)   # 1h return
         out[f"{s}_rsi14"]       = ta.rsi(close, 14)
         ema21 = close.ewm(span=21, adjust=False).mean()
         out[f"{s}_vs_ema21"]    = (close - ema21) / (close + 1e-10)
         out[f"{s}_momentum_10"] = (close - close.shift(10)) / (close + 1e-10)
+        out[f"{s}_corr_20"]     = ret1.rolling(20).corr(eur_ret1)  # rolling correlation
 
     # USD strength: average of USD-long minus USD-short 5m momentum
     usd_components = []
@@ -450,7 +583,7 @@ def compute_cross_pair_features(main_df: pd.DataFrame, cross_closes: dict) -> pd
         out["eur_divergence_5m"] = eurusd_ret - eurjpy_ret
 
     print(f"Computed {out.shape[1]} cross-pair features "
-          f"({len(cross_closes)} pairs x 5 + {out.shape[1] - len(cross_closes) * 5} composite)")
+          f"({len(cross_closes)} pairs x 7 + {out.shape[1] - len(cross_closes) * 7} composite)")
     return out
 
 
@@ -526,6 +659,61 @@ def add_regime_feature(df_features: pd.DataFrame, main_df: pd.DataFrame) -> pd.D
         print(f"  Warning: regime prediction failed: {e}")
 
     return df_features
+
+
+# ── Order flow features (from merged tick data) ───────────────────────────────
+
+def load_order_flow_features(db_path: str = DB_PATH) -> pd.DataFrame:
+    """
+    Compute per-M1-bar order flow from eurusd_ticks_merged (bid direction).
+
+    For each M1 bar, counts how many ticks were upticks (bid rose) vs downticks
+    (bid fell) and normalises to a signed ratio in [-1, +1].
+
+    Returns DataFrame with columns:
+        order_flow_delta  — (upticks - downticks) / total in [-1, +1]
+        uptick_ratio      — upticks / total in [0, 1]
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    print("  Computing order flow delta from eurusd_ticks_merged (~248M rows)...")
+    df = con.execute("""
+        WITH classified AS (
+            SELECT
+                (FLOOR(timestamp_ms / 60000.0) * 60)::BIGINT AS bar_ts,
+                SIGN(bid - LAG(bid) OVER (ORDER BY timestamp_ms))::INTEGER AS dir
+            FROM eurusd_ticks_merged
+        )
+        SELECT
+            bar_ts                                                          AS timestamp,
+            SUM(CASE WHEN dir > 0 THEN 1 ELSE 0 END)::DOUBLE              AS upticks,
+            SUM(CASE WHEN dir < 0 THEN 1 ELSE 0 END)::DOUBLE              AS downticks,
+            COUNT(*)::DOUBLE                                                AS tick_total
+        FROM classified
+        WHERE bar_ts IS NOT NULL
+        GROUP BY bar_ts
+        ORDER BY bar_ts
+    """).df()
+    con.close()
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+    df = df.set_index("timestamp")
+    total = df["upticks"] + df["downticks"] + 1e-6
+    df["order_flow_delta"] = (df["upticks"] - df["downticks"]) / total
+    df["uptick_ratio"]     = df["upticks"] / total
+    df = df.drop(columns=["upticks", "downticks", "tick_total"])
+    print(f"  Order flow: {len(df):,} M1 bars computed")
+    return df
+
+
+def add_order_flow_features(
+    df_features: pd.DataFrame,
+    df_of: pd.DataFrame,
+) -> pd.DataFrame:
+    """Join order flow features onto the feature DataFrame."""
+    merged = df_features.join(df_of[["order_flow_delta", "uptick_ratio"]], how="left")
+    cov = merged["order_flow_delta"].notna().mean() * 100
+    print(f"  Order flow coverage: {cov:.1f}% of M1 bars")
+    return merged
 
 
 def get_feature_names() -> list[str]:

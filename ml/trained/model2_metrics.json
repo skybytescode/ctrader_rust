@@ -14,54 +14,54 @@
     "vol_ratio"
   ],
   "stride": 3,
-  "train_bars": 1617546,
+  "train_bars": 1621524,
   "train_range": [
     "2013-01-01T20:22:00+00:00",
-    "2026-03-06T21:55:00+00:00"
+    "2026-03-19T04:34:00+00:00"
   ],
   "n_restarts": 5,
   "n_iter": 100,
-  "log_likelihood": -1380088.0206,
-  "aic": 2760558.0412,
-  "bic": 2762906.6576,
+  "log_likelihood": -1387930.9889,
+  "aic": 2776243.9779,
+  "bic": 2778593.0634,
   "n_params": 191,
   "state_map": {
     "3": "Trending Down",
-    "1": "Trending Up",
-    "0": "Volatile",
-    "2": "Ranging"
+    "2": "Trending Up",
+    "1": "Volatile",
+    "0": "Ranging"
   },
   "state_stats": [
     {
       "state_id": 0,
-      "label": "Volatile",
-      "mean_return_pips": -0.0044,
-      "mean_vol_20": 0.0001275,
-      "pct_bars": 42.28,
-      "avg_duration_bars": 18.2
+      "label": "Ranging",
+      "mean_return_pips": 0.0018,
+      "mean_vol_20": 5.633e-05,
+      "pct_bars": 43.04,
+      "avg_duration_bars": 25.4
     },
     {
       "state_id": 1,
-      "label": "Trending Up",
-      "mean_return_pips": 0.0151,
-      "mean_vol_20": 0.00029034,
-      "pct_bars": 9.07,
-      "avg_duration_bars": 8.1
+      "label": "Volatile",
+      "mean_return_pips": -0.0043,
+      "mean_vol_20": 0.0001277,
+      "pct_bars": 42.27,
+      "avg_duration_bars": 18.2
     },
     {
       "state_id": 2,
-      "label": "Ranging",
-      "mean_return_pips": 0.0018,
-      "mean_vol_20": 5.626e-05,
-      "pct_bars": 43.0,
-      "avg_duration_bars": 25.4
+      "label": "Trending Up",
+      "mean_return_pips": 0.0147,
+      "mean_vol_20": 0.00029078,
+      "pct_bars": 9.02,
+      "avg_duration_bars": 8.1
     },
     {
       "state_id": 3,
       "label": "Trending Down",
-      "mean_return_pips": -0.0053,
-      "mean_vol_20": 8.743e-05,
-      "pct_bars": 5.66,
+      "mean_return_pips": -0.0051,
+      "mean_vol_20": 8.716e-05,
+      "pct_bars": 5.67,
       "avg_duration_bars": 9.7
     }
   ]

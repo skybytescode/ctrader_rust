@@ -1,4 +1,4 @@
-//! Bot dashboard widget — accordion-expand cards for the selected instrument
+//! Bot dashboard widget --accordion-expand cards for the selected instrument
 
 use bevy::prelude::*;
 use crate::ui::bevy_ui::{
@@ -12,6 +12,9 @@ use crate::ui::bevy_ui::{
     MlInfoScrollArea, MlScrollbarThumb,
     CrossPairBtn, CrossPairStatusText, CROSS_PAIRS,
     CrossPairUpdateBtn, CrossPairUpdateStatusText,
+    DomCaptureBtn, DomCaptureStatusText,
+    EconCalBtn, EconCalStatusText,
+    EconCalUpdateBtn, EconCalUpdateStatusText,
     BotDashboardState, TickWorkflowStep, MlTrainState,
     theme::{colors, fonts},
 };
@@ -60,7 +63,7 @@ pub fn spawn_bot_dashboard(commands: &mut Commands, parent: Entity) {
     )).set_parent(header);
     commands.entity(dashboard).add_child(header);
 
-    // Cards container — Column + Wrap creates a 2x2 grid that reshapes on expand.
+    // Cards container --Column + Wrap creates a 2x2 grid that reshapes on expand.
     // Items flow top-to-bottom, then wrap to a new column to the right.
     // Spawn order determines grid positions:
     //   Col 1: Database, Start/Pause  |  Col 2: Train Model, Current Status
@@ -249,12 +252,12 @@ fn spawn_train_model_content(commands: &mut Commands, parent: Entity) {
     )).id();
 
     let model_titles = [
-        "Model 1",
-        "Model 2",
-        "Model 3",
-        "Model 4",
-        "Model 5",
-        "Model 6",
+        "Model 1 -- Technical Indicators",
+        "Model 2 -- Regime Detection",
+        "Model 3 -- Chart Patterns CNN",
+        "Model 4 -- Economic Calendar",
+        "Model 5 -- Depth of Market",
+        "Model 6 -- Realtime Algorithms",
     ];
 
     for model in MlSubCardType::all() {
@@ -361,6 +364,52 @@ fn spawn_ml_subcard(
     commands.entity(btn_row).add_children(&[status_btn, train_btn, feat_btn]);
     commands.entity(card).add_child(btn_row);
 
+    // Model 6 (Realtime Algorithms): add DoM Capture button row
+    if model == MlSubCardType::Model6 {
+        let dom_row = commands.spawn((
+            Node {
+                flex_direction: FlexDirection::Row,
+                column_gap: Val::Px(6.0),
+                align_items: AlignItems::Center,
+                ..default()
+            },
+        )).id();
+
+        commands.spawn((
+            Text::new("Price DoM:"),
+            TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+            TextColor(colors::TEXT_SECONDARY),
+        )).set_parent(dom_row);
+
+        let dom_btn = commands.spawn((
+            Node {
+                padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(colors::BG_BUTTON),
+            BorderRadius::all(Val::Px(4.0)),
+            Interaction::default(),
+            DomCaptureBtn,
+        )).id();
+        commands.spawn((
+            Text::new("Start Capture"),
+            TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+            TextColor(colors::TEXT_PRIMARY),
+        )).set_parent(dom_btn);
+
+        let dom_status = commands.spawn((
+            Text::new("--"),
+            TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+            TextColor(colors::TEXT_SECONDARY),
+            DomCaptureStatusText,
+        )).id();
+
+        commands.entity(dom_row).add_children(&[dom_btn, dom_status]);
+        commands.entity(card).add_child(dom_row);
+    }
+
     // Scrollable info area: [scroll_content | scrollbar_track]
     let scroll_wrapper = commands.spawn((
         Node {
@@ -455,7 +504,7 @@ fn spawn_db_subcard(
         TextColor(colors::TEXT_PRIMARY),
     )).set_parent(card);
 
-    // Sub-card content — always visible
+    // Sub-card content --always visible
     let content = commands.spawn((
         Node {
             flex_direction: FlexDirection::Column,
@@ -490,6 +539,7 @@ fn spawn_db_subcard(
                 HistoryBotStatusText,
             )).set_parent(content);
             spawn_cross_pair_section(commands, content);
+            spawn_econ_cal_section(commands, content);
         } else if sub_type == DbSubCardType::UpdateHistory {
             commands.spawn((
                 Text::new(""),
@@ -498,6 +548,7 @@ fn spawn_db_subcard(
                 UpdateHistoryStatusText,
             )).set_parent(content);
             spawn_cross_pair_update_section(commands, content);
+            spawn_econ_cal_update_section(commands, content);
         }
     } else {
         let detail = match sub_type {
@@ -563,6 +614,53 @@ fn spawn_cross_pair_section(commands: &mut Commands, parent: Entity) {
     for &symbol in CROSS_PAIRS.iter() {
         spawn_cross_pair_row(commands, parent, symbol);
     }
+}
+
+/// Spawn the Economic Calendar section inside the History BoT sub-card.
+fn spawn_econ_cal_section(commands: &mut Commands, parent: Entity) {
+    commands.spawn((
+        Text::new("Economic Calendar:"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_MUTED),
+    )).set_parent(parent);
+
+    let row = commands.spawn((
+        Node {
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(8.0),
+            ..default()
+        },
+    )).id();
+
+    let btn = commands.spawn((
+        Node {
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(5.0)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(colors::BG_BUTTON),
+        BorderRadius::all(Val::Px(4.0)),
+        Interaction::default(),
+        EconCalBtn,
+    )).id();
+
+    commands.spawn((
+        Text::new("Economic Calendar"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_PRIMARY),
+    )).set_parent(btn);
+
+    let status = commands.spawn((
+        Text::new(""),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_MUTED),
+        EconCalStatusText,
+    )).id();
+
+    commands.entity(row).add_children(&[btn, status]);
+    commands.entity(parent).add_child(row);
 }
 
 /// Spawn one cross-pair row: [SYMBOL btn] [status text]
@@ -662,6 +760,53 @@ fn spawn_cross_pair_update_row(commands: &mut Commands, parent: Entity, symbol: 
     commands.entity(parent).add_child(row);
 }
 
+/// Spawn the Economic Calendar update row inside the Update History sub-card.
+fn spawn_econ_cal_update_section(commands: &mut Commands, parent: Entity) {
+    commands.spawn((
+        Text::new("Economic Calendar:"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_MUTED),
+    )).set_parent(parent);
+
+    let row = commands.spawn((
+        Node {
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(8.0),
+            ..default()
+        },
+    )).id();
+
+    let btn = commands.spawn((
+        Node {
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(5.0)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(colors::BG_BUTTON),
+        BorderRadius::all(Val::Px(4.0)),
+        Interaction::default(),
+        EconCalUpdateBtn,
+    )).id();
+
+    commands.spawn((
+        Text::new("Update EC"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_PRIMARY),
+    )).set_parent(btn);
+
+    let status = commands.spawn((
+        Text::new("--"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_MUTED),
+        EconCalUpdateStatusText,
+    )).id();
+
+    commands.entity(row).add_children(&[btn, status]);
+    commands.entity(parent).add_child(row);
+}
+
 // ============================================================================
 // Systems
 // ============================================================================
@@ -689,7 +834,7 @@ pub fn update_dashboard_visibility(
     }
 }
 
-/// Handle click on a main card's [+]/[-] button — toggle accordion
+/// Handle click on a main card's [+]/[-] button --toggle accordion
 pub fn handle_main_card_max_btn(
     mut state: ResMut<BotDashboardState>,
     query: Query<(&Interaction, &MainCardMaxBtn), Changed<Interaction>>,
@@ -841,7 +986,7 @@ pub fn update_db_timeframe_btn_hover(
     }
 }
 
-/// Handle M1 Candles / Tick Data button clicks — sends data requests
+/// Handle M1 Candles / Tick Data button clicks --sends data requests
 pub fn handle_db_timeframe_btn_click(
     ui_state: Res<crate::ui::UiState>,
     symbol_map: Res<SymbolIdMap>,
@@ -1038,7 +1183,7 @@ pub fn process_data_responses(
                         dashboard_state.is_downloading = false;
 
                         if dashboard_state.is_update_mode {
-                            // After Update History M1 complete — append last candle info
+                            // After Update History M1 complete --append last candle info
                             let rows = dashboard_state.pending_update_rows;
                             dashboard_state.update_history_message = Some(format!(
                                 "Update successful! +{} new M1 candles.\n{}",
@@ -1547,6 +1692,8 @@ pub fn handle_ml_model_btn_click(
                 let module = match btn.model {
                     MlSubCardType::Model1 => Some("ml.model1_technical.train"),
                     MlSubCardType::Model2 => Some("ml.model2_regime.train"),
+                    MlSubCardType::Model3 => Some("ml.model3_cnn.train"),
+                    MlSubCardType::Model4 => Some("ml.model4_econcal.train"),
                     _ => None,
                 };
 
@@ -1690,7 +1837,7 @@ pub fn update_ml_model_btn_hover(
 // Cross-pair systems
 // ============================================================================
 
-/// Handle click on a cross-pair button — CheckStatus if data exists, else auto-download.
+/// Handle click on a cross-pair button --CheckStatus if data exists, else auto-download.
 pub fn handle_cross_pair_btn_click(
     symbol_map: Res<SymbolIdMap>,
     mut dashboard_state: ResMut<BotDashboardState>,
@@ -1761,7 +1908,7 @@ pub fn update_cross_pair_btn_hover(
 // Cross-pair Update systems (Update History)
 // ============================================================================
 
-/// Handle click on a cross-pair update button — send UpdateLatest for M1 candles.
+/// Handle click on a cross-pair update button --send UpdateLatest for M1 candles.
 pub fn handle_cross_pair_update_btn_click(
     symbol_map: Res<SymbolIdMap>,
     mut dashboard_state: ResMut<BotDashboardState>,
@@ -1841,10 +1988,14 @@ fn read_ml_model_status(model: MlSubCardType) -> String {
             "Model 1  Technical Indicators (XGBoost)",
         ),
         MlSubCardType::Model2 => return read_model2_status(),
-        MlSubCardType::Model3 => return "Model 3 (Chart Patterns CNN) — not yet trained.".to_string(),
-        MlSubCardType::Model4 => return "Model 4 (News & Calendar) — not yet trained.".to_string(),
-        MlSubCardType::Model5 => return "Model 5 (Order Flow XGBoost) — not yet trained.".to_string(),
-        MlSubCardType::Model6 => return "Model 6 (Ensemble XGBoost) — not yet trained.".to_string(),
+        MlSubCardType::Model3 => return read_model3_status(),
+        MlSubCardType::Model4 => (
+            "ml/trained/model4_metrics.json",
+            "ml/trained/model4_long.json",
+            "Model 4  Economic Calendar (XGBoost)",
+        ),
+        MlSubCardType::Model5 => return "Model 5 (Order Flow XGBoost) --not yet trained.".to_string(),
+        MlSubCardType::Model6 => return "Model 6 (Ensemble XGBoost) --not yet trained.".to_string(),
     };
 
     let raw = match std::fs::read_to_string(metrics_path) {
@@ -1868,6 +2019,7 @@ fn read_ml_model_status(model: MlSubCardType) -> String {
     let target_p  = cfg["target_pips"].as_u64().unwrap_or(0);
     let stop_p    = cfg["stop_pips"].as_u64().unwrap_or(0);
     let horizon   = cfg["horizon_bars"].as_u64().unwrap_or(0);
+    let threshold = cfg["threshold"].as_f64().unwrap_or(0.50);
     let n_folds   = folds.map(|f| f.len()).unwrap_or(0);
 
     let test_years: Vec<String> = folds
@@ -1886,7 +2038,7 @@ fn read_ml_model_status(model: MlSubCardType) -> String {
     lines.push("--- Avg walk-forward metrics ---".to_string());
     lines.push(format!("ROC-AUC  : {:.4}", roc_auc));
     lines.push(format!("Accuracy : {:.4}", accuracy));
-    lines.push(format!("Precision: {:.4}  (at threshold 0.55)", precision));
+    lines.push(format!("Precision: {:.4}  (at threshold {:.2})", precision, threshold));
     lines.push(format!("Log-loss : {:.4}", log_loss));
 
     if let Some(folds_arr) = folds {
@@ -1919,7 +2071,7 @@ fn read_model2_status() -> String {
 
     let raw = match std::fs::read_to_string(metrics_path) {
         Ok(s)  => s,
-        Err(_) => return "Model 2 (Regime HMM) — not yet trained.\nPress 'Update Training' to train.".to_string(),
+        Err(_) => return "Model 2 (Regime HMM) --not yet trained.\nPress 'Update Training' to train.".to_string(),
     };
     let v: serde_json::Value = match serde_json::from_str(&raw) {
         Ok(v)  => v,
@@ -1967,6 +2119,73 @@ fn read_model2_status() -> String {
                 "  {:<16}: {:5.1}%  dur={:.0}m  ret={:+.4}p  vol={:.6}",
                 label, pct, avg_dur, ret_pips, vol
             ));
+        }
+    }
+
+    if let Ok(meta) = std::fs::metadata(model_path) {
+        if let Ok(modified) = meta.modified() {
+            let datetime = chrono::DateTime::<chrono::Local>::from(modified);
+            lines.push(String::new());
+            lines.push(format!("Last trained: {}", datetime.format("%Y-%m-%d %H:%M")));
+        }
+    }
+
+    lines.join("\n")
+}
+
+/// Parse model3_metrics.json and format a human-readable status string.
+fn read_model3_status() -> String {
+    let metrics_path = "ml/trained/model3_metrics.json";
+    let model_path   = "ml/trained/model3_cnn_long.pt";
+
+    let raw = match std::fs::read_to_string(metrics_path) {
+        Ok(s)  => s,
+        Err(_) => return "Model 3 (Chart Patterns CNN) --not yet trained.\nPress 'Update Training' to train.".to_string(),
+    };
+    let v: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v)  => v,
+        Err(e) => return format!("Could not parse model3_metrics.json: {}", e),
+    };
+
+    let cfg         = &v["config"];
+    let window_size = cfg["window_size"].as_u64().unwrap_or(60);
+    let target_p    = cfg["target_pips"].as_u64().unwrap_or(0);
+    let stop_p      = cfg["stop_pips"].as_u64().unwrap_or(0);
+    let horizon     = cfg["horizon"].as_u64().unwrap_or(0);
+    let n_folds     = cfg["n_folds"].as_u64().unwrap_or(0);
+
+    let mut lines = Vec::new();
+    lines.push("Model 3  Chart Patterns (1D CNN)".to_string());
+    lines.push("--------------------------------".to_string());
+    lines.push(format!("Window: {} bars  |  Label: +{}p / -{}p / {}m", window_size, target_p, stop_p, horizon));
+    lines.push(format!("Walk-fwd folds: {}", n_folds));
+
+    for direction in &["long", "short"] {
+        let dir_v = &v[direction];
+        if dir_v.is_null() { continue; }
+
+        let avg     = &dir_v["avg_metrics"];
+        let roc_auc = avg["roc_auc"].as_f64().unwrap_or(0.0);
+        let acc     = avg["accuracy"].as_f64().unwrap_or(0.0);
+        let prec    = avg["precision"].as_f64().unwrap_or(0.0);
+        let ll      = avg["log_loss"].as_f64().unwrap_or(0.0);
+
+        lines.push(String::new());
+        lines.push(format!("--- {} model (avg walk-forward) ---", direction.to_uppercase()));
+        lines.push(format!("ROC-AUC  : {:.4}", roc_auc));
+        lines.push(format!("Accuracy : {:.4}", acc));
+        lines.push(format!("Precision: {:.4}", prec));
+        lines.push(format!("Log-loss : {:.4}", ll));
+
+        if let Some(folds_arr) = dir_v["fold_metrics"].as_array() {
+            lines.push("Per-fold:".to_string());
+            for fold in folds_arr {
+                let year = fold["test_year"].as_u64().unwrap_or(0);
+                let auc  = fold["roc_auc"].as_f64().unwrap_or(0.0);
+                let p    = fold["precision"].as_f64().unwrap_or(0.0);
+                let sigs = fold["signals"].as_u64().unwrap_or(0);
+                lines.push(format!("  {}: AUC={:.3}  Prec={:.3}  Signals={}", year, auc, p, sigs));
+            }
         }
     }
 
@@ -2041,9 +2260,10 @@ fn read_ml_model_features(model: MlSubCardType) -> String {
             "  dist 23.6 / 38.2 / 50.0 / 61.8\n",
             "  fib_position (0=low, 1=high)\n",
             "\n",
-            "Cross-Pair        28\n",
-            "  GBPUSD/USDJPY/USDCHF/AUDUSD/EURJPY\n",
-            "  return_1m/5m, RSI14, vs_EMA21, mom10\n",
+            "Cross-Pair        38\n",
+            "  GBPUSD/USDJPY/USDCHF/AUDUSD/EURJPY/XAUUSD\n",
+            "  return_1m/5m/60m, RSI14, vs_EMA21, mom10\n",
+            "  corr_20 (rolling correlation vs EURUSD)\n",
             "  usd_strength_5m, risk_sentiment_5m\n",
             "  eur_divergence_5m\n",
             "\n",
@@ -2052,7 +2272,7 @@ fn read_ml_model_features(model: MlSubCardType) -> String {
             "  regime_prob_max (confidence)",
         ).to_string(),
         MlSubCardType::Model2 => concat!(
-            "8 features  (unsupervised — no labels)\n",
+            "8 features  (unsupervised --no labels)\n",
             "\n",
             "log_return          bar log-return\n",
             "realized_vol_20     20-bar rolling std of log-returns\n",
@@ -2069,9 +2289,405 @@ fn read_ml_model_features(model: MlSubCardType) -> String {
             "Stride: every 3rd bar -> ~1.6M observations\n",
             "Restarts: 5  (best log-likelihood selected)",
         ).to_string(),
-        MlSubCardType::Model3 => "Model 3 (Chart Patterns CNN) - features not yet defined.".to_string(),
-        MlSubCardType::Model4 => "Model 4 (News & Calendar) - features not yet defined.".to_string(),
+        MlSubCardType::Model3 => concat!(
+            "Input: 60-bar OHLCV window (1 hour of M1 data)\n",
+            "Channels: 5  (Open, High, Low, Close, Volume)\n",
+            "Normalised per window (OHLC relative to entry close\n",
+            "and window range; Volume by window mean)\n",
+            "\n",
+            "Architecture: 1D CNN  (~58K parameters)\n",
+            "  Conv1d(5→32) + BN + ReLU + MaxPool(2)\n",
+            "  Conv1d(32→64) + BN + ReLU + MaxPool(2)\n",
+            "  Conv1d(64→128) + BN + ReLU + MaxPool(2)\n",
+            "  AdaptiveAvgPool1d(1)  [global avg pool]\n",
+            "  Linear(128→64) + ReLU + Dropout(0.3)\n",
+            "  Linear(64→1) → sigmoid probability\n",
+            "\n",
+            "Labels: same as Model 1\n",
+            "  +15p target / -10p stop / 120m horizon\n",
+            "  Long + Short models trained separately\n",
+            "\n",
+            "Session filter: London (08-12) + NY (13-17) UTC\n",
+            "Walk-forward: 4 yearly expanding folds\n",
+            "Optimizer: Adam  lr=1e-3  ReduceLROnPlateau\n",
+            "Loss: BCEWithLogitsLoss (pos_weight balanced)\n",
+            "Early stopping: patience=15 epochs\n",
+            "Fine-tune: 10 extra epochs on full data after CV",
+        ).to_string(),
+        MlSubCardType::Model4 => concat!(
+            "~70 computed -> top 50 selected by XGBoost gain\n",
+            "\n",
+            "Last Event (per vol/currency)   24\n",
+            "  surprise_norm, abs_surprise, beats, hours_ago\n",
+            "  x 3 vol tiers (>=1, >=2, >=3)\n",
+            "  x 2 currencies (EUR, USD)\n",
+            "\n",
+            "Rolling Event Counts            24\n",
+            "  count by vol tier x currency: 1h/4h/24h/1w\n",
+            "  EUR vol>=1/2/3 + USD vol>=1/2/3\n",
+            "\n",
+            "Surprise Differential           12\n",
+            "  EUR avg surprise: 1h/4h/24h/1w\n",
+            "  USD avg surprise: 1h/4h/24h/1w\n",
+            "  net (EUR-USD): 1h/4h/24h/1w\n",
+            "\n",
+            "Named Event Flags                8\n",
+            "  is_nfp_day, is_fomc_day, is_ecb_day, is_cpi_day\n",
+            "  hours_since_nfp/fomc/ecb/cpi\n",
+            "\n",
+            "High-Vol Proximity               3\n",
+            "  bars_since_last_high_vol (capped 1440)\n",
+            "  high_vol_in_last_1h (binary)\n",
+            "  high_vol_in_last_4h (binary)\n",
+            "\n",
+            "Labels: same as Model 1\n",
+            "  +15p target / -10p stop / 120m horizon\n",
+            "  Long + Short models, CUDA RTX 3070\n",
+            "  Session filter: London + NY only\n",
+            "  Walk-forward: 4 yearly expanding folds",
+        ).to_string(),
         MlSubCardType::Model5 => "Model 5 (Order Flow) - features not yet defined.".to_string(),
         MlSubCardType::Model6 => "Model 6 (Ensemble) - features not yet defined.".to_string(),
+    }
+}
+
+// ============================================================================
+// Economic Calendar --button, poll, status text
+// ============================================================================
+
+/// Handle click on the Economic Calendar button in History BoT.
+/// If table doesn't exist: runs scrape_econcal.py to create + populate it.
+/// If table already exists: runs the same script which prints the last record.
+pub fn handle_econ_cal_btn_click(
+    mut state: ResMut<BotDashboardState>,
+    query: Query<&Interaction, (Changed<Interaction>, With<EconCalBtn>)>,
+) {
+    for interaction in query.iter() {
+        if *interaction != Interaction::Pressed { continue; }
+
+        if state.econ_cal_is_running {
+            state.econ_cal_status = "Already running...".to_string();
+            continue;
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        state.econ_cal_is_running = true;
+        state.econ_cal_status = "Starting...".to_string();
+        state.econ_cal_rx = Some(std::sync::Mutex::new(rx));
+
+        std::thread::spawn(move || {
+            let python = "C:/Users/kushn/AppData/Local/Programs/Python/Python314/python.exe";
+            let result = std::process::Command::new(python)
+                .args(["-u", "-m", "ml.model4_news.scrape_econcal"])
+                .current_dir("C:/Users/kushn/RustProjects/ctrader_rust")
+                .env("PYTHONIOENCODING", "utf-8")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn();
+
+            match result {
+                Err(e) => {
+                    let _ = tx.send(format!("ERROR: {}", e));
+                    let _ = tx.send("__DONE__".to_string());
+                }
+                Ok(mut child) => {
+                    use std::io::BufRead;
+                    if let Some(stdout) = child.stdout.take() {
+                        let reader = std::io::BufReader::new(stdout);
+                        for line in reader.lines() {
+                            match line {
+                                Ok(l)  => { let _ = tx.send(l); }
+                                Err(_) => break,
+                            }
+                        }
+                    }
+                    if let Some(stderr) = child.stderr.take() {
+                        let reader = std::io::BufReader::new(stderr);
+                        for line in reader.lines().flatten() {
+                            if !line.trim().is_empty() {
+                                let _ = tx.send(format!("ERR: {}", line));
+                            }
+                        }
+                    }
+                    let status = child.wait()
+                        .unwrap_or_else(|_| std::process::ExitStatus::default());
+                    // Only overwrite status on error; on success keep the last output line
+                    if status.code().unwrap_or(-1) != 0 {
+                        let _ = tx.send(format!(
+                            "Error (exit code: {})",
+                            status.code().unwrap_or(-1)
+                        ));
+                    }
+                    let _ = tx.send("__DONE__".to_string());
+                }
+            }
+        });
+    }
+}
+
+/// Poll the econcal background thread each frame; update status text.
+pub fn poll_econ_cal(mut state: ResMut<BotDashboardState>) {
+    if !state.econ_cal_is_running { return; }
+
+    // Collect messages into a local vec first to avoid borrow conflicts on state.
+    let mut messages: Vec<String> = Vec::new();
+    let mut done = false;
+
+    if let Some(ref mutex) = state.econ_cal_rx {
+        if let Ok(rx) = mutex.try_lock() {
+            loop {
+                match rx.try_recv() {
+                    Ok(line) => {
+                        if line == "__DONE__" { done = true; break; }
+                        messages.push(line);
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+
+    if let Some(last) = messages.into_iter().last() {
+        state.econ_cal_status = last;
+    }
+    if done {
+        state.econ_cal_is_running = false;
+        state.econ_cal_rx = None;
+    }
+}
+
+/// Sync EconCalStatusText from BotDashboardState.
+pub fn update_econ_cal_status_text(
+    state: Res<BotDashboardState>,
+    mut query: Query<&mut Text, With<EconCalStatusText>>,
+) {
+    if !state.is_changed() { return; }
+    for mut text in query.iter_mut() {
+        **text = state.econ_cal_status.clone();
+    }
+}
+
+/// Hover effect for the Economic Calendar button.
+pub fn update_econ_cal_btn_hover(
+    mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<EconCalBtn>)>,
+) {
+    for (interaction, mut bg) in query.iter_mut() {
+        let new_color = match interaction {
+            Interaction::Pressed  => colors::ACCENT_BLUE,
+            Interaction::Hovered  => colors::BG_BUTTON_ACTIVE,
+            Interaction::None     => colors::BG_BUTTON,
+        };
+        if bg.0 != new_color { bg.0 = new_color; }
+    }
+}
+
+// ── EC Update Button (Update History) ────────────────────────────────────────
+
+/// Handle click on the Update EC button in Update History.
+/// Runs update_econcal.py which appends new events since the last DB record.
+pub fn handle_econ_cal_update_btn_click(
+    mut state: ResMut<BotDashboardState>,
+    query: Query<&Interaction, (Changed<Interaction>, With<EconCalUpdateBtn>)>,
+) {
+    for interaction in query.iter() {
+        if *interaction != Interaction::Pressed { continue; }
+
+        if state.econ_cal_update_is_running {
+            state.econ_cal_update_status = "Already running...".to_string();
+            continue;
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        state.econ_cal_update_is_running = true;
+        state.econ_cal_update_status = "Updating...".to_string();
+        state.econ_cal_update_rx = Some(std::sync::Mutex::new(rx));
+
+        std::thread::spawn(move || {
+            let python = "C:/Users/kushn/AppData/Local/Programs/Python/Python314/python.exe";
+            let result = std::process::Command::new(python)
+                .args(["-u", "-m", "ml.model4_news.update_econcal"])
+                .current_dir("C:/Users/kushn/RustProjects/ctrader_rust")
+                .env("PYTHONIOENCODING", "utf-8")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn();
+
+            match result {
+                Err(e) => {
+                    let _ = tx.send(format!("ERROR: {}", e));
+                    let _ = tx.send("__DONE__".to_string());
+                }
+                Ok(mut child) => {
+                    use std::io::BufRead;
+                    if let Some(stdout) = child.stdout.take() {
+                        let reader = std::io::BufReader::new(stdout);
+                        for line in reader.lines() {
+                            match line {
+                                Ok(l)  => { let _ = tx.send(l); }
+                                Err(_) => break,
+                            }
+                        }
+                    }
+                    if let Some(stderr) = child.stderr.take() {
+                        let reader = std::io::BufReader::new(stderr);
+                        for line in reader.lines().flatten() {
+                            if !line.trim().is_empty() {
+                                let _ = tx.send(format!("ERR: {}", line));
+                            }
+                        }
+                    }
+                    let status = child.wait()
+                        .unwrap_or_else(|_| std::process::ExitStatus::default());
+                    if status.code().unwrap_or(-1) != 0 {
+                        let _ = tx.send(format!(
+                            "Error (exit code: {})",
+                            status.code().unwrap_or(-1)
+                        ));
+                    }
+                    let _ = tx.send("__DONE__".to_string());
+                }
+            }
+        });
+    }
+}
+
+/// Poll the EC update background thread each frame; update status text.
+pub fn poll_econ_cal_update(mut state: ResMut<BotDashboardState>) {
+    if !state.econ_cal_update_is_running { return; }
+
+    let mut messages: Vec<String> = Vec::new();
+    let mut done = false;
+
+    if let Some(ref mutex) = state.econ_cal_update_rx {
+        if let Ok(rx) = mutex.try_lock() {
+            loop {
+                match rx.try_recv() {
+                    Ok(line) => {
+                        if line == "__DONE__" { done = true; break; }
+                        messages.push(line);
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+
+    if let Some(last) = messages.into_iter().last() {
+        state.econ_cal_update_status = last;
+    }
+    if done {
+        state.econ_cal_update_is_running = false;
+        state.econ_cal_update_rx = None;
+    }
+}
+
+/// Sync EconCalUpdateStatusText from BotDashboardState.
+pub fn update_econ_cal_update_status_text(
+    state: Res<BotDashboardState>,
+    mut query: Query<&mut Text, With<EconCalUpdateStatusText>>,
+) {
+    if !state.is_changed() { return; }
+    for mut text in query.iter_mut() {
+        **text = state.econ_cal_update_status.clone();
+    }
+}
+
+/// Hover effect for the Update EC button.
+pub fn update_econ_cal_update_btn_hover(
+    mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<EconCalUpdateBtn>)>,
+) {
+    for (interaction, mut bg) in query.iter_mut() {
+        let new_color = match interaction {
+            Interaction::Pressed  => colors::ACCENT_BLUE,
+            Interaction::Hovered  => colors::BG_BUTTON_ACTIVE,
+            Interaction::None     => colors::BG_BUTTON,
+        };
+        if bg.0 != new_color { bg.0 = new_color; }
+    }
+}
+
+// ============================================================================
+// DoM Capture — Start/Pause button, status text
+// ============================================================================
+
+/// Handle click on the DoM Capture button (Start / Pause toggle).
+pub fn handle_dom_capture_btn_click(
+    mut state: ResMut<BotDashboardState>,
+    query: Query<&Interaction, (Changed<Interaction>, With<DomCaptureBtn>)>,
+    request_tx: Res<crate::data_retrieval::DataRequestSender>,
+) {
+    use crate::data_retrieval::{DataRequest, DataKind, DataAction};
+
+    for interaction in query.iter() {
+        if *interaction != Interaction::Pressed { continue; }
+
+        let action = if state.dom_capture_active {
+            DataAction::DomCaptureStop
+        } else {
+            DataAction::DomCaptureStart
+        };
+
+        let req = DataRequest {
+            symbol: "EURUSD".to_string(),
+            symbol_id: 0, // not used for DoM
+            kind: DataKind::M1Candles, // not used for DoM
+            action,
+            force_rebuild: false,
+        };
+
+        if let Err(e) = request_tx.sender.try_send(req) {
+            state.dom_capture_status = format!("Send error: {}", e);
+        } else {
+            state.dom_capture_active = !state.dom_capture_active;
+            state.dom_capture_status = if state.dom_capture_active {
+                "Starting...".to_string()
+            } else {
+                "Stopping...".to_string()
+            };
+        }
+    }
+}
+
+/// Update DoM capture button text based on active state.
+pub fn update_dom_capture_btn_text(
+    state: Res<BotDashboardState>,
+    query: Query<&Children, With<DomCaptureBtn>>,
+    mut text_query: Query<&mut Text>,
+) {
+    if !state.is_changed() { return; }
+    for children in query.iter() {
+        for &child in children.iter() {
+            if let Ok(mut text) = text_query.get_mut(child) {
+                let label = if state.dom_capture_active { "Pause Capture" } else { "Start Capture" };
+                if text.0 != label { text.0 = label.to_string(); }
+            }
+        }
+    }
+}
+
+/// Sync DomCaptureStatusText from BotDashboardState.
+pub fn update_dom_capture_status_text(
+    state: Res<BotDashboardState>,
+    mut query: Query<&mut Text, With<DomCaptureStatusText>>,
+) {
+    if !state.is_changed() { return; }
+    for mut text in query.iter_mut() {
+        if text.0 != state.dom_capture_status {
+            text.0 = state.dom_capture_status.clone();
+        }
+    }
+}
+
+/// Hover effect for the DoM Capture button.
+pub fn update_dom_capture_btn_hover(
+    mut query: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<DomCaptureBtn>)>,
+) {
+    for (interaction, mut bg) in query.iter_mut() {
+        let new_color = match interaction {
+            Interaction::Pressed  => colors::ACCENT_BLUE,
+            Interaction::Hovered  => colors::BG_BUTTON_ACTIVE,
+            Interaction::None     => colors::BG_BUTTON,
+        };
+        if bg.0 != new_color { bg.0 = new_color; }
     }
 }

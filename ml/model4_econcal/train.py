@@ -1,19 +1,17 @@
 """
-Model 1 — XGBoost Training with Walk-Forward Validation
-=========================================================
+Model 4 — Economic Calendar XGBoost Training
+==============================================
 Run from the project root:
 
-    python -m ml.model1_technical.train
-
-Or directly:
-
-    cd c:/Users/kushn/RustProjects/ctrader_rust
-    python ml/model1_technical/train.py
+    python -m ml.model4_econcal.train
 
 Outputs:
-    ml/trained/model1_technical.json   ← final model trained on all data
-    ml/trained/model1_feature_names.txt
-    ml/trained/model1_metrics.json     ← walk-forward CV results
+    ml/trained/model4_long.json              <- long  model
+    ml/trained/model4_short.json             <- short model
+    ml/trained/model4_long_feature_names.txt
+    ml/trained/model4_short_feature_names.txt
+    ml/trained/model4_metrics.json           <- walk-forward CV results (long)
+    ml/trained/model4_metrics_combined.json  <- long + short combined
 """
 
 import gc
@@ -34,16 +32,12 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-# Add project root to path when running directly
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from ml.model1_technical.features import (
-    load_candles, load_tick_features, add_tick_features, compute_features,
-    load_cross_pair_candles, compute_cross_pair_features, add_regime_feature,
-    load_order_flow_features, add_order_flow_features,
-)
-from ml.model1_technical.labels import build_dataset, build_dataset_dual
+from ml.model1_technical.features import load_candles
+from ml.model1_technical.labels import build_dataset_dual
+from ml.model4_econcal.features import load_ec_events, compute_ec_features
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -52,37 +46,31 @@ CONFIG = {
     "db_path":       "Bots_db/Algo_EURUSD.duckdb",
     "table":         "eurusd_m1",
 
-    # Label parameters
+    # Label parameters (same as Model 1)
     "target_pips":   15,
     "stop_pips":     10,
-    "horizon_bars":  120,     # 2 hours
+    "horizon_bars":  120,
 
-    # Walk-forward: number of yearly folds
-    "n_folds":       4,       # e.g. test on 2022, 2023, 2024, 2025
+    # Walk-forward
+    "n_folds":       4,
 
-    # Decision threshold for precision/recall (not for training)
+    # Decision threshold
     "threshold":     0.50,
 
-    # Train both a long model and a short model
+    # Train both directions
     "train_short_model": True,
-
-    # Regime filter: restrict training to favorable HMM states (requires Model 2)
-    # LONG  model trains on: "Trending Up" + "Ranging" bars only
-    # SHORT model trains on: "Trending Down" + "Ranging" bars only
-    # Set to False to train on all regimes (old behaviour)
-    "regime_filter": True,
 
     # XGBoost hyperparameters
     "xgb_params": {
-        "n_estimators":       800,
+        "n_estimators":       600,
         "max_depth":          4,
         "learning_rate":      0.05,
         "subsample":          0.75,
         "colsample_bytree":   0.7,
-        "min_child_weight":   5,     # reduced: allow finer splits → higher recall
+        "min_child_weight":   5,
         "reg_alpha":          0.3,
         "reg_lambda":         1.5,
-        "scale_pos_weight":   1.0,   # set per-fold from class balance
+        "scale_pos_weight":   1.0,
         "eval_metric":        "logloss",
         "early_stopping_rounds": 40,
         "random_state":       42,
@@ -99,27 +87,15 @@ CONFIG = {
 # ── Walk-forward validation ───────────────────────────────────────────────────
 
 def walk_forward_splits(dataset: pd.DataFrame, n_folds: int):
-    """
-    Expanding-window walk-forward splits.
-
-    Example with n_folds=4 and data 2010–2025:
-        Fold 0: train 2010–2021, test 2022
-        Fold 1: train 2010–2022, test 2023
-        Fold 2: train 2010–2023, test 2024
-        Fold 3: train 2010–2024, test 2025
-
-    Returns list of (train_idx, test_idx, test_year) tuples.
-    """
+    """Expanding-window walk-forward splits (identical to Model 1)."""
     years = sorted(dataset.index.year.unique())
     if len(years) < n_folds + 1:
         raise ValueError(
             f"Not enough years ({len(years)}) for {n_folds} folds. "
             f"Need at least {n_folds + 1} years."
         )
-
-    test_years = years[-(n_folds):]
-    splits     = []
-
+    test_years = years[-n_folds:]
+    splits = []
     for test_year in test_years:
         train_mask = dataset.index.year < test_year
         test_mask  = dataset.index.year == test_year
@@ -128,12 +104,11 @@ def walk_forward_splits(dataset: pd.DataFrame, n_folds: int):
             np.where(test_mask)[0],
             test_year,
         ))
-
     return splits
 
 
 def evaluate_fold(y_true, y_proba, threshold: float, fold_label: str) -> dict:
-    """Compute all metrics for one fold, with precision-recall at multiple thresholds."""
+    """Compute metrics for one fold."""
     y_pred = (y_proba >= threshold).astype(int)
 
     acc   = accuracy_score(y_true, y_pred)
@@ -177,17 +152,17 @@ def evaluate_fold(y_true, y_proba, threshold: float, fold_label: str) -> dict:
 def prune_features(model: xgb.XGBClassifier,
                    feature_names: list[str],
                    keep_top: int = 50) -> list[str]:
-    """Return top-N features by XGBoost feature importance (gain)."""
+    """Return top-N features by XGBoost gain importance."""
     importances = model.feature_importances_
-    ranked      = sorted(zip(feature_names, importances),
-                         key=lambda x: x[1], reverse=True)
-    top         = [name for name, _ in ranked[:keep_top]]
+    ranked = sorted(zip(feature_names, importances),
+                    key=lambda x: x[1], reverse=True)
+    top = [name for name, _ in ranked[:keep_top]]
     print(f"\nTop {keep_top} features selected (from {len(feature_names)})")
     print("  Top 10:", [name for name, _ in ranked[:10]])
     return top
 
 
-# ── Main training pipeline ────────────────────────────────────────────────────
+# ── One-direction training ────────────────────────────────────────────────────
 
 def _train_one_direction(
     X: np.ndarray,
@@ -196,11 +171,7 @@ def _train_one_direction(
     feature_cols: list[str],
     direction: str,
 ) -> tuple:
-    """
-    Run walk-forward CV + final model training for one direction (long or short).
-
-    Returns (final_model, top_features, fold_metrics, avg_metrics).
-    """
+    """Walk-forward CV + final model for one direction."""
     print(f"\n{'='*60}")
     print(f"  Training {direction.upper()} model")
     print(f"{'='*60}")
@@ -244,8 +215,8 @@ def _train_one_direction(
     for k, v in avg.items():
         print(f"    {k:<12}: {v:.4f}")
 
-    # Final model on full data with top features
-    top_features = prune_features(best_model, feature_cols, keep_top=70)
+    # Final model on full data with pruned features
+    top_features = prune_features(best_model, feature_cols, keep_top=50)
     top_idx      = [feature_cols.index(f) for f in top_features]
     X_pruned     = X[:, top_idx]
 
@@ -253,10 +224,10 @@ def _train_one_direction(
     spw_all      = (1 - pos_frac_all) / (pos_frac_all + 1e-10)
     final_params = {**CONFIG["xgb_params"]}
     final_params.pop("early_stopping_rounds", None)
-    final_params["n_estimators"]     = (
+    final_params["n_estimators"] = (
         best_model.best_iteration + 1
         if hasattr(best_model, "best_iteration") and best_model.best_iteration
-        else 400
+        else 300
     )
     final_params["scale_pos_weight"] = round(spw_all, 2)
 
@@ -266,114 +237,45 @@ def _train_one_direction(
     return final_model, top_features, fold_metrics, avg
 
 
+# ── Main training pipeline ────────────────────────────────────────────────────
+
 def train():
     t0 = time.time()
     print("=" * 60)
-    print("Model 1 — Technical Indicators XGBoost Training")
+    print("Model 4 — Economic Calendar XGBoost Training")
     print("=" * 60)
 
     # ── 1. Load raw candles ──────────────────────────────────────────────────
-    print("\n[1/6] Loading candles...")
+    print("\n[1/5] Loading M1 candles...")
     df_raw = load_candles(CONFIG["db_path"], CONFIG["table"])
 
-    # ── 2. Compute features ──────────────────────────────────────────────────
-    print("\n[2/6] Computing features...")
-    df_features = compute_features(df_raw)
-
-    print("\n      Loading tick features from eurusd_tick_features_m1...")
-    df_ticks = load_tick_features(CONFIG["db_path"])
-    df_features = add_tick_features(
-        df_features, df_ticks, target_pips=CONFIG["target_pips"]
-    )
-    del df_ticks
-    gc.collect()
-
-    print("\n      Loading cross-pair M1 data (GBPUSD, USDJPY, USDCHF, AUDUSD, EURJPY, XAUUSD)...")
-    cross_closes = load_cross_pair_candles(CONFIG["db_path"])
-    if cross_closes:
-        df_cross = compute_cross_pair_features(df_raw, cross_closes)
-        df_features = df_features.join(df_cross, how="left")
-        del df_cross
-    del cross_closes
-    gc.collect()
-
-    print("\n      Loading order flow delta from tick data...")
-    try:
-        df_of = load_order_flow_features(CONFIG["db_path"])
-        df_features = add_order_flow_features(df_features, df_of)
-        del df_of
-    except Exception as e:
-        print(f"      WARNING: order flow failed ({e}) — skipping")
-    gc.collect()
-
-    print("\n      Adding Model 2 regime feature...")
-    df_features = add_regime_feature(df_features, df_raw)
+    # ── 2. Load EC events & compute features ─────────────────────────────────
+    print("\n[2/5] Loading economic calendar & computing features...")
+    df_ec = load_ec_events(CONFIG["db_path"])
+    print(f"  Loaded {len(df_ec):,} released events "
+          f"({df_ec.index[0].date()} -> {df_ec.index[-1].date()})")
+    df_features = compute_ec_features(df_raw.index, df_ec)
+    del df_ec
     gc.collect()
 
     df_features = df_features.astype("float32")
-    gc.collect()
 
     # ── 3. Build labeled datasets (long + short) ─────────────────────────────
-    print("\n[3/6] Building labeled datasets (long + short)...")
-    if CONFIG.get("train_short_model", False):
-        dataset_long, dataset_short = build_dataset_dual(
-            df_raw,
-            df_features,
-            target_pips        = CONFIG["target_pips"],
-            stop_pips          = CONFIG["stop_pips"],
-            horizon            = CONFIG["horizon_bars"],
-            session_filter     = True,
-            wide_spread_filter = 1.5,
-        )
-    else:
-        dataset_long = build_dataset(
-            df_raw,
-            df_features,
-            target_pips        = CONFIG["target_pips"],
-            stop_pips          = CONFIG["stop_pips"],
-            horizon            = CONFIG["horizon_bars"],
-            session_filter     = True,
-            use_fast_labels    = True,
-            wide_spread_filter = 1.5,
-        )
-        dataset_short = None
+    print("\n[3/5] Building labeled datasets (long + short)...")
+    dataset_long, dataset_short = build_dataset_dual(
+        df_raw,
+        df_features,
+        target_pips        = CONFIG["target_pips"],
+        stop_pips          = CONFIG["stop_pips"],
+        horizon            = CONFIG["horizon_bars"],
+        session_filter     = True,
+        wide_spread_filter = 1.5,
+    )
 
     del df_raw, df_features
     gc.collect()
 
-    # ── 3b. Regime filter: restrict to favorable HMM states ─────────────────
-    if CONFIG.get("regime_filter", True):
-        map_path = Path(CONFIG["model_dir"]) / "model2_state_map.json"
-        if map_path.exists() and "regime_state" in dataset_long.columns:
-            state_map = {int(k): v for k, v in json.loads(map_path.read_text()).items()}
-            print(f"\n[3b] Applying regime filter using {map_path.name}:")
-            print(f"     State map: { {k: v for k, v in sorted(state_map.items())} }")
-
-            # States that are favorable for each direction
-            long_ok  = {sid for sid, lbl in state_map.items()
-                        if lbl in ("Trending Up", "Ranging")}
-            short_ok = {sid for sid, lbl in state_map.items()
-                        if lbl in ("Trending Down", "Ranging")}
-
-            before = len(dataset_long)
-            dataset_long = dataset_long[dataset_long["regime_state"].isin(long_ok)]
-            kept_pct = len(dataset_long) / before * 100
-            print(f"     LONG : {before:,} → {len(dataset_long):,} rows ({kept_pct:.1f}% kept)"
-                  f" — states: { [state_map[s] for s in sorted(long_ok)] }")
-
-            if dataset_short is not None:
-                before = len(dataset_short)
-                dataset_short = dataset_short[dataset_short["regime_state"].isin(short_ok)]
-                kept_pct = len(dataset_short) / before * 100
-                print(f"     SHORT: {before:,} → {len(dataset_short):,} rows ({kept_pct:.1f}% kept)"
-                      f" — states: { [state_map[s] for s in sorted(short_ok)] }")
-        else:
-            if not map_path.exists():
-                print(f"\n[3b] Regime filter: {map_path.name} not found — train Model 2 first, skipping")
-            else:
-                print(f"\n[3b] Regime filter: 'regime_state' column not in dataset — skipping")
-
-    # ── Helper: clean dataset → X, y arrays ─────────────────────────────────
+    # ── Helper: clean dataset -> X, y arrays ─────────────────────────────────
     def prepare_arrays(dataset: pd.DataFrame):
         feature_cols = [c for c in dataset.columns if c != "label"]
         df_feat      = dataset[feature_cols].replace([np.inf, -np.inf], np.nan)
@@ -386,11 +288,11 @@ def train():
         X = df_feat.to_numpy(dtype=np.float32)
         y = dataset["label"].to_numpy(dtype=np.int32)
         print(f"  Final: {X.shape[0]:,} rows x {X.shape[1]} features "
-              f"({dataset.index[0].date()} → {dataset.index[-1].date()})")
+              f"({dataset.index[0].date()} -> {dataset.index[-1].date()})")
         return X, y, dataset, feature_cols
 
     # ── 4. Walk-forward CV ───────────────────────────────────────────────────
-    print("\n[4/6] Walk-forward validation (LONG)...")
+    print("\n[4/5] Walk-forward validation (LONG)...")
     X_long, y_long, dataset_long, feat_cols_long = prepare_arrays(dataset_long)
 
     long_model, long_features, long_fold_metrics, long_avg = _train_one_direction(
@@ -398,37 +300,33 @@ def train():
     )
 
     short_model, short_features, short_fold_metrics, short_avg = None, [], [], {}
-    if dataset_short is not None:
-        print("\n[5/6] Walk-forward validation (SHORT)...")
+    if dataset_short is not None and CONFIG.get("train_short_model", True):
+        print("\n      Walk-forward validation (SHORT)...")
         X_short, y_short, dataset_short, feat_cols_short = prepare_arrays(dataset_short)
         short_model, short_features, short_fold_metrics, short_avg = _train_one_direction(
             X_short, y_short, dataset_short, feat_cols_short, "SHORT"
         )
-    else:
-        print("\n[5/6] Skipped (train_short_model=False)")
 
-    # ── 5 & 6. Save outputs ──────────────────────────────────────────────────
-    print("\n[6/6] Saving models...")
+    # ── 5. Save outputs ──────────────────────────────────────────────────────
+    print("\n[5/5] Saving models...")
     model_dir = Path(CONFIG["model_dir"])
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Long model (also saved as model1_technical.json for backward compatibility)
-    long_path  = model_dir / "model1_long.json"
-    compat_path = model_dir / "model1_technical.json"
-    long_names_path = model_dir / "model1_long_feature_names.txt"
+    # Long model
+    long_path = model_dir / "model4_long.json"
+    long_names_path = model_dir / "model4_long_feature_names.txt"
     long_model.save_model(str(long_path))
-    long_model.save_model(str(compat_path))
     long_names_path.write_text("\n".join(long_features))
 
     # Short model
     if short_model is not None:
-        short_path = model_dir / "model1_short.json"
-        short_names_path = model_dir / "model1_short_feature_names.txt"
+        short_path = model_dir / "model4_short.json"
+        short_names_path = model_dir / "model4_short_feature_names.txt"
         short_model.save_model(str(short_path))
         short_names_path.write_text("\n".join(short_features))
 
-    # model1_metrics.json — flat format, long model only (UI reads this)
-    metrics_path = model_dir / "model1_metrics.json"
+    # model4_metrics.json — flat format, long model only (UI reads this)
+    metrics_path = model_dir / "model4_metrics.json"
     metrics_path.write_text(json.dumps({
         "config":          CONFIG,
         "fold_metrics":    long_fold_metrics,
@@ -437,8 +335,8 @@ def train():
         "feature_names":   long_features,
     }, indent=2, default=str))
 
-    # model1_metrics_combined.json — nested long + short (for future use)
-    (model_dir / "model1_metrics_combined.json").write_text(json.dumps({
+    # model4_metrics_combined.json — nested long + short
+    (model_dir / "model4_metrics_combined.json").write_text(json.dumps({
         "config": CONFIG,
         "long": {
             "fold_metrics":    long_fold_metrics,
@@ -455,7 +353,7 @@ def train():
     }, indent=2, default=str))
 
     elapsed = time.time() - t0
-    print(f"\nSaved: {long_path}, {compat_path}")
+    print(f"\nSaved: {long_path}")
     if short_model:
         print(f"Saved: {short_path}")
     print(f"Saved: {metrics_path}")
@@ -464,29 +362,19 @@ def train():
     return long_model, long_features, long_avg
 
 
-# ── Inference helper (used by live Rust ↔ Python bridge later) ───────────────
+# ── Inference helper ──────────────────────────────────────────────────────────
 
 def load_model(model_dir: str = "ml/trained", direction: str = "long"):
-    """
-    Load a saved Model 1 for inference.
-
-    Args:
-        direction: "long" or "short"
-
-    Returns (model, feature_names) ready for predict_proba().
-    """
+    """Load a saved Model 4 for inference. Returns (model, feature_names)."""
     d = Path(model_dir)
     model = xgb.XGBClassifier()
 
-    if direction == "short" and (d / "model1_short.json").exists():
-        model.load_model(str(d / "model1_short.json"))
-        names_file = d / "model1_short_feature_names.txt"
+    if direction == "short" and (d / "model4_short.json").exists():
+        model.load_model(str(d / "model4_short.json"))
+        names_file = d / "model4_short_feature_names.txt"
     else:
-        # Fall back to model1_technical.json (long model / backward compat)
-        model.load_model(str(d / "model1_technical.json"))
-        names_file = (d / "model1_long_feature_names.txt"
-                      if (d / "model1_long_feature_names.txt").exists()
-                      else d / "model1_feature_names.txt")
+        model.load_model(str(d / "model4_long.json"))
+        names_file = d / "model4_long_feature_names.txt"
 
     feature_names = names_file.read_text().strip().splitlines()
     return model, feature_names

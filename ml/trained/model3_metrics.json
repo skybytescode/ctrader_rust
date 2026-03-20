@@ -1,0 +1,123 @@
+{
+  "config": {
+    "db_path": "Bots_db/Algo_EURUSD.duckdb",
+    "table": "eurusd_m1",
+    "window_size": 60,
+    "n_channels": 5,
+    "target_pips": 15,
+    "stop_pips": 10,
+    "horizon_bars": 120,
+    "n_folds": 4,
+    "threshold": 0.5,
+    "dropout": 0.3,
+    "batch_size": 2048,
+    "max_epochs": 100,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "patience": 15,
+    "train_short_model": true,
+    "model_dir": "ml/trained"
+  },
+  "long": {
+    "fold_metrics": [
+      {
+        "accuracy": 0.7126,
+        "precision": 0.5849,
+        "recall": 0.7634,
+        "roc_auc": 0.791,
+        "log_loss": 0.5798,
+        "signals": 44109,
+        "test_bars": 91529,
+        "test_year": 2023
+      },
+      {
+        "accuracy": 0.7075,
+        "precision": 0.5575,
+        "recall": 0.6707,
+        "roc_auc": 0.7661,
+        "log_loss": 0.5802,
+        "signals": 28608,
+        "test_bars": 70059,
+        "test_year": 2024
+      },
+      {
+        "accuracy": 0.7297,
+        "precision": 0.5895,
+        "recall": 0.7731,
+        "roc_auc": 0.8081,
+        "log_loss": 0.5594,
+        "signals": 43145,
+        "test_bars": 93136,
+        "test_year": 2025
+      },
+      {
+        "accuracy": 0.7244,
+        "precision": 0.5818,
+        "recall": 0.7842,
+        "roc_auc": 0.8073,
+        "log_loss": 0.5577,
+        "signals": 8594,
+        "test_bars": 18031,
+        "test_year": 2026
+      }
+    ],
+    "avg_metrics": {
+      "accuracy": 0.7186,
+      "precision": 0.5784,
+      "recall": 0.7478,
+      "roc_auc": 0.7931,
+      "log_loss": 0.5693
+    }
+  },
+  "short": {
+    "fold_metrics": [
+      {
+        "accuracy": 0.7308,
+        "precision": 0.6184,
+        "recall": 0.7111,
+        "roc_auc": 0.7925,
+        "log_loss": 0.547,
+        "signals": 39111,
+        "test_bars": 91938,
+        "test_year": 2023
+      },
+      {
+        "accuracy": 0.7113,
+        "precision": 0.5795,
+        "recall": 0.7192,
+        "roc_auc": 0.7838,
+        "log_loss": 0.5741,
+        "signals": 32208,
+        "test_bars": 72158,
+        "test_year": 2024
+      },
+      {
+        "accuracy": 0.7119,
+        "precision": 0.5991,
+        "recall": 0.7829,
+        "roc_auc": 0.7969,
+        "log_loss": 0.5679,
+        "signals": 46335,
+        "test_bars": 91180,
+        "test_year": 2025
+      },
+      {
+        "accuracy": 0.7088,
+        "precision": 0.5828,
+        "recall": 0.8386,
+        "roc_auc": 0.8099,
+        "log_loss": 0.5952,
+        "signals": 9994,
+        "test_bars": 18164,
+        "test_year": 2026
+      }
+    ],
+    "avg_metrics": {
+      "accuracy": 0.7157,
+      "precision": 0.5949,
+      "recall": 0.763,
+      "roc_auc": 0.7958,
+      "log_loss": 0.5711
+    }
+  }
+}

@@ -35,7 +35,7 @@ CONFIG = {
     "start_year": 2013,
     "n_states":   4,
     "n_iter":     100,
-    "tol":        1e-5,
+    "tol":        1e-4,
     "n_restarts": 5,      # multiple EM restarts → pick best log-likelihood
     "stride":     3,      # use every Nth bar (reduces ~4.8M → ~1.6M, still robust)
     "model_dir":  "ml/trained",

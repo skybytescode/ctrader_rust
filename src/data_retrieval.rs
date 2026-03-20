@@ -32,6 +32,10 @@ pub enum DataAction {
     MergeBidAsk,
     /// Build ML feature table (tick features joined with M1 candles)
     BuildMLFeatures,
+    /// Start capturing live DoM depth quotes to DuckDB
+    DomCaptureStart,
+    /// Pause/stop DoM depth quote capture
+    DomCaptureStop,
 }
 
 // ============================================================================

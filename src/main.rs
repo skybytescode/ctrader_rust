@@ -40,6 +40,8 @@ pub enum PriceUpdate {
     ConnectionStatus(String),
     /// Symbol name → cTrader symbol_id mapping (sent once after auth)
     SymbolMapping(std::collections::HashMap<String, i64>),
+    /// DoM capture status update
+    DomCaptureStatus(String),
 }
 
 /// Resource to hold the receiver for price updates
@@ -57,9 +59,75 @@ enum AuthState {
     Subscribed,
 }
 
+/// Spawn the econcal Node.js proxy server as a background process.
+/// Streams its stdout/stderr to our stdout so startup status is visible.
+/// If Node.js is not found or port 6000 is already in use, logs and continues.
+fn start_econcal_server() {
+    std::thread::spawn(|| {
+        let econcal_dir = "C:/Users/kushn/RustProjects/ctrader_rust/econcal";
+
+        // Skip if something is already listening on port 6000
+        if std::net::TcpStream::connect("127.0.0.1:6000").is_ok() {
+            println!("[econcal] Port 6000 already in use — skipping launch.");
+            return;
+        }
+
+        println!("[econcal] Starting proxy server (node econcal.js)...");
+
+        // Install dependencies if node_modules is missing
+        if !std::path::Path::new(econcal_dir).join("node_modules").exists() {
+            println!("[econcal] node_modules not found, running npm install...");
+            match std::process::Command::new("npm")
+                .args(["install", "--prefer-offline"])
+                .current_dir(econcal_dir)
+                .status()
+            {
+                Ok(s) if s.success() => println!("[econcal] npm install done."),
+                Ok(s) => println!("[econcal] npm install exited: {}", s),
+                Err(e) => println!("[econcal] npm install failed: {}", e),
+            }
+        }
+
+        let result = std::process::Command::new("node")
+            .arg("econcal.js")
+            .current_dir(econcal_dir)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn();
+
+        match result {
+            Err(e) => {
+                println!("[econcal] Failed to start: {} (is Node.js installed?)", e);
+            }
+            Ok(mut child) => {
+                use std::io::BufRead;
+                // Stream stdout
+                if let Some(stdout) = child.stdout.take() {
+                    let reader = std::io::BufReader::new(stdout);
+                    for line in reader.lines().flatten() {
+                        println!("[econcal] {}", line);
+                    }
+                }
+                // Capture stderr
+                if let Some(stderr) = child.stderr.take() {
+                    let reader = std::io::BufReader::new(stderr);
+                    for line in reader.lines().flatten() {
+                        println!("[econcal] ERR: {}", line);
+                    }
+                }
+                let _ = child.wait();
+                println!("[econcal] Server process exited.");
+            }
+        }
+    });
+}
+
 fn main() {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
+
+    // Start the econcal FXStreet proxy server in the background
+    start_econcal_server();
 
     // Create channel for price updates (network -> Bevy)
     let (tx, rx) = mpsc::channel::<PriceUpdate>(100);
@@ -168,6 +236,7 @@ fn process_price_updates(
     mut app_state: ResMut<AppState>,
     mut receiver: ResMut<PriceUpdateReceiver>,
     mut symbol_map: ResMut<SymbolIdMap>,
+    mut dashboard: ResMut<ui::bevy_ui::resources::BotDashboardState>,
 ) {
     // Process all pending updates
     while let Ok(update) = receiver.receiver.try_recv() {
@@ -183,6 +252,9 @@ fn process_price_updates(
             PriceUpdate::SymbolMapping(mapping) => {
                 println!("Received symbol mapping: {} symbols", mapping.len());
                 symbol_map.name_to_id = mapping;
+            }
+            PriceUpdate::DomCaptureStatus(status) => {
+                dashboard.dom_capture_status = status;
             }
         }
     }
@@ -256,7 +328,7 @@ async fn run_session(
     // All symbols whose IDs we need (cross-pairs for M1 data downloads, ID lookup only)
     let instruments_need_id: Vec<&str> = vec![
         "EURUSD",
-        "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "EURJPY",
+        "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "EURJPY", "XAUUSD",
     ];
 
     let mut last_heartbeat = tokio::time::Instant::now();
@@ -265,6 +337,21 @@ async fn run_session(
 
     // Active download state for historical data retrieval
     let mut active_download: Option<ActiveDownload> = None;
+
+    // ── DoM capture state ────────────────────────────────────────────────
+    let mut dom_capturing = false;
+    // In-memory order book: quote_id → (side, price, size)
+    // side: 0=bid, 1=ask
+    let mut dom_book: std::collections::HashMap<u64, (u8, i32, i64)> = std::collections::HashMap::new();
+    // Batch buffer for DuckDB writes (flushed periodically)
+    let mut dom_batch: Vec<(i64, u8, u64, u8, i32, i64)> = Vec::with_capacity(10_000);
+    let mut dom_last_flush = tokio::time::Instant::now();
+    let mut dom_db: Option<duckdb::Connection> = None;
+    let mut dom_total_rows: u64 = 0;
+    let mut dom_last_status_update = tokio::time::Instant::now();
+    let mut dom_rows_since_status: u64 = 0;
+    // EURUSD symbol_id for DoM subscription (resolved after symbol list)
+    let mut dom_eurusd_id: Option<i64> = None;
 
     loop {
         let mut header = [0u8; 4];
@@ -365,6 +452,15 @@ async fn run_session(
                                     .map(|(&id, name)| (name.clone(), id))
                                     .collect();
                                 let _ = tx.send(PriceUpdate::SymbolMapping(reverse_map)).await;
+
+                                // Capture EURUSD symbol_id for DoM subscription
+                                for (&id, name) in &symbol_id_to_name {
+                                    if name == "EURUSD" {
+                                        dom_eurusd_id = Some(id);
+                                        println!("DoM: EURUSD symbol_id = {}", id);
+                                        break;
+                                    }
+                                }
                             } else {
                                 println!("Error: No symbols found in account symbol list.");
                                 break;
@@ -441,6 +537,84 @@ async fn run_session(
                                 &mut active_download,
                             ).await?;
                         }
+                    },
+                    2155 => { // ProtoOADepthEvent
+                        if dom_capturing {
+                            if let Some(payload) = &msg.payload {
+                                let event = openapi::ProtoOaDepthEvent::decode(payload.as_slice())?;
+                                let now_ms = chrono::Utc::now().timestamp_millis();
+
+                                // Process new/updated quotes
+                                for q in &event.new_quotes {
+                                    let (side, price) = if let Some(bid) = q.bid {
+                                        (0u8, bid as i32)
+                                    } else if let Some(ask) = q.ask {
+                                        (1u8, ask as i32)
+                                    } else {
+                                        continue;
+                                    };
+                                    let size = q.size as i64;
+                                    dom_book.insert(q.id, (side, price, size));
+                                    dom_batch.push((now_ms, 0, q.id, side, price, size));
+                                }
+
+                                // Process deleted quotes
+                                for &qid in &event.deleted_quotes {
+                                    if let Some((side, price, _size)) = dom_book.remove(&qid) {
+                                        dom_batch.push((now_ms, 1, qid, side, price, 0));
+                                    }
+                                }
+
+                                // Flush batch to DuckDB every 2 seconds or when buffer is large
+                                if dom_batch.len() >= 5_000
+                                    || dom_last_flush.elapsed() > Duration::from_secs(2)
+                                {
+                                    let flushed = dom_batch.len() as u64;
+                                    if let Some(ref db) = dom_db {
+                                        let mut appender = db.appender("eurusd_dom_raw")
+                                            .unwrap_or_else(|e| panic!("DoM appender failed: {}", e));
+                                        for &(ts, etype, qid, side, price, size) in &dom_batch {
+                                            let _ = appender.append_row(duckdb::params![
+                                                ts, etype as i8, qid as i64, side as i8, price, size
+                                            ]);
+                                        }
+                                        let _ = appender.flush();
+                                        dom_total_rows += flushed;
+                                        dom_rows_since_status += flushed;
+                                    }
+                                    dom_batch.clear();
+                                    dom_last_flush = tokio::time::Instant::now();
+
+                                    // Send status update to UI every 5 seconds
+                                    if dom_last_status_update.elapsed() > Duration::from_secs(5) {
+                                        let elapsed_secs = dom_last_status_update.elapsed().as_secs_f64();
+                                        let rows_per_sec = (dom_rows_since_status as f64 / elapsed_secs) as u64;
+                                        let now_local = chrono::Local::now();
+                                        let status = format!(
+                                            "Active | {} rows/s | {} total | DB updated: {}",
+                                            rows_per_sec,
+                                            dom_total_rows,
+                                            now_local.format("%H:%M:%S"),
+                                        );
+                                        let _ = tx.send(PriceUpdate::DomCaptureStatus(status)).await;
+                                        dom_rows_since_status = 0;
+                                        dom_last_status_update = tokio::time::Instant::now();
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    2157 => { // ProtoOASubscribeDepthQuotesRes
+                        println!("DoM: subscription confirmed");
+                        let _ = tx.send(PriceUpdate::DomCaptureStatus(
+                            "DoM capture active".to_string()
+                        )).await;
+                    },
+                    2159 => { // ProtoOAUnsubscribeDepthQuotesRes
+                        println!("DoM: unsubscribed");
+                        let _ = tx.send(PriceUpdate::DomCaptureStatus(
+                            "DoM capture paused".to_string()
+                        )).await;
                     },
                     2142 => { // ProtoOAErrorRes
                         if let Some(payload) = &msg.payload {
@@ -528,6 +702,147 @@ async fn run_session(
             }
             // Receive data requests from Bevy UI
             Some(request) = request_rx.recv() => {
+                // Handle DoM capture start/stop separately
+                match request.action {
+                    DataAction::DomCaptureStart => {
+                        if let Some(eurusd_id) = dom_eurusd_id {
+                            if !dom_capturing {
+                                // Open DuckDB connection and create table if needed
+                                if dom_db.is_none() {
+                                    let db = duckdb::Connection::open("Bots_db/Algo_EURUSD.duckdb")
+                                        .expect("Failed to open DuckDB for DoM");
+                                    db.execute_batch("
+                                        CREATE TABLE IF NOT EXISTS eurusd_dom_raw (
+                                            ts_ms        BIGINT NOT NULL,
+                                            event_type   TINYINT NOT NULL,
+                                            quote_id     BIGINT NOT NULL,
+                                            side         TINYINT,
+                                            price        INTEGER,
+                                            size         BIGINT
+                                        );
+                                    ").expect("Failed to create eurusd_dom_raw table");
+                                    // Auto-cleanup: delete data older than 8 weeks
+                                    let cutoff_ms = chrono::Utc::now().timestamp_millis()
+                                        - (8 * 7 * 24 * 3600 * 1000_i64);
+                                    let _ = db.execute(
+                                        "DELETE FROM eurusd_dom_raw WHERE ts_ms < ?",
+                                        duckdb::params![cutoff_ms],
+                                    );
+                                    // Read existing row count and last timestamp
+                                    let existing: (u64, String) = match db.query_row(
+                                        "SELECT COUNT(*), COALESCE(MAX(ts_ms)::VARCHAR, '0') FROM eurusd_dom_raw",
+                                        [],
+                                        |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, String>(1)?)),
+                                    ) {
+                                        Ok(v) => v,
+                                        Err(_) => (0, "0".to_string()),
+                                    };
+                                    dom_total_rows = existing.0;
+                                    let last_ts_ms: i64 = existing.1.parse().unwrap_or(0);
+                                    let last_str = if last_ts_ms > 0 {
+                                        chrono::DateTime::from_timestamp_millis(last_ts_ms)
+                                            .map(|dt| dt.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string())
+                                            .unwrap_or_default()
+                                    } else {
+                                        "none".to_string()
+                                    };
+                                    println!("DoM: DB has {} existing rows, last: {}", dom_total_rows, last_str);
+
+                                    dom_db = Some(db);
+                                }
+
+                                // Subscribe to DoM
+                                let subscribe = openapi::ProtoOaSubscribeDepthQuotesReq {
+                                    payload_type: Some(
+                                        openapi::ProtoOaPayloadType::ProtoOaSubscribeDepthQuotesReq as i32
+                                    ),
+                                    ctid_trader_account_id: account_id,
+                                    symbol_id: vec![eurusd_id],
+                                };
+                                send_message(
+                                    &mut tls_stream,
+                                    openapi::ProtoOaPayloadType::ProtoOaSubscribeDepthQuotesReq as u32,
+                                    subscribe,
+                                ).await?;
+                                dom_capturing = true;
+                                dom_book.clear();
+                                dom_batch.clear();
+                                dom_rows_since_status = 0;
+                                dom_last_status_update = tokio::time::Instant::now();
+                                // Read last record time from DB for status display
+                                let dom_start_msg = if let Some(ref db) = dom_db {
+                                    match db.query_row(
+                                        "SELECT COALESCE(MAX(ts_ms), 0) FROM eurusd_dom_raw",
+                                        [],
+                                        |row| row.get::<_, i64>(0),
+                                    ) {
+                                        Ok(ts) if ts > 0 => {
+                                            let last = chrono::DateTime::from_timestamp_millis(ts)
+                                                .map(|dt| dt.with_timezone(&chrono::Local)
+                                                    .format("%Y-%m-%d %H:%M:%S").to_string())
+                                                .unwrap_or_default();
+                                            format!("Starting... ({} existing, last: {})",
+                                                dom_total_rows, last)
+                                        }
+                                        _ => format!("Starting... ({} existing)", dom_total_rows),
+                                    }
+                                } else {
+                                    "Starting...".to_string()
+                                };
+                                println!("DoM: subscribing to EURUSD depth (id={})", eurusd_id);
+                                let _ = tx.send(PriceUpdate::DomCaptureStatus(dom_start_msg)).await;
+                            }
+                        } else {
+                            let _ = tx.send(PriceUpdate::DomCaptureStatus(
+                                "Error: EURUSD symbol_id not found".to_string()
+                            )).await;
+                        }
+                        continue;
+                    }
+                    DataAction::DomCaptureStop => {
+                        if dom_capturing {
+                            if let Some(eurusd_id) = dom_eurusd_id {
+                                let unsubscribe = openapi::ProtoOaUnsubscribeDepthQuotesReq {
+                                    payload_type: Some(
+                                        openapi::ProtoOaPayloadType::ProtoOaUnsubscribeDepthQuotesReq as i32
+                                    ),
+                                    ctid_trader_account_id: account_id,
+                                    symbol_id: vec![eurusd_id],
+                                };
+                                send_message(
+                                    &mut tls_stream,
+                                    openapi::ProtoOaPayloadType::ProtoOaUnsubscribeDepthQuotesReq as u32,
+                                    unsubscribe,
+                                ).await?;
+                            }
+                            // Flush remaining batch
+                            if let Some(ref db) = dom_db {
+                                if !dom_batch.is_empty() {
+                                    let mut appender = db.appender("eurusd_dom_raw")
+                                        .unwrap_or_else(|e| panic!("DoM flush: {}", e));
+                                    for &(ts, etype, qid, side, price, size) in &dom_batch {
+                                        let _ = appender.append_row(duckdb::params![
+                                            ts, etype as i8, qid as i64, side as i8, price, size
+                                        ]);
+                                    }
+                                    let _ = appender.flush();
+                                    dom_total_rows += dom_batch.len() as u64;
+                                    dom_batch.clear();
+                                }
+                            }
+                            dom_capturing = false;
+                            dom_book.clear();
+                            // Close DuckDB connection to release file lock
+                            dom_db = None;
+                            println!("DoM: stopped. {} total rows written", dom_total_rows);
+                            let _ = tx.send(PriceUpdate::DomCaptureStatus(
+                                format!("DoM paused ({} rows saved)", dom_total_rows)
+                            )).await;
+                        }
+                        continue;
+                    }
+                    _ => {}
+                }
                 println!("DEBUG: Received data request: {} {:?} {:?}", request.symbol, request.kind, request.action);
                 handle_data_request(
                     &mut tls_stream,
@@ -877,6 +1192,8 @@ async fn handle_data_request(
                 }
             }
         }
+        // DoM capture actions are handled inline in the select! loop, not here
+        DataAction::DomCaptureStart | DataAction::DomCaptureStop => {}
     }
     Ok(())
 }

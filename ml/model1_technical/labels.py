@@ -25,6 +25,62 @@ STOP_PIPS    = 10    # pips stop loss
 HORIZON_BARS = 120   # bars = minutes to look forward (2 hours)
 PIP_SIZE     = 0.0001  # 1 pip for EURUSD
 
+# ── Numba JIT kernels (optional — falls back to pure Python if not installed) ─
+try:
+    import numba
+
+    @numba.jit(nopython=True, cache=True)
+    def _jit_labels_long(close, high, low, target_dist, stop_dist, horizon):
+        """First-touch LONG label kernel — compiled to native code by numba."""
+        n      = len(close)
+        labels = np.empty(n, dtype=np.float64)
+        for i in range(n):
+            labels[i] = np.nan
+        for i in range(n - 1):
+            entry      = close[i]
+            target_lvl = entry + target_dist
+            stop_lvl   = entry - stop_dist
+            end = i + horizon + 1
+            if end > n:
+                end = n
+            for j in range(i + 1, end):
+                if high[j] >= target_lvl:
+                    labels[i] = 1.0
+                    break
+                if low[j] <= stop_lvl:
+                    labels[i] = 0.0
+                    break
+        return labels
+
+    @numba.jit(nopython=True, cache=True)
+    def _jit_labels_short(close, high, low, target_dist, stop_dist, horizon):
+        """First-touch SHORT label kernel — compiled to native code by numba."""
+        n      = len(close)
+        labels = np.empty(n, dtype=np.float64)
+        for i in range(n):
+            labels[i] = np.nan
+        for i in range(n - 1):
+            entry      = close[i]
+            target_lvl = entry - target_dist   # price needs to DROP target_dist
+            stop_lvl   = entry + stop_dist     # price rising stop_dist = stop-out
+            end = i + horizon + 1
+            if end > n:
+                end = n
+            for j in range(i + 1, end):
+                if low[j] <= target_lvl:
+                    labels[i] = 1.0            # short wins
+                    break
+                if high[j] >= stop_lvl:
+                    labels[i] = 0.0            # short stop-out
+                    break
+        return labels
+
+    _NUMBA_AVAILABLE = True
+    print("labels.py: numba JIT available — using compiled label kernels")
+
+except ImportError:
+    _NUMBA_AVAILABLE = False
+
 
 def compute_labels(
     df_raw: pd.DataFrame,
@@ -84,12 +140,10 @@ def compute_labels_vectorized(
     pip_size: float   = PIP_SIZE,
 ) -> pd.Series:
     """
-    Faster vectorized version using numpy rolling windows.
-    Trades exact first-touch ordering for ~10x speed.
+    First-touch LONG labels with exact bar ordering.
 
-    For most ML training purposes this is equivalent, because
-    cases where target and stop hit in the same bar are rare
-    and handled conservatively (target wins ties → label=1).
+    Uses numba JIT kernel when available (10-20x faster than pure Python).
+    Falls back to pure-Python loop automatically if numba is not installed.
 
     Use this for large datasets (1M+ rows).
     """
@@ -101,12 +155,12 @@ def compute_labels_vectorized(
     low   = df_raw["low"].to_numpy(dtype=np.float64)
     n     = len(close)
 
+    if _NUMBA_AVAILABLE:
+        labels = _jit_labels_long(close, high, low, target_dist, stop_dist, horizon)
+        return pd.Series(labels, index=df_raw.index, name="label")
+
+    # Pure-Python fallback
     labels = np.full(n, np.nan, dtype=np.float64)
-
-    # For each bar i, check all future bars i+1 … i+horizon
-    # Build forward-looking max-high and min-low arrays
-    # Using a sliding window approach
-
     for i in range(n - 1):
         end        = min(i + horizon + 1, n)
         future_h   = high[i + 1:end]
@@ -119,13 +173,65 @@ def compute_labels_vectorized(
         s_idx = stop_hit[0]   if len(stop_hit)   > 0 else np.inf
 
         if t_idx == np.inf and s_idx == np.inf:
-            continue  # NaN
+            continue
         elif t_idx <= s_idx:
             labels[i] = 1.0
         else:
             labels[i] = 0.0
 
     return pd.Series(labels, index=df_raw.index, name="label")
+
+
+def compute_short_labels_vectorized(
+    df_raw: pd.DataFrame,
+    target_pips: int  = TARGET_PIPS,
+    stop_pips: int    = STOP_PIPS,
+    horizon: int      = HORIZON_BARS,
+    pip_size: float   = PIP_SIZE,
+) -> pd.Series:
+    """
+    First-touch SHORT labels. Mirror of compute_labels_vectorized.
+
+    label_short = 1  → price drops ≥ target_pips before rising ≥ stop_pips (short wins)
+    label_short = 0  → price rises ≥ stop_pips first (short stop-out)
+    label_short = NaN → neither within horizon (excluded from training)
+
+    Uses numba JIT kernel when available (10-20x faster).
+    """
+    target_dist = target_pips * pip_size
+    stop_dist   = stop_pips   * pip_size
+
+    close = df_raw["close"].to_numpy(dtype=np.float64)
+    high  = df_raw["high"].to_numpy(dtype=np.float64)
+    low   = df_raw["low"].to_numpy(dtype=np.float64)
+    n     = len(close)
+
+    if _NUMBA_AVAILABLE:
+        labels = _jit_labels_short(close, high, low, target_dist, stop_dist, horizon)
+        return pd.Series(labels, index=df_raw.index, name="label_short")
+
+    # Pure-Python fallback
+    labels = np.full(n, np.nan, dtype=np.float64)
+    for i in range(n - 1):
+        end      = min(i + horizon + 1, n)
+        future_h = high[i + 1:end]
+        future_l = low[i + 1:end]
+        entry    = close[i]
+
+        target_hit = np.where(future_l <= entry - target_dist)[0]
+        stop_hit   = np.where(future_h >= entry + stop_dist)[0]
+
+        t_idx = target_hit[0] if len(target_hit) > 0 else np.inf
+        s_idx = stop_hit[0]   if len(stop_hit)   > 0 else np.inf
+
+        if t_idx == np.inf and s_idx == np.inf:
+            continue
+        elif t_idx <= s_idx:
+            labels[i] = 1.0
+        else:
+            labels[i] = 0.0
+
+    return pd.Series(labels, index=df_raw.index, name="label_short")
 
 
 def filter_trading_hours(df: pd.DataFrame) -> pd.DataFrame:
@@ -174,8 +280,9 @@ def build_dataset(
     label_fn = compute_labels_vectorized if use_fast_labels else compute_labels
     labels   = label_fn(df_raw, target_pips, stop_pips, horizon)
 
-    # Merge features + labels — use assign to avoid copying the full 5M-row matrix
-    dataset = df_features.assign(label=labels)
+    # Merge features + labels
+    dataset = df_features.copy()
+    dataset["label"] = labels
 
     # Session filter (entry rows only)
     if session_filter:
@@ -202,3 +309,52 @@ def build_dataset(
     print(f"Class counts: {dataset['label'].value_counts().to_dict()}")
 
     return dataset
+
+
+def build_dataset_dual(
+    df_raw: pd.DataFrame,
+    df_features: pd.DataFrame,
+    target_pips: int       = TARGET_PIPS,
+    stop_pips: int         = STOP_PIPS,
+    horizon: int           = HORIZON_BARS,
+    session_filter: bool   = True,
+    wide_spread_filter: float = 1.5,
+) -> tuple:
+    """
+    Build two training datasets: one for long trades, one for short trades.
+
+    Both use the same feature set — only the label differs:
+        long  dataset: label=1 if price goes UP  target_pips before DOWN stop_pips
+        short dataset: label=1 if price goes DOWN target_pips before UP   stop_pips
+
+    Returns (dataset_long, dataset_short) — two DataFrames each with 'label' column.
+    """
+    print(f"\nComputing LONG labels  (target={target_pips}p up, stop={stop_pips}p down)...")
+    long_labels  = compute_labels_vectorized(df_raw, target_pips, stop_pips, horizon)
+    print(f"Computing SHORT labels (target={target_pips}p down, stop={stop_pips}p up)...")
+    short_labels = compute_short_labels_vectorized(df_raw, target_pips, stop_pips, horizon)
+
+    results = []
+    for labels, direction in [(long_labels, "LONG"), (short_labels, "SHORT")]:
+        ds = df_features.copy()
+        ds["label"] = labels.values
+
+        if session_filter:
+            ds = filter_trading_hours(ds)
+
+        if wide_spread_filter is not None and "spread_mean_pips" in ds.columns:
+            before_sp = len(ds)
+            mask = (ds["spread_mean_pips"].isna()) | \
+                   (ds["spread_mean_pips"] <= wide_spread_filter)
+            ds = ds[mask]
+            print(f"  [{direction}] Spread filter: dropped {before_sp - len(ds):,} bars")
+
+        before = len(ds)
+        ds = ds.dropna()
+        win_rate = ds["label"].mean() * 100
+        print(f"  [{direction}] {len(ds):,} rows "
+              f"(dropped {before - len(ds):,} NaN) | "
+              f"win-rate={win_rate:.1f}%")
+        results.append(ds)
+
+    return results[0], results[1]

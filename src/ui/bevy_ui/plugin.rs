@@ -86,7 +86,21 @@ impl Plugin for BevyUiPlugin {
                     .after(bot_dashboard::process_data_responses),
             ).in_set(UiSystemSet::Update))
 
-            // Interaction systems
+            // Econ-cal systems split out to stay within Bevy's tuple limit
+            .add_systems(Update, (
+                bot_dashboard::poll_econ_cal,
+                bot_dashboard::update_econ_cal_status_text
+                    .after(bot_dashboard::poll_econ_cal),
+                bot_dashboard::poll_econ_cal_update,
+                bot_dashboard::update_econ_cal_update_status_text
+                    .after(bot_dashboard::poll_econ_cal_update),
+            ).in_set(UiSystemSet::Update))
+            .add_systems(Update, (
+                bot_dashboard::handle_econ_cal_update_btn_click,
+                bot_dashboard::update_econ_cal_update_btn_hover,
+            ).in_set(UiSystemSet::Interaction))
+
+            // Interaction systems (split to stay within Bevy tuple limit)
             .add_systems(Update, (
                 interactions::handle_icon_button_click,
                 interactions::handle_instrument_click,
@@ -100,13 +114,23 @@ impl Plugin for BevyUiPlugin {
                 bot_dashboard::update_main_card_hover,
                 bot_dashboard::handle_db_timeframe_btn_click,
                 bot_dashboard::update_db_timeframe_btn_hover,
+            ).in_set(UiSystemSet::Interaction))
+            .add_systems(Update, (
                 bot_dashboard::handle_ml_model_btn_click,
                 bot_dashboard::update_ml_model_btn_hover,
                 bot_dashboard::handle_cross_pair_btn_click,
                 bot_dashboard::update_cross_pair_btn_hover,
                 bot_dashboard::handle_cross_pair_update_btn_click,
                 bot_dashboard::update_cross_pair_update_btn_hover,
+                bot_dashboard::handle_econ_cal_btn_click,
+                bot_dashboard::update_econ_cal_btn_hover,
+                bot_dashboard::handle_dom_capture_btn_click,
+                bot_dashboard::update_dom_capture_btn_hover,
             ).in_set(UiSystemSet::Interaction))
+            .add_systems(Update, (
+                bot_dashboard::update_dom_capture_btn_text,
+                bot_dashboard::update_dom_capture_status_text,
+            ).in_set(UiSystemSet::Update))
 
             // Render systems (virtualization)
             .add_systems(Update, (
