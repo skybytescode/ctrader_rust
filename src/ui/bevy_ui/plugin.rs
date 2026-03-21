@@ -130,6 +130,9 @@ impl Plugin for BevyUiPlugin {
             .add_systems(Update, (
                 bot_dashboard::update_dom_capture_btn_text,
                 bot_dashboard::update_dom_capture_status_text,
+                bot_dashboard::update_ec_today_text,
+                bot_dashboard::update_ec_today_status_text,
+                bot_dashboard::refresh_ec_countdown,
             ).in_set(UiSystemSet::Update))
 
             // Render systems (virtualization)

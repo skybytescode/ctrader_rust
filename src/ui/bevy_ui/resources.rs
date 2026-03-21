@@ -206,6 +206,13 @@ pub struct BotDashboardState {
     pub dom_capture_active: bool,
     /// Status text shown next to DoM capture button.
     pub dom_capture_status: String,
+    /// Today's EC events formatted for display (one line per event).
+    pub ec_today_lines: Vec<String>,
+    /// Raw EC event data for client-side countdown refresh.
+    /// Each tuple: (timestamp_utc_str, currency, volatility, event_name, actual, forecast, previous, surprise)
+    pub ec_today_raw: Vec<(String, String, i32, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    /// EC Calendar status message.
+    pub ec_status: String,
 }
 
 /// Tracks which UI elements need rebuilding

@@ -13,6 +13,7 @@ use crate::ui::bevy_ui::{
     CrossPairBtn, CrossPairStatusText, CROSS_PAIRS,
     CrossPairUpdateBtn, CrossPairUpdateStatusText,
     DomCaptureBtn, DomCaptureStatusText,
+    EcTodayText, EcTodayStatusText,
     EconCalBtn, EconCalStatusText,
     EconCalUpdateBtn, EconCalUpdateStatusText,
     BotDashboardState, TickWorkflowStep, MlTrainState,
@@ -83,7 +84,7 @@ pub fn spawn_bot_dashboard(commands: &mut Commands, parent: Entity) {
     spawn_main_card(commands, cards, TopCardType::Database,      "Database",        true);
     spawn_main_card(commands, cards, TopCardType::StartPause,    "Start / Pause",   false);
     spawn_main_card(commands, cards, TopCardType::TrainModel,    "Train Model",     true);
-    spawn_main_card(commands, cards, TopCardType::CurrentStatus, "Current Status",  false);
+    spawn_main_card(commands, cards, TopCardType::CurrentStatus, "Real-Time Data",  false);
 
     commands.entity(dashboard).add_child(cards);
     commands.entity(parent).add_child(dashboard);
@@ -176,11 +177,12 @@ fn spawn_main_card(
         spawn_database_content(commands, content);
     } else if card_type == TopCardType::TrainModel {
         spawn_train_model_content(commands, content);
+    } else if card_type == TopCardType::CurrentStatus {
+        spawn_realtime_data_content(commands, content);
     } else {
         // Placeholder content for other cards
         let placeholder = match card_type {
-            TopCardType::StartPause    => "Bot is stopped.",
-            TopCardType::CurrentStatus => "P&L: --\nTrades: 0",
+            TopCardType::StartPause => "Bot is stopped.",
             _ => "",
         };
         commands.spawn((
@@ -192,6 +194,119 @@ fn spawn_main_card(
 
     commands.entity(card).add_child(content);
     commands.entity(parent).add_child(card);
+}
+
+/// Spawn Real-Time Data content: DoM + EC Calendar + News sections
+fn spawn_realtime_data_content(commands: &mut Commands, parent: Entity) {
+    let col = commands.spawn((
+        Node {
+            width: Val::Percent(100.0),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(8.0),
+            ..default()
+        },
+    )).id();
+
+    // ── DoM Section ──────────────────────────────────────────────────────
+    let dom_row = commands.spawn((
+        Node {
+            flex_direction: FlexDirection::Row,
+            column_gap: Val::Px(6.0),
+            align_items: AlignItems::Center,
+            ..default()
+        },
+    )).id();
+
+    commands.spawn((
+        Text::new("Price DoM:"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_SECONDARY),
+    )).set_parent(dom_row);
+
+    let dom_btn = commands.spawn((
+        Node {
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(colors::BG_BUTTON),
+        BorderRadius::all(Val::Px(4.0)),
+        Interaction::default(),
+        DomCaptureBtn,
+    )).id();
+    commands.spawn((
+        Text::new("Start Capture"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_PRIMARY),
+    )).set_parent(dom_btn);
+
+    let dom_status = commands.spawn((
+        Text::new("--"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_SECONDARY),
+        DomCaptureStatusText,
+    )).id();
+
+    commands.entity(dom_row).add_children(&[dom_btn, dom_status]);
+    commands.entity(col).add_child(dom_row);
+
+    // ── EC Calendar Section ──────────────────────────────────────────────
+    let ec_header = commands.spawn((
+        Node {
+            flex_direction: FlexDirection::Row,
+            column_gap: Val::Px(6.0),
+            align_items: AlignItems::Center,
+            ..default()
+        },
+    )).id();
+
+    commands.spawn((
+        Text::new("EC Calendar:"),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_SECONDARY),
+    )).set_parent(ec_header);
+
+    commands.spawn((
+        Text::new("loading..."),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_SECONDARY),
+        EcTodayStatusText,
+    )).set_parent(ec_header);
+
+    commands.entity(col).add_child(ec_header);
+
+    let ec_scroll = commands.spawn((
+        Node {
+            flex_direction: FlexDirection::Column,
+            overflow: Overflow::scroll_y(),
+            max_height: Val::Px(180.0),
+            width: Val::Percent(100.0),
+            padding: UiRect::all(Val::Px(4.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.2)),
+        BorderRadius::all(Val::Px(4.0)),
+        ScrollPosition::default(),
+    )).id();
+
+    commands.spawn((
+        Text::new("Waiting for econcal proxy..."),
+        TextFont { font_size: 11.0, ..default() },
+        TextColor(colors::TEXT_SECONDARY),
+        EcTodayText,
+    )).set_parent(ec_scroll);
+
+    commands.entity(col).add_child(ec_scroll);
+
+    // ── News Section (placeholder) ───────────────────────────────────────
+    commands.spawn((
+        Text::new("News: coming soon..."),
+        TextFont { font_size: fonts::SIZE_SMALL, ..default() },
+        TextColor(colors::TEXT_MUTED),
+    )).set_parent(col);
+
+    commands.entity(parent).add_child(col);
 }
 
 /// Spawn the 4 sub-cards inside the Database card content area
@@ -257,7 +372,7 @@ fn spawn_train_model_content(commands: &mut Commands, parent: Entity) {
         "Model 3 -- Chart Patterns CNN",
         "Model 4 -- Economic Calendar",
         "Model 5 -- Depth of Market",
-        "Model 6 -- Realtime Algorithms",
+        "Model 6 -- Ensemble",
     ];
 
     for model in MlSubCardType::all() {
@@ -363,52 +478,6 @@ fn spawn_ml_subcard(
 
     commands.entity(btn_row).add_children(&[status_btn, train_btn, feat_btn]);
     commands.entity(card).add_child(btn_row);
-
-    // Model 6 (Realtime Algorithms): add DoM Capture button row
-    if model == MlSubCardType::Model6 {
-        let dom_row = commands.spawn((
-            Node {
-                flex_direction: FlexDirection::Row,
-                column_gap: Val::Px(6.0),
-                align_items: AlignItems::Center,
-                ..default()
-            },
-        )).id();
-
-        commands.spawn((
-            Text::new("Price DoM:"),
-            TextFont { font_size: fonts::SIZE_SMALL, ..default() },
-            TextColor(colors::TEXT_SECONDARY),
-        )).set_parent(dom_row);
-
-        let dom_btn = commands.spawn((
-            Node {
-                padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(colors::BG_BUTTON),
-            BorderRadius::all(Val::Px(4.0)),
-            Interaction::default(),
-            DomCaptureBtn,
-        )).id();
-        commands.spawn((
-            Text::new("Start Capture"),
-            TextFont { font_size: fonts::SIZE_SMALL, ..default() },
-            TextColor(colors::TEXT_PRIMARY),
-        )).set_parent(dom_btn);
-
-        let dom_status = commands.spawn((
-            Text::new("--"),
-            TextFont { font_size: fonts::SIZE_SMALL, ..default() },
-            TextColor(colors::TEXT_SECONDARY),
-            DomCaptureStatusText,
-        )).id();
-
-        commands.entity(dom_row).add_children(&[dom_btn, dom_status]);
-        commands.entity(card).add_child(dom_row);
-    }
 
     // Scrollable info area: [scroll_content | scrollbar_track]
     let scroll_wrapper = commands.spawn((
@@ -934,10 +1003,11 @@ pub fn update_main_card_expand(
         }
     }
 
-    // Database and Train Model content always visible; others show only when expanded
+    // Database, Train Model, and Real-Time Data content always visible
     for (content, mut node) in content_query.iter_mut() {
         node.display = if content.card_type == TopCardType::Database
             || content.card_type == TopCardType::TrainModel
+            || content.card_type == TopCardType::CurrentStatus
         {
             Display::Flex
         } else {
@@ -2674,6 +2744,57 @@ pub fn update_dom_capture_status_text(
     for mut text in query.iter_mut() {
         if text.0 != state.dom_capture_status {
             text.0 = state.dom_capture_status.clone();
+        }
+    }
+}
+
+/// Update EC today events text from BotDashboardState.
+pub fn update_ec_today_text(
+    state: Res<BotDashboardState>,
+    mut query: Query<&mut Text, With<EcTodayText>>,
+) {
+    if !state.is_changed() { return; }
+    if state.ec_today_lines.is_empty() { return; }
+    let text_content = state.ec_today_lines.join("\n");
+    for mut text in query.iter_mut() {
+        if text.0 != text_content {
+            text.0 = text_content.clone();
+        }
+    }
+}
+
+/// Refresh EC countdown text every 30 seconds from cached raw data.
+pub fn refresh_ec_countdown(
+    mut state: ResMut<BotDashboardState>,
+    time: Res<Time>,
+) {
+    // Only refresh every 30 seconds
+    let elapsed = time.elapsed_secs();
+    // Use modulo to trigger every ~30 seconds
+    let tick = (elapsed / 30.0) as u64;
+    static mut LAST_TICK: u64 = 0;
+    let last = unsafe { LAST_TICK };
+    if tick == last { return; }
+    unsafe { LAST_TICK = tick; }
+
+    if state.ec_today_raw.is_empty() { return; }
+
+    let lines = crate::ec_realtime::format_ec_lines(&state.ec_today_raw);
+    if lines != state.ec_today_lines {
+        state.ec_today_lines = lines;
+    }
+}
+
+/// Update EC status text from BotDashboardState.
+pub fn update_ec_today_status_text(
+    state: Res<BotDashboardState>,
+    mut query: Query<&mut Text, With<EcTodayStatusText>>,
+) {
+    if !state.is_changed() { return; }
+    if state.ec_status.is_empty() { return; }
+    for mut text in query.iter_mut() {
+        if text.0 != state.ec_status {
+            text.0 = state.ec_status.clone();
         }
     }
 }

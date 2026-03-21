@@ -283,6 +283,14 @@ pub struct DomCaptureBtn;
 #[derive(Component)]
 pub struct DomCaptureStatusText;
 
+/// Scrollable EC Calendar events text in Model 6
+#[derive(Component)]
+pub struct EcTodayText;
+
+/// EC Calendar status text (event count + last update)
+#[derive(Component)]
+pub struct EcTodayStatusText;
+
 // ============================================================================
 // Cross-Pair Data Buttons (History BoT)
 // ============================================================================

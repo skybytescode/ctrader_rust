@@ -19,6 +19,7 @@ pub mod ai;
 pub mod ui;
 pub mod db;
 pub mod data_retrieval;
+pub mod ec_realtime;
 
 use db::{Candle, CandleDatabase};
 use data_retrieval::{
@@ -42,6 +43,12 @@ pub enum PriceUpdate {
     SymbolMapping(std::collections::HashMap<String, i64>),
     /// DoM capture status update
     DomCaptureStatus(String),
+    /// EC Calendar today's events for UI display
+    EcTodayEvents(Vec<String>),
+    /// EC Calendar raw event data for client-side countdown
+    EcTodayRaw(Vec<(String, String, i32, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>)>),
+    /// EC Calendar status message
+    EcStatus(String),
 }
 
 /// Resource to hold the receiver for price updates
@@ -256,6 +263,15 @@ fn process_price_updates(
             PriceUpdate::DomCaptureStatus(status) => {
                 dashboard.dom_capture_status = status;
             }
+            PriceUpdate::EcTodayEvents(lines) => {
+                dashboard.ec_today_lines = lines;
+            }
+            PriceUpdate::EcTodayRaw(raw) => {
+                dashboard.ec_today_raw = raw;
+            }
+            PriceUpdate::EcStatus(status) => {
+                dashboard.ec_status = status;
+            }
         }
     }
 }
@@ -350,8 +366,55 @@ async fn run_session(
     let mut dom_total_rows: u64 = 0;
     let mut dom_last_status_update = tokio::time::Instant::now();
     let mut dom_rows_since_status: u64 = 0;
+
+    // ── DoM M1 aggregation state ─────────────────────────────────────────
+    // Accumulates per-minute features from live book snapshots
+    struct DomM1Accum {
+        minute_ts: i64,           // start of current minute (unix seconds)
+        snapshots: u32,           // number of book snapshots this minute
+        obi_sum: f64,             // sum of OBI values for mean
+        obi_sq_sum: f64,          // sum of OBI^2 for std
+        spread_sum: f64,          // sum of spread values
+        spread_max: f64,          // max spread seen
+        total_bid_vol_sum: f64,   // sum of total bid volume
+        total_ask_vol_sum: f64,   // sum of total ask volume
+        total_bid_vol_min: f64,   // min total bid vol (liquidity vacuum)
+        total_ask_vol_min: f64,   // min total ask vol
+        bid_levels_sum: u32,      // sum of bid level counts
+        ask_levels_sum: u32,      // sum of ask level counts
+        quotes_added: u32,        // new/update events this minute
+        quotes_deleted: u32,      // delete events this minute
+        best_bid_max_size: i64,   // max size seen at best bid
+        best_ask_max_size: i64,   // max size seen at best ask
+    }
+    impl DomM1Accum {
+        fn new(ts: i64) -> Self {
+            Self {
+                minute_ts: ts,
+                snapshots: 0,
+                obi_sum: 0.0, obi_sq_sum: 0.0,
+                spread_sum: 0.0, spread_max: 0.0,
+                total_bid_vol_sum: 0.0, total_ask_vol_sum: 0.0,
+                total_bid_vol_min: f64::MAX, total_ask_vol_min: f64::MAX,
+                bid_levels_sum: 0, ask_levels_sum: 0,
+                quotes_added: 0, quotes_deleted: 0,
+                best_bid_max_size: 0, best_ask_max_size: 0,
+            }
+        }
+    }
+    let mut dom_m1: Option<DomM1Accum> = None;
     // EURUSD symbol_id for DoM subscription (resolved after symbol list)
     let mut dom_eurusd_id: Option<i64> = None;
+
+    // ── EC Calendar smart scheduling state ─────────────────────────────
+    let mut ec_today_date: Option<String> = None;
+    // Scheduled fetch times (UTC timestamps in seconds) for today's events.
+    // For each event: event_time+0, +60, +120, +300 seconds.
+    let mut ec_scheduled_fetches: Vec<i64> = Vec::new();
+    let mut ec_schedule_loaded = false;
+    // Force initial schedule fetch 10 seconds after auth
+    let mut ec_next_schedule_fetch: Option<tokio::time::Instant> = None;
+    let mut ec_last_fetch_ts: i64 = 0; // last UTC timestamp we fetched at
 
     loop {
         let mut header = [0u8; 4];
@@ -445,6 +508,11 @@ async fn run_session(
                                 send_message(&mut tls_stream, openapi::ProtoOaPayloadType::ProtoOaSubscribeSpotsReq as u32, subscribe).await?;
                                 println!("Subscribe sent. ID map has {} symbols", symbol_id_to_name.len());
                                 _auth_state = AuthState::Subscribed;
+
+                                // Schedule first EC calendar fetch in 10 seconds
+                                ec_next_schedule_fetch = Some(
+                                    tokio::time::Instant::now() + Duration::from_secs(10)
+                                );
 
                                 // Send reverse mapping (name -> id) to Bevy for data retrieval
                                 let reverse_map: std::collections::HashMap<String, i64> = symbol_id_to_name
@@ -563,6 +631,118 @@ async fn run_session(
                                     if let Some((side, price, _size)) = dom_book.remove(&qid) {
                                         dom_batch.push((now_ms, 1, qid, side, price, 0));
                                     }
+                                }
+
+                                // ── M1 aggregation: snapshot current book state ──
+                                let current_minute = now_ms / 60_000 * 60; // truncate to minute (unix seconds)
+                                let n_added = event.new_quotes.len() as u32;
+                                let n_deleted = event.deleted_quotes.len() as u32;
+
+                                // Check for minute rollover → flush previous minute
+                                if let Some(ref acc) = dom_m1 {
+                                    if current_minute != acc.minute_ts && acc.snapshots > 0 {
+                                        // Flush M1 features to DB
+                                        if let Some(ref db) = dom_db {
+                                            let n = acc.snapshots as f64;
+                                            let obi_mean = acc.obi_sum / n;
+                                            let obi_std = ((acc.obi_sq_sum / n) - obi_mean * obi_mean)
+                                                .max(0.0).sqrt();
+                                            let bid_mean = acc.total_bid_vol_sum / n;
+                                            let ask_mean = acc.total_ask_vol_sum / n;
+                                            let ratio = if ask_mean > 0.0 { bid_mean / ask_mean } else { 1.0 };
+                                            let total_events = (acc.quotes_added + acc.quotes_deleted) as f64;
+                                            let churn = if n > 0.0 { total_events / n } else { 0.0 };
+
+                                            let _ = db.execute(
+                                                "INSERT OR REPLACE INTO eurusd_dom_features_m1 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                                duckdb::params![
+                                                    acc.minute_ts,
+                                                    obi_mean,
+                                                    obi_std,
+                                                    acc.spread_sum / n,
+                                                    acc.spread_max,
+                                                    bid_mean,
+                                                    ask_mean,
+                                                    if acc.total_bid_vol_min < f64::MAX { acc.total_bid_vol_min } else { 0.0 },
+                                                    if acc.total_ask_vol_min < f64::MAX { acc.total_ask_vol_min } else { 0.0 },
+                                                    ratio,
+                                                    acc.bid_levels_sum as f64 / n,
+                                                    acc.ask_levels_sum as f64 / n,
+                                                    churn,
+                                                    acc.quotes_added as i32,
+                                                    acc.quotes_deleted as i32,
+                                                    acc.best_bid_max_size,
+                                                    acc.best_ask_max_size,
+                                                    acc.snapshots as i32,
+                                                ],
+                                            );
+                                        }
+                                        dom_m1 = None;
+                                    }
+                                }
+
+                                // Initialize new minute accumulator if needed
+                                if dom_m1.is_none() {
+                                    dom_m1 = Some(DomM1Accum::new(current_minute));
+                                }
+
+                                // Snapshot current book into accumulator
+                                if let Some(ref mut acc) = dom_m1 {
+                                    acc.quotes_added += n_added;
+                                    acc.quotes_deleted += n_deleted;
+
+                                    // Compute book metrics from current state
+                                    let mut total_bid: f64 = 0.0;
+                                    let mut total_ask: f64 = 0.0;
+                                    let mut bid_levels: u32 = 0;
+                                    let mut ask_levels: u32 = 0;
+                                    let mut best_bid: i32 = 0;
+                                    let mut best_ask: i32 = i32::MAX;
+                                    let mut best_bid_size: i64 = 0;
+                                    let mut best_ask_size: i64 = 0;
+
+                                    for &(side, price, size) in dom_book.values() {
+                                        if side == 0 {
+                                            total_bid += size as f64;
+                                            bid_levels += 1;
+                                            if price > best_bid {
+                                                best_bid = price;
+                                                best_bid_size = size;
+                                            }
+                                        } else {
+                                            total_ask += size as f64;
+                                            ask_levels += 1;
+                                            if price < best_ask {
+                                                best_ask = price;
+                                                best_ask_size = size;
+                                            }
+                                        }
+                                    }
+
+                                    // OBI = (bid_vol - ask_vol) / (bid_vol + ask_vol)
+                                    let total = total_bid + total_ask;
+                                    let obi = if total > 0.0 { (total_bid - total_ask) / total } else { 0.0 };
+
+                                    // Spread in pips (price units are /100000)
+                                    let spread = if best_ask < i32::MAX && best_bid > 0 {
+                                        (best_ask - best_bid) as f64 / 10.0 // in pips
+                                    } else {
+                                        0.0
+                                    };
+
+                                    acc.snapshots += 1;
+                                    acc.obi_sum += obi;
+                                    acc.obi_sq_sum += obi * obi;
+                                    acc.spread_sum += spread;
+                                    if spread > acc.spread_max { acc.spread_max = spread; }
+                                    acc.total_bid_vol_sum += total_bid;
+                                    acc.total_ask_vol_sum += total_ask;
+                                    if total_bid < acc.total_bid_vol_min { acc.total_bid_vol_min = total_bid; }
+                                    if total_ask < acc.total_ask_vol_min { acc.total_ask_vol_min = total_ask; }
+                                    acc.bid_levels_sum += bid_levels;
+                                    acc.ask_levels_sum += ask_levels;
+                                    if best_bid_size > acc.best_bid_max_size { acc.best_bid_max_size = best_bid_size; }
+                                    if best_ask_size > acc.best_ask_max_size { acc.best_ask_max_size = best_ask_size; }
                                 }
 
                                 // Flush batch to DuckDB every 2 seconds or when buffer is large
@@ -720,7 +900,27 @@ async fn run_session(
                                             price        INTEGER,
                                             size         BIGINT
                                         );
-                                    ").expect("Failed to create eurusd_dom_raw table");
+                                        CREATE TABLE IF NOT EXISTS eurusd_dom_features_m1 (
+                                            timestamp    BIGINT PRIMARY KEY,
+                                            obi_mean     FLOAT,
+                                            obi_std      FLOAT,
+                                            spread_mean  FLOAT,
+                                            spread_max   FLOAT,
+                                            bid_vol_mean FLOAT,
+                                            ask_vol_mean FLOAT,
+                                            bid_vol_min  FLOAT,
+                                            ask_vol_min  FLOAT,
+                                            bid_ask_ratio FLOAT,
+                                            bid_levels   FLOAT,
+                                            ask_levels   FLOAT,
+                                            churn_rate   FLOAT,
+                                            quotes_added INTEGER,
+                                            quotes_deleted INTEGER,
+                                            best_bid_max BIGINT,
+                                            best_ask_max BIGINT,
+                                            snapshots    INTEGER
+                                        );
+                                    ").expect("Failed to create DoM tables");
                                     // Auto-cleanup: delete data older than 8 weeks
                                     let cutoff_ms = chrono::Utc::now().timestamp_millis()
                                         - (8 * 7 * 24 * 3600 * 1000_i64);
@@ -830,6 +1030,32 @@ async fn run_session(
                                     dom_batch.clear();
                                 }
                             }
+                            // Flush last M1 accumulator
+                            if let (Some(acc), Some(db)) = (&dom_m1, &dom_db) {
+                                if acc.snapshots > 0 {
+                                    let n = acc.snapshots as f64;
+                                    let obi_mean = acc.obi_sum / n;
+                                    let obi_std = ((acc.obi_sq_sum / n) - obi_mean * obi_mean).max(0.0).sqrt();
+                                    let bid_mean = acc.total_bid_vol_sum / n;
+                                    let ask_mean = acc.total_ask_vol_sum / n;
+                                    let ratio = if ask_mean > 0.0 { bid_mean / ask_mean } else { 1.0 };
+                                    let churn = (acc.quotes_added + acc.quotes_deleted) as f64 / n;
+                                    let _ = db.execute(
+                                        "INSERT OR REPLACE INTO eurusd_dom_features_m1 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                        duckdb::params![
+                                            acc.minute_ts, obi_mean, obi_std,
+                                            acc.spread_sum / n, acc.spread_max,
+                                            bid_mean, ask_mean,
+                                            if acc.total_bid_vol_min < f64::MAX { acc.total_bid_vol_min } else { 0.0 },
+                                            if acc.total_ask_vol_min < f64::MAX { acc.total_ask_vol_min } else { 0.0 },
+                                            ratio, acc.bid_levels_sum as f64 / n, acc.ask_levels_sum as f64 / n,
+                                            churn, acc.quotes_added as i32, acc.quotes_deleted as i32,
+                                            acc.best_bid_max_size, acc.best_ask_max_size, acc.snapshots as i32,
+                                        ],
+                                    );
+                                }
+                            }
+                            dom_m1 = None;
                             dom_capturing = false;
                             dom_book.clear();
                             // Close DuckDB connection to release file lock
@@ -862,6 +1088,120 @@ async fn run_session(
                 if last_heartbeat.elapsed() > Duration::from_secs(60) {
                     println!("No heartbeat from server for 60 seconds, reconnecting...");
                     break;
+                }
+            }
+        }
+
+        // ── EC Calendar smart scheduling ─────────────────────────────────
+        if _auth_state == AuthState::Subscribed {
+            let now_utc = chrono::Utc::now();
+            let now_ts = now_utc.timestamp();
+            let today_str = now_utc.format("%Y%m%d").to_string();
+
+            // Detect day change → reset schedule
+            if ec_today_date.as_deref() != Some(&today_str) {
+                println!("EC: new day ({}), resetting schedule", today_str);
+                ec_today_date = Some(today_str.clone());
+                ec_scheduled_fetches.clear();
+                ec_schedule_loaded = false;
+                ec_next_schedule_fetch = Some(
+                    tokio::time::Instant::now() + Duration::from_secs(5)
+                );
+            }
+
+            // Check if it's time for the schedule fetch (day start)
+            let should_fetch_schedule = match ec_next_schedule_fetch {
+                Some(t) if tokio::time::Instant::now() >= t => {
+                    ec_next_schedule_fetch = None;
+                    true
+                }
+                _ => false,
+            };
+
+            // Check if any scheduled event fetch is due
+            let should_fetch_event = !ec_scheduled_fetches.is_empty()
+                && now_ts >= ec_scheduled_fetches[0]
+                && now_ts != ec_last_fetch_ts;
+
+            if should_fetch_schedule || should_fetch_event {
+                // Remove past scheduled fetches
+                while !ec_scheduled_fetches.is_empty() && ec_scheduled_fetches[0] <= now_ts {
+                    ec_scheduled_fetches.remove(0);
+                }
+                ec_last_fetch_ts = now_ts;
+
+                // For the schedule fetch, do it inline (awaited) so we can build the schedule
+                // For event fetches, also inline — it's one quick HTTP call
+                match ec_realtime::fetch_events_for_date(&today_str, &today_str).await {
+                    Ok(rows) => {
+                        let count = rows.len();
+
+                        // Build schedule on first fetch of the day
+                        if should_fetch_schedule && !ec_schedule_loaded {
+                            let mut unique_times = std::collections::BTreeSet::new();
+                            for r in &rows {
+                                if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(
+                                    &r.timestamp_utc, "%Y-%m-%dT%H:%M:%S"
+                                ) {
+                                    let event_ts = dt.and_utc().timestamp();
+                                    // First 3 min: every 30s, then final at 5 min
+                                    for offset in [0i64, 30, 60, 90, 120, 150, 180, 300] {
+                                        let t = event_ts + offset;
+                                        if t > now_ts {
+                                            unique_times.insert(t);
+                                        }
+                                    }
+                                }
+                            }
+                            ec_scheduled_fetches = unique_times.into_iter().collect();
+                            ec_schedule_loaded = true;
+                            println!(
+                                "EC: scheduled {} fetches for {} events today",
+                                ec_scheduled_fetches.len(), count
+                            );
+                            if let Some(&next_ts) = ec_scheduled_fetches.first() {
+                                if let Some(dt) = chrono::DateTime::from_timestamp(next_ts, 0) {
+                                    println!("EC: next fetch at {}",
+                                        dt.with_timezone(&chrono::Local).format("%H:%M:%S"));
+                                }
+                            }
+                        }
+
+                        // Write to DB and read raw data (blocking)
+                        let (lines, raw) = tokio::task::spawn_blocking(move || {
+                            match duckdb::Connection::open("Bots_db/Algo_EURUSD.duckdb") {
+                                Ok(db) => {
+                                    let _ = ec_realtime::write_ec_to_db(&db, &rows);
+                                    let raw = ec_realtime::read_ec_today_raw(&db);
+                                    let lines = ec_realtime::format_ec_lines(&raw);
+                                    (lines, raw)
+                                }
+                                Err(e) => (vec![format!("DB error: {}", e)], Vec::new()),
+                            }
+                        })
+                        .await
+                        .unwrap_or_else(|e| (vec![format!("Task error: {}", e)], Vec::new()));
+
+                        let upcoming = lines.iter().filter(|l| l.contains('>')).count();
+                        let next_fetch = ec_scheduled_fetches.first().and_then(|&t| {
+                            chrono::DateTime::from_timestamp(t, 0).map(|dt|
+                                dt.with_timezone(&chrono::Local).format("%H:%M").to_string()
+                            )
+                        }).unwrap_or_else(|| "done".to_string());
+                        let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
+
+                        let _ = tx.send(PriceUpdate::EcStatus(format!(
+                            "{} events ({} upcoming) | next: {} | updated: {}",
+                            count, upcoming, next_fetch, now_str
+                        ))).await;
+                        let _ = tx.send(PriceUpdate::EcTodayEvents(lines)).await;
+                        if !raw.is_empty() {
+                            let _ = tx.send(PriceUpdate::EcTodayRaw(raw)).await;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(PriceUpdate::EcStatus(format!("EC error: {}", e))).await;
+                    }
                 }
             }
         }
