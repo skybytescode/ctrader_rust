@@ -1,6 +1,6 @@
 # cTrader Rust — EUR/USD Algorithmic Trading System
 
-Bevy 0.15 (ECS) UI + Tokio async networking + cTrader OpenAPI + DuckDB + ML Pipeline.
+egui/eframe UI + Tokio async networking + cTrader OpenAPI + DuckDB + ML Pipeline.
 
 ## Real-Time Data
 
@@ -78,11 +78,14 @@ cTrader DoM Feed (ProtoOaDepthEvent, ~31/sec)
     v
 In-memory order book (HashMap, microsecond access)
     |
-    +--> Raw batch buffer --> eurusd_dom_raw (every 2s, 8-week rolling)
+    +--> Raw batch buffer --channel--> DB Writer Thread --> eurusd_dom_raw (every 2s, 8-week rolling)
     |
-    +--> M1 accumulator --> eurusd_dom_features_m1 (every 60s, forever)
+    +--> M1 accumulator   --channel--> DB Writer Thread --> eurusd_dom_features_m1 (every 60s, forever)
     |
     +--> UI status: "Active | 31 rows/s | 9,662 total | DB updated: 18:34"
+
+DB writes are offloaded to a dedicated blocking writer thread via mpsc channel,
+keeping the async network loop non-blocking (no missed heartbeats during flushes).
 ```
 
 ---

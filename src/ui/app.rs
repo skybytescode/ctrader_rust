@@ -1,4 +1,3 @@
-use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 // ============================================================================
@@ -74,7 +73,6 @@ impl InstrumentData {
 // App State
 // ============================================================================
 
-#[derive(Resource)]
 pub struct AppState {
     pub instruments: HashMap<String, InstrumentData>,
     pub connection_status: String,
@@ -139,7 +137,6 @@ impl SymbolCategory {
 // UI State
 // ============================================================================
 
-#[derive(Resource)]
 pub struct UiState {
     pub active_view: ActiveView,
     pub sidebar_expanded: bool,

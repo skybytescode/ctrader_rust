@@ -1,4 +1,3 @@
-use bevy::prelude::*;
 use prost::Message;
 use std::io::Write;
 use std::sync::Arc;
@@ -24,12 +23,10 @@ pub mod ec_realtime;
 use db::{Candle, CandleDatabase};
 use data_retrieval::{
     DataKind, DataAction, DataRequest, DataResponse,
-    DataRequestSender, DataResponseReceiver, SymbolIdMap,
     trendbar_to_candle, decode_tick_data, get_data_table_name,
 };
-use ui::{AppState, UiState, BevyUiPlugin};
 
-/// Message types for communication between async tasks and Bevy
+/// Message types for communication between async tasks and UI
 #[derive(Debug, Clone)]
 pub enum PriceUpdate {
     /// Generic price update for any instrument
@@ -51,12 +48,6 @@ pub enum PriceUpdate {
     EcStatus(String),
 }
 
-/// Resource to hold the receiver for price updates
-#[derive(Resource)]
-pub struct PriceUpdateReceiver {
-    pub receiver: mpsc::Receiver<PriceUpdate>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum AuthState {
     NotAuthenticated,
@@ -71,7 +62,7 @@ enum AuthState {
 /// If Node.js is not found or port 6000 is already in use, logs and continues.
 fn start_econcal_server() {
     std::thread::spawn(|| {
-        let econcal_dir = "C:/Users/kushn/RustProjects/ctrader_rust/econcal";
+        let econcal_dir = "D:/RustProjects/ctrader_rust/econcal";
 
         // Skip if something is already listening on port 6000
         if std::net::TcpStream::connect("127.0.0.1:6000").is_ok() {
@@ -136,10 +127,10 @@ fn main() {
     // Start the econcal FXStreet proxy server in the background
     start_econcal_server();
 
-    // Create channel for price updates (network -> Bevy)
+    // Create channel for price updates (network -> UI)
     let (tx, rx) = mpsc::channel::<PriceUpdate>(100);
 
-    // Create channels for data retrieval (Bevy <-> network)
+    // Create channels for data retrieval (UI <-> network)
     let (data_req_tx, data_req_rx) = mpsc::channel::<DataRequest>(32);
     let (data_resp_tx, data_resp_rx) = mpsc::channel::<DataResponse>(64);
 
@@ -151,8 +142,6 @@ fn main() {
             .expect("Failed to create tokio runtime");
 
         rt.block_on(async move {
-            // News scraper disabled (no UI integration)
-
             // Run price streaming with reconnection
             // request_rx passed by &mut so pending requests survive reconnects
             let mut request_rx = data_req_rx;
@@ -174,106 +163,18 @@ fn main() {
         });
     });
 
-    // Run Bevy app on main thread
-    App::new()
-        .add_plugins(DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "cTrader Rust Terminal".into(),
-                    resolution: (1200., 800.).into(),
-                    ..default()
-                }),
-                ..default()
-            })
-            .set(bevy::log::LogPlugin {
-                level: bevy::log::Level::INFO,
-                filter: "wgpu=info,bevy_render=info".to_string(),
-                ..default()
-            })
-        )
-        .add_plugins(BevyUiPlugin)
-        .init_resource::<AppState>()
-        .init_resource::<UiState>()
-        .init_resource::<SymbolIdMap>()
-        .insert_resource(PriceUpdateReceiver { receiver: rx })
-        .insert_resource(DataRequestSender { sender: data_req_tx })
-        .insert_resource(DataResponseReceiver { receiver: data_resp_rx })
-        .add_systems(Startup, print_gpu_info)
-        .add_systems(Update, process_price_updates)
-        .run();
-}
-
-/// System to print GPU/renderer information at startup
-fn print_gpu_info(
-    render_adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
-    render_device: Option<Res<bevy::render::renderer::RenderDevice>>,
-) {
-    println!("\n========== GPU INFORMATION ==========");
-
-    // Print adapter info (GPU name, vendor, backend)
-    if let Some(adapter) = render_adapter {
-        println!("GPU Name: {}", adapter.name);
-        println!("Vendor: {:?}", adapter.vendor);
-        println!("Device Type: {:?}", adapter.device_type);
-        println!("Backend: {:?}", adapter.backend);
-        println!("Driver: {}", adapter.driver);
-        println!("Driver Info: {}", adapter.driver_info);
-    } else {
-        println!("Adapter Info: Not available yet");
-    }
-
-    if let Some(device) = render_device {
-        let limits = device.limits();
-        println!("\nDevice Limits:");
-        println!("  Max Texture 2D: {}x{}", limits.max_texture_dimension_2d, limits.max_texture_dimension_2d);
-        println!("  Max Buffer Size: {} MB", limits.max_buffer_size / (1024 * 1024));
-        println!("  Max Compute Workgroup: {}", limits.max_compute_workgroup_size_x);
-    }
-
-    // Print environment info
-    if let Ok(backend) = std::env::var("WGPU_BACKEND") {
-        println!("\nWGPU_BACKEND env: {}", backend);
-    }
-
-    println!("======================================\n");
-}
-
-/// System to process price updates from the async tasks
-fn process_price_updates(
-    mut app_state: ResMut<AppState>,
-    mut receiver: ResMut<PriceUpdateReceiver>,
-    mut symbol_map: ResMut<SymbolIdMap>,
-    mut dashboard: ResMut<ui::bevy_ui::resources::BotDashboardState>,
-) {
-    // Process all pending updates
-    while let Ok(update) = receiver.receiver.try_recv() {
-        match update {
-            PriceUpdate::InstrumentPrice { symbol, bid, ask } => {
-                if let Some(instrument) = app_state.instruments.get_mut(&symbol) {
-                    instrument.update_price(bid, ask);
-                }
-            }
-            PriceUpdate::ConnectionStatus(status) => {
-                app_state.connection_status = status;
-            }
-            PriceUpdate::SymbolMapping(mapping) => {
-                println!("Received symbol mapping: {} symbols", mapping.len());
-                symbol_map.name_to_id = mapping;
-            }
-            PriceUpdate::DomCaptureStatus(status) => {
-                dashboard.dom_capture_status = status;
-            }
-            PriceUpdate::EcTodayEvents(lines) => {
-                dashboard.ec_today_lines = lines;
-            }
-            PriceUpdate::EcTodayRaw(raw) => {
-                dashboard.ec_today_raw = raw;
-            }
-            PriceUpdate::EcStatus(status) => {
-                dashboard.ec_status = status;
-            }
-        }
-    }
+    // Run egui/eframe app on main thread
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1200.0, 800.0])
+            .with_title("cTrader Rust Terminal"),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "cTrader Rust Terminal",
+        options,
+        Box::new(|_cc| Ok(Box::new(ui::CTraderApp::new(rx, data_req_tx, data_resp_rx)))),
+    ).expect("Failed to start eframe");
 }
 
 async fn run_session(
@@ -359,13 +260,124 @@ async fn run_session(
     // In-memory order book: quote_id → (side, price, size)
     // side: 0=bid, 1=ask
     let mut dom_book: std::collections::HashMap<u64, (u8, i32, i64)> = std::collections::HashMap::new();
+    // Running book totals (updated incrementally on each quote change)
+    let mut dom_total_bid_vol: f64 = 0.0;
+    let mut dom_total_ask_vol: f64 = 0.0;
+    let mut dom_bid_levels: u32 = 0;
+    let mut dom_ask_levels: u32 = 0;
     // Batch buffer for DuckDB writes (flushed periodically)
     let mut dom_batch: Vec<(i64, u8, u64, u8, i32, i64)> = Vec::with_capacity(10_000);
     let mut dom_last_flush = tokio::time::Instant::now();
-    let mut dom_db: Option<duckdb::Connection> = None;
     let mut dom_total_rows: u64 = 0;
     let mut dom_last_status_update = tokio::time::Instant::now();
     let mut dom_rows_since_status: u64 = 0;
+
+    // ── DoM DB writer channel (offloads blocking writes from async loop) ──
+    enum DomDbCommand {
+        /// Open DB, create tables, cleanup old data. Returns (existing_rows, last_ts_str).
+        Init { reply: tokio::sync::oneshot::Sender<(u64, String)> },
+        /// Write a batch of raw DoM rows via appender
+        RawBatch { rows: Vec<(i64, u8, u64, u8, i32, i64)> },
+        /// Write one M1 feature row
+        M1Features { params: [f64; 18] },
+        /// Final flush + close DB. Returns total rows written by writer.
+        Close { reply: tokio::sync::oneshot::Sender<u64> },
+    }
+    let (dom_db_tx, mut dom_db_rx) = mpsc::channel::<DomDbCommand>(64);
+
+    // Spawn the DoM DB writer on a blocking thread (lives until channel closes)
+    tokio::task::spawn_blocking(move || {
+        let mut db: Option<duckdb::Connection> = None;
+        let mut writer_rows: u64 = 0;
+
+        while let Some(cmd) = dom_db_rx.blocking_recv() {
+            match cmd {
+                DomDbCommand::Init { reply } => {
+                    let conn = duckdb::Connection::open("Bots_db/Algo_EURUSD.duckdb")
+                        .expect("Failed to open DuckDB for DoM");
+                    conn.execute_batch("
+                        CREATE TABLE IF NOT EXISTS eurusd_dom_raw (
+                            ts_ms        BIGINT NOT NULL,
+                            event_type   TINYINT NOT NULL,
+                            quote_id     BIGINT NOT NULL,
+                            side         TINYINT,
+                            price        INTEGER,
+                            size         BIGINT
+                        );
+                        CREATE TABLE IF NOT EXISTS eurusd_dom_features_m1 (
+                            timestamp    BIGINT PRIMARY KEY,
+                            obi_mean     FLOAT,
+                            obi_std      FLOAT,
+                            spread_mean  FLOAT,
+                            spread_max   FLOAT,
+                            bid_vol_mean FLOAT,
+                            ask_vol_mean FLOAT,
+                            bid_vol_min  FLOAT,
+                            ask_vol_min  FLOAT,
+                            bid_ask_ratio FLOAT,
+                            bid_levels   FLOAT,
+                            ask_levels   FLOAT,
+                            churn_rate   FLOAT,
+                            quotes_added INTEGER,
+                            quotes_deleted INTEGER,
+                            best_bid_max BIGINT,
+                            best_ask_max BIGINT,
+                            snapshots    INTEGER
+                        );
+                    ").expect("Failed to create DoM tables");
+                    // Auto-cleanup: delete data older than 8 weeks
+                    let cutoff_ms = chrono::Utc::now().timestamp_millis()
+                        - (8 * 7 * 24 * 3600 * 1000_i64);
+                    let _ = conn.execute(
+                        "DELETE FROM eurusd_dom_raw WHERE ts_ms < ?",
+                        duckdb::params![cutoff_ms],
+                    );
+                    let existing: (u64, String) = match conn.query_row(
+                        "SELECT COUNT(*), COALESCE(MAX(ts_ms)::VARCHAR, '0') FROM eurusd_dom_raw",
+                        [],
+                        |row| Ok((row.get::<_, i64>(0).unwrap_or(0) as u64, row.get::<_, String>(1).unwrap_or_default())),
+                    ) {
+                        Ok(v) => v,
+                        Err(_) => (0, "0".to_string()),
+                    };
+                    writer_rows = existing.0;
+                    let _ = reply.send((existing.0, existing.1));
+                    db = Some(conn);
+                }
+                DomDbCommand::RawBatch { rows } => {
+                    if let Some(ref conn) = db {
+                        if let Ok(mut appender) = conn.appender("eurusd_dom_raw") {
+                            for &(ts, etype, qid, side, price, size) in &rows {
+                                let _ = appender.append_row(duckdb::params![
+                                    ts, etype as i8, qid as i64, side as i8, price, size
+                                ]);
+                            }
+                            let _ = appender.flush();
+                            writer_rows += rows.len() as u64;
+                        }
+                    }
+                }
+                DomDbCommand::M1Features { params } => {
+                    if let Some(ref conn) = db {
+                        let _ = conn.execute(
+                            "INSERT OR REPLACE INTO eurusd_dom_features_m1 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            duckdb::params![
+                                params[0] as i64, params[1], params[2], params[3], params[4],
+                                params[5], params[6], params[7], params[8], params[9],
+                                params[10], params[11], params[12],
+                                params[13] as i32, params[14] as i32,
+                                params[15] as i64, params[16] as i64, params[17] as i32,
+                            ],
+                        );
+                    }
+                }
+                DomDbCommand::Close { reply } => {
+                    db = None; // drop connection, releases file lock
+                    let _ = reply.send(writer_rows);
+                }
+            }
+        }
+    });
 
     // ── DoM M1 aggregation state ─────────────────────────────────────────
     // Accumulates per-minute features from live book snapshots
@@ -612,7 +624,7 @@ async fn run_session(
                                 let event = openapi::ProtoOaDepthEvent::decode(payload.as_slice())?;
                                 let now_ms = chrono::Utc::now().timestamp_millis();
 
-                                // Process new/updated quotes
+                                // Process new/updated quotes (maintain running totals)
                                 for q in &event.new_quotes {
                                     let (side, price) = if let Some(bid) = q.bid {
                                         (0u8, bid as i32)
@@ -622,13 +634,23 @@ async fn run_session(
                                         continue;
                                     };
                                     let size = q.size as i64;
+                                    // Remove old entry from running totals if updating
+                                    if let Some(&(old_side, _, old_size)) = dom_book.get(&q.id) {
+                                        if old_side == 0 { dom_total_bid_vol -= old_size as f64; dom_bid_levels -= 1; }
+                                        else { dom_total_ask_vol -= old_size as f64; dom_ask_levels -= 1; }
+                                    }
+                                    // Add new entry to running totals
+                                    if side == 0 { dom_total_bid_vol += size as f64; dom_bid_levels += 1; }
+                                    else { dom_total_ask_vol += size as f64; dom_ask_levels += 1; }
                                     dom_book.insert(q.id, (side, price, size));
                                     dom_batch.push((now_ms, 0, q.id, side, price, size));
                                 }
 
-                                // Process deleted quotes
+                                // Process deleted quotes (maintain running totals)
                                 for &qid in &event.deleted_quotes {
-                                    if let Some((side, price, _size)) = dom_book.remove(&qid) {
+                                    if let Some((side, price, old_size)) = dom_book.remove(&qid) {
+                                        if side == 0 { dom_total_bid_vol -= old_size as f64; dom_bid_levels -= 1; }
+                                        else { dom_total_ask_vol -= old_size as f64; dom_ask_levels -= 1; }
                                         dom_batch.push((now_ms, 1, qid, side, price, 0));
                                     }
                                 }
@@ -638,45 +660,35 @@ async fn run_session(
                                 let n_added = event.new_quotes.len() as u32;
                                 let n_deleted = event.deleted_quotes.len() as u32;
 
-                                // Check for minute rollover → flush previous minute
+                                // Check for minute rollover → flush previous minute to DB writer
                                 if let Some(ref acc) = dom_m1 {
                                     if current_minute != acc.minute_ts && acc.snapshots > 0 {
-                                        // Flush M1 features to DB
-                                        if let Some(ref db) = dom_db {
-                                            let n = acc.snapshots as f64;
-                                            let obi_mean = acc.obi_sum / n;
-                                            let obi_std = ((acc.obi_sq_sum / n) - obi_mean * obi_mean)
-                                                .max(0.0).sqrt();
-                                            let bid_mean = acc.total_bid_vol_sum / n;
-                                            let ask_mean = acc.total_ask_vol_sum / n;
-                                            let ratio = if ask_mean > 0.0 { bid_mean / ask_mean } else { 1.0 };
-                                            let total_events = (acc.quotes_added + acc.quotes_deleted) as f64;
-                                            let churn = if n > 0.0 { total_events / n } else { 0.0 };
+                                        let n = acc.snapshots as f64;
+                                        let obi_mean = acc.obi_sum / n;
+                                        let obi_std = ((acc.obi_sq_sum / n) - obi_mean * obi_mean)
+                                            .max(0.0).sqrt();
+                                        let bid_mean = acc.total_bid_vol_sum / n;
+                                        let ask_mean = acc.total_ask_vol_sum / n;
+                                        let ratio = if ask_mean > 0.0 { bid_mean / ask_mean } else { 1.0 };
+                                        let total_events = (acc.quotes_added + acc.quotes_deleted) as f64;
+                                        let churn = if n > 0.0 { total_events / n } else { 0.0 };
 
-                                            let _ = db.execute(
-                                                "INSERT OR REPLACE INTO eurusd_dom_features_m1 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                                                duckdb::params![
-                                                    acc.minute_ts,
-                                                    obi_mean,
-                                                    obi_std,
-                                                    acc.spread_sum / n,
-                                                    acc.spread_max,
-                                                    bid_mean,
-                                                    ask_mean,
-                                                    if acc.total_bid_vol_min < f64::MAX { acc.total_bid_vol_min } else { 0.0 },
-                                                    if acc.total_ask_vol_min < f64::MAX { acc.total_ask_vol_min } else { 0.0 },
-                                                    ratio,
-                                                    acc.bid_levels_sum as f64 / n,
-                                                    acc.ask_levels_sum as f64 / n,
-                                                    churn,
-                                                    acc.quotes_added as i32,
-                                                    acc.quotes_deleted as i32,
-                                                    acc.best_bid_max_size,
-                                                    acc.best_ask_max_size,
-                                                    acc.snapshots as i32,
-                                                ],
-                                            );
-                                        }
+                                        let _ = dom_db_tx.try_send(DomDbCommand::M1Features {
+                                            params: [
+                                                acc.minute_ts as f64,
+                                                obi_mean, obi_std,
+                                                acc.spread_sum / n, acc.spread_max,
+                                                bid_mean, ask_mean,
+                                                if acc.total_bid_vol_min < f64::MAX { acc.total_bid_vol_min } else { 0.0 },
+                                                if acc.total_ask_vol_min < f64::MAX { acc.total_ask_vol_min } else { 0.0 },
+                                                ratio,
+                                                acc.bid_levels_sum as f64 / n, acc.ask_levels_sum as f64 / n,
+                                                churn,
+                                                acc.quotes_added as f64, acc.quotes_deleted as f64,
+                                                acc.best_bid_max_size as f64, acc.best_ask_max_size as f64,
+                                                acc.snapshots as f64,
+                                            ],
+                                        });
                                         dom_m1 = None;
                                     }
                                 }
@@ -691,31 +703,22 @@ async fn run_session(
                                     acc.quotes_added += n_added;
                                     acc.quotes_deleted += n_deleted;
 
-                                    // Compute book metrics from current state
-                                    let mut total_bid: f64 = 0.0;
-                                    let mut total_ask: f64 = 0.0;
-                                    let mut bid_levels: u32 = 0;
-                                    let mut ask_levels: u32 = 0;
+                                    // Use running totals for volume/levels (O(1))
+                                    let total_bid = dom_total_bid_vol;
+                                    let total_ask = dom_total_ask_vol;
+
+                                    // Best bid/ask still need a scan — but only when quotes changed
+                                    // This is unavoidable without a BTreeMap, but runs less often
+                                    // than the old code (only when accumulator is active)
                                     let mut best_bid: i32 = 0;
                                     let mut best_ask: i32 = i32::MAX;
                                     let mut best_bid_size: i64 = 0;
                                     let mut best_ask_size: i64 = 0;
-
                                     for &(side, price, size) in dom_book.values() {
                                         if side == 0 {
-                                            total_bid += size as f64;
-                                            bid_levels += 1;
-                                            if price > best_bid {
-                                                best_bid = price;
-                                                best_bid_size = size;
-                                            }
+                                            if price > best_bid { best_bid = price; best_bid_size = size; }
                                         } else {
-                                            total_ask += size as f64;
-                                            ask_levels += 1;
-                                            if price < best_ask {
-                                                best_ask = price;
-                                                best_ask_size = size;
-                                            }
+                                            if price < best_ask { best_ask = price; best_ask_size = size; }
                                         }
                                     }
 
@@ -739,30 +742,25 @@ async fn run_session(
                                     acc.total_ask_vol_sum += total_ask;
                                     if total_bid < acc.total_bid_vol_min { acc.total_bid_vol_min = total_bid; }
                                     if total_ask < acc.total_ask_vol_min { acc.total_ask_vol_min = total_ask; }
-                                    acc.bid_levels_sum += bid_levels;
-                                    acc.ask_levels_sum += ask_levels;
+                                    acc.bid_levels_sum += dom_bid_levels;
+                                    acc.ask_levels_sum += dom_ask_levels;
                                     if best_bid_size > acc.best_bid_max_size { acc.best_bid_max_size = best_bid_size; }
                                     if best_ask_size > acc.best_ask_max_size { acc.best_ask_max_size = best_ask_size; }
                                 }
 
-                                // Flush batch to DuckDB every 2 seconds or when buffer is large
+                                // Flush batch to DB writer every 2 seconds or when buffer is large
                                 if dom_batch.len() >= 5_000
                                     || dom_last_flush.elapsed() > Duration::from_secs(2)
                                 {
                                     let flushed = dom_batch.len() as u64;
-                                    if let Some(ref db) = dom_db {
-                                        let mut appender = db.appender("eurusd_dom_raw")
-                                            .unwrap_or_else(|e| panic!("DoM appender failed: {}", e));
-                                        for &(ts, etype, qid, side, price, size) in &dom_batch {
-                                            let _ = appender.append_row(duckdb::params![
-                                                ts, etype as i8, qid as i64, side as i8, price, size
-                                            ]);
-                                        }
-                                        let _ = appender.flush();
-                                        dom_total_rows += flushed;
-                                        dom_rows_since_status += flushed;
-                                    }
-                                    dom_batch.clear();
+                                    // Send batch to writer thread (non-blocking)
+                                    let batch = std::mem::replace(
+                                        &mut dom_batch,
+                                        Vec::with_capacity(10_000),
+                                    );
+                                    let _ = dom_db_tx.try_send(DomDbCommand::RawBatch { rows: batch });
+                                    dom_total_rows += flushed;
+                                    dom_rows_since_status += flushed;
                                     dom_last_flush = tokio::time::Instant::now();
 
                                     // Send status update to UI every 5 seconds
@@ -887,69 +885,20 @@ async fn run_session(
                     DataAction::DomCaptureStart => {
                         if let Some(eurusd_id) = dom_eurusd_id {
                             if !dom_capturing {
-                                // Open DuckDB connection and create table if needed
-                                if dom_db.is_none() {
-                                    let db = duckdb::Connection::open("Bots_db/Algo_EURUSD.duckdb")
-                                        .expect("Failed to open DuckDB for DoM");
-                                    db.execute_batch("
-                                        CREATE TABLE IF NOT EXISTS eurusd_dom_raw (
-                                            ts_ms        BIGINT NOT NULL,
-                                            event_type   TINYINT NOT NULL,
-                                            quote_id     BIGINT NOT NULL,
-                                            side         TINYINT,
-                                            price        INTEGER,
-                                            size         BIGINT
-                                        );
-                                        CREATE TABLE IF NOT EXISTS eurusd_dom_features_m1 (
-                                            timestamp    BIGINT PRIMARY KEY,
-                                            obi_mean     FLOAT,
-                                            obi_std      FLOAT,
-                                            spread_mean  FLOAT,
-                                            spread_max   FLOAT,
-                                            bid_vol_mean FLOAT,
-                                            ask_vol_mean FLOAT,
-                                            bid_vol_min  FLOAT,
-                                            ask_vol_min  FLOAT,
-                                            bid_ask_ratio FLOAT,
-                                            bid_levels   FLOAT,
-                                            ask_levels   FLOAT,
-                                            churn_rate   FLOAT,
-                                            quotes_added INTEGER,
-                                            quotes_deleted INTEGER,
-                                            best_bid_max BIGINT,
-                                            best_ask_max BIGINT,
-                                            snapshots    INTEGER
-                                        );
-                                    ").expect("Failed to create DoM tables");
-                                    // Auto-cleanup: delete data older than 8 weeks
-                                    let cutoff_ms = chrono::Utc::now().timestamp_millis()
-                                        - (8 * 7 * 24 * 3600 * 1000_i64);
-                                    let _ = db.execute(
-                                        "DELETE FROM eurusd_dom_raw WHERE ts_ms < ?",
-                                        duckdb::params![cutoff_ms],
-                                    );
-                                    // Read existing row count and last timestamp
-                                    let existing: (u64, String) = match db.query_row(
-                                        "SELECT COUNT(*), COALESCE(MAX(ts_ms)::VARCHAR, '0') FROM eurusd_dom_raw",
-                                        [],
-                                        |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, String>(1)?)),
-                                    ) {
-                                        Ok(v) => v,
-                                        Err(_) => (0, "0".to_string()),
-                                    };
-                                    dom_total_rows = existing.0;
-                                    let last_ts_ms: i64 = existing.1.parse().unwrap_or(0);
-                                    let last_str = if last_ts_ms > 0 {
-                                        chrono::DateTime::from_timestamp_millis(last_ts_ms)
-                                            .map(|dt| dt.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string())
-                                            .unwrap_or_default()
-                                    } else {
-                                        "none".to_string()
-                                    };
-                                    println!("DoM: DB has {} existing rows, last: {}", dom_total_rows, last_str);
-
-                                    dom_db = Some(db);
-                                }
+                                // Initialize DB writer (non-blocking: awaits reply from writer thread)
+                                let (init_tx, init_rx) = tokio::sync::oneshot::channel();
+                                let _ = dom_db_tx.send(DomDbCommand::Init { reply: init_tx }).await;
+                                let (existing_rows, last_ts_str) = init_rx.await.unwrap_or((0, "0".to_string()));
+                                dom_total_rows = existing_rows;
+                                let last_ts_ms: i64 = last_ts_str.parse().unwrap_or(0);
+                                let last_str = if last_ts_ms > 0 {
+                                    chrono::DateTime::from_timestamp_millis(last_ts_ms)
+                                        .map(|dt| dt.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string())
+                                        .unwrap_or_default()
+                                } else {
+                                    "none".to_string()
+                                };
+                                println!("DoM: DB has {} existing rows, last: {}", dom_total_rows, last_str);
 
                                 // Subscribe to DoM
                                 let subscribe = openapi::ProtoOaSubscribeDepthQuotesReq {
@@ -966,28 +915,17 @@ async fn run_session(
                                 ).await?;
                                 dom_capturing = true;
                                 dom_book.clear();
+                                dom_total_bid_vol = 0.0;
+                                dom_total_ask_vol = 0.0;
+                                dom_bid_levels = 0;
+                                dom_ask_levels = 0;
                                 dom_batch.clear();
                                 dom_rows_since_status = 0;
                                 dom_last_status_update = tokio::time::Instant::now();
-                                // Read last record time from DB for status display
-                                let dom_start_msg = if let Some(ref db) = dom_db {
-                                    match db.query_row(
-                                        "SELECT COALESCE(MAX(ts_ms), 0) FROM eurusd_dom_raw",
-                                        [],
-                                        |row| row.get::<_, i64>(0),
-                                    ) {
-                                        Ok(ts) if ts > 0 => {
-                                            let last = chrono::DateTime::from_timestamp_millis(ts)
-                                                .map(|dt| dt.with_timezone(&chrono::Local)
-                                                    .format("%Y-%m-%d %H:%M:%S").to_string())
-                                                .unwrap_or_default();
-                                            format!("Starting... ({} existing, last: {})",
-                                                dom_total_rows, last)
-                                        }
-                                        _ => format!("Starting... ({} existing)", dom_total_rows),
-                                    }
+                                let dom_start_msg = if last_ts_ms > 0 {
+                                    format!("Starting... ({} existing, last: {})", dom_total_rows, last_str)
                                 } else {
-                                    "Starting...".to_string()
+                                    format!("Starting... ({} existing)", dom_total_rows)
                                 };
                                 println!("DoM: subscribing to EURUSD depth (id={})", eurusd_id);
                                 let _ = tx.send(PriceUpdate::DomCaptureStatus(dom_start_msg)).await;
@@ -1015,23 +953,14 @@ async fn run_session(
                                     unsubscribe,
                                 ).await?;
                             }
-                            // Flush remaining batch
-                            if let Some(ref db) = dom_db {
-                                if !dom_batch.is_empty() {
-                                    let mut appender = db.appender("eurusd_dom_raw")
-                                        .unwrap_or_else(|e| panic!("DoM flush: {}", e));
-                                    for &(ts, etype, qid, side, price, size) in &dom_batch {
-                                        let _ = appender.append_row(duckdb::params![
-                                            ts, etype as i8, qid as i64, side as i8, price, size
-                                        ]);
-                                    }
-                                    let _ = appender.flush();
-                                    dom_total_rows += dom_batch.len() as u64;
-                                    dom_batch.clear();
-                                }
+                            // Flush remaining batch to writer
+                            if !dom_batch.is_empty() {
+                                let batch = std::mem::take(&mut dom_batch);
+                                dom_total_rows += batch.len() as u64;
+                                let _ = dom_db_tx.send(DomDbCommand::RawBatch { rows: batch }).await;
                             }
-                            // Flush last M1 accumulator
-                            if let (Some(acc), Some(db)) = (&dom_m1, &dom_db) {
+                            // Flush last M1 accumulator to writer
+                            if let Some(ref acc) = dom_m1 {
                                 if acc.snapshots > 0 {
                                     let n = acc.snapshots as f64;
                                     let obi_mean = acc.obi_sum / n;
@@ -1040,26 +969,34 @@ async fn run_session(
                                     let ask_mean = acc.total_ask_vol_sum / n;
                                     let ratio = if ask_mean > 0.0 { bid_mean / ask_mean } else { 1.0 };
                                     let churn = (acc.quotes_added + acc.quotes_deleted) as f64 / n;
-                                    let _ = db.execute(
-                                        "INSERT OR REPLACE INTO eurusd_dom_features_m1 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                                        duckdb::params![
-                                            acc.minute_ts, obi_mean, obi_std,
+                                    let _ = dom_db_tx.send(DomDbCommand::M1Features {
+                                        params: [
+                                            acc.minute_ts as f64, obi_mean, obi_std,
                                             acc.spread_sum / n, acc.spread_max,
                                             bid_mean, ask_mean,
                                             if acc.total_bid_vol_min < f64::MAX { acc.total_bid_vol_min } else { 0.0 },
                                             if acc.total_ask_vol_min < f64::MAX { acc.total_ask_vol_min } else { 0.0 },
                                             ratio, acc.bid_levels_sum as f64 / n, acc.ask_levels_sum as f64 / n,
-                                            churn, acc.quotes_added as i32, acc.quotes_deleted as i32,
-                                            acc.best_bid_max_size, acc.best_ask_max_size, acc.snapshots as i32,
+                                            churn, acc.quotes_added as f64, acc.quotes_deleted as f64,
+                                            acc.best_bid_max_size as f64, acc.best_ask_max_size as f64,
+                                            acc.snapshots as f64,
                                         ],
-                                    );
+                                    }).await;
                                 }
+                            }
+                            // Close DB connection via writer (awaits final flush)
+                            let (close_tx, close_rx) = tokio::sync::oneshot::channel();
+                            let _ = dom_db_tx.send(DomDbCommand::Close { reply: close_tx }).await;
+                            if let Ok(total) = close_rx.await {
+                                dom_total_rows = total;
                             }
                             dom_m1 = None;
                             dom_capturing = false;
                             dom_book.clear();
-                            // Close DuckDB connection to release file lock
-                            dom_db = None;
+                            dom_total_bid_vol = 0.0;
+                            dom_total_ask_vol = 0.0;
+                            dom_bid_levels = 0;
+                            dom_ask_levels = 0;
                             println!("DoM: stopped. {} total rows written", dom_total_rows);
                             let _ = tx.send(PriceUpdate::DomCaptureStatus(
                                 format!("DoM paused ({} rows saved)", dom_total_rows)

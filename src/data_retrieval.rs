@@ -4,7 +4,6 @@
 //! and the async network task for historical data downloads.
 
 use std::collections::HashMap;
-use bevy::prelude::*;
 use crate::db::Candle;
 
 // ============================================================================
@@ -118,20 +117,19 @@ pub enum DataResponse {
 // Bevy Resources
 // ============================================================================
 
-/// Send data requests from Bevy -> network task
-#[derive(Resource, Clone)]
+/// Send data requests from UI -> network task
+#[derive(Clone)]
 pub struct DataRequestSender {
     pub sender: tokio::sync::mpsc::Sender<DataRequest>,
 }
 
-/// Receive data responses in Bevy
-#[derive(Resource)]
+/// Receive data responses in UI
 pub struct DataResponseReceiver {
     pub receiver: tokio::sync::mpsc::Receiver<DataResponse>,
 }
 
 /// Maps symbol names to cTrader symbol IDs
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct SymbolIdMap {
     pub name_to_id: HashMap<String, i64>,
 }

@@ -1,5 +1,6 @@
 pub mod app;
-pub mod bevy_ui;
+pub mod theme;
+pub mod egui_app;
 
 pub use app::{AppState, UiState, ActiveView, SymbolCategory, InstrumentData, TickDirection, ui_system};
-pub use bevy_ui::BevyUiPlugin;
+pub use egui_app::CTraderApp;

@@ -14,16 +14,16 @@
     "vol_ratio"
   ],
   "stride": 3,
-  "train_bars": 1621524,
+  "train_bars": 1622329,
   "train_range": [
     "2013-01-01T20:22:00+00:00",
-    "2026-03-19T04:34:00+00:00"
+    "2026-03-20T20:54:00+00:00"
   ],
   "n_restarts": 5,
   "n_iter": 100,
-  "log_likelihood": -1387930.9889,
-  "aic": 2776243.9779,
-  "bic": 2778593.0634,
+  "log_likelihood": -1389197.6538,
+  "aic": 2778777.3076,
+  "bic": 2781126.4879,
   "n_params": 191,
   "state_map": {
     "3": "Trending Down",
@@ -44,16 +44,16 @@
       "state_id": 1,
       "label": "Volatile",
       "mean_return_pips": -0.0043,
-      "mean_vol_20": 0.0001277,
+      "mean_vol_20": 0.00012772,
       "pct_bars": 42.27,
       "avg_duration_bars": 18.2
     },
     {
       "state_id": 2,
       "label": "Trending Up",
-      "mean_return_pips": 0.0147,
+      "mean_return_pips": 0.015,
       "mean_vol_20": 0.00029078,
-      "pct_bars": 9.02,
+      "pct_bars": 9.03,
       "avg_duration_bars": 8.1
     },
     {
