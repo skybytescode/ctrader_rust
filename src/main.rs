@@ -177,6 +177,9 @@ fn main() {
         options,
         Box::new(|_cc| Ok(Box::new(ui::CTraderApp::new(rx, data_req_tx, data_resp_rx)))),
     ).expect("Failed to start eframe");
+
+    // Window closed — force exit to kill background threads and child processes
+    std::process::exit(0);
 }
 
 async fn run_session(
