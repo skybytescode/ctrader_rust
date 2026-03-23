@@ -97,6 +97,7 @@ pub struct BotDashboardState {
     pub econ_cal_update_rx: Option<std::sync::mpsc::Receiver<String>>,
     pub dom_capture_active: bool,
     pub dom_capture_status: String,
+    pub ec_capture_active: bool,
     pub ec_today_lines: Vec<String>,
     pub ec_today_raw: Vec<(String, String, i32, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
     pub ec_status: String,
@@ -163,6 +164,7 @@ impl CTraderApp {
                 PriceUpdate::EcTodayEvents(lines) => self.dashboard.ec_today_lines = lines,
                 PriceUpdate::EcTodayRaw(raw) => self.dashboard.ec_today_raw = raw,
                 PriceUpdate::EcStatus(s) => self.dashboard.ec_status = s,
+                PriceUpdate::EcCaptureActive(active) => self.dashboard.ec_capture_active = active,
             }
         }
         received
@@ -767,10 +769,14 @@ impl CTraderApp {
         // EC Calendar Section
         ui.horizontal(|ui| {
             ui.label(RichText::new("EC Calendar:").size(10.0).color(colors::TEXT_SECONDARY));
+            let ec_btn_label = if self.dashboard.ec_capture_active { "Stop Capture" } else { "Start Capture" };
+            if Self::themed_button(ui, ec_btn_label).clicked() {
+                self.handle_ec_capture_click();
+            }
             if !self.dashboard.ec_status.is_empty() {
                 ui.label(RichText::new(&self.dashboard.ec_status).size(10.0).color(colors::TEXT_SECONDARY));
             } else {
-                ui.label(RichText::new("loading...").size(10.0).color(colors::TEXT_SECONDARY));
+                ui.label(RichText::new("Stopped").size(10.0).color(colors::TEXT_SECONDARY));
             }
         });
 
@@ -977,6 +983,28 @@ impl CTraderApp {
         } else {
             self.dashboard.dom_capture_active = !self.dashboard.dom_capture_active;
             self.dashboard.dom_capture_status = if self.dashboard.dom_capture_active {
+                "Starting...".to_string()
+            } else {
+                "Stopping...".to_string()
+            };
+        }
+    }
+
+    fn handle_ec_capture_click(&mut self) {
+        let action = if self.dashboard.ec_capture_active {
+            DataAction::EcCaptureStop
+        } else {
+            DataAction::EcCaptureStart
+        };
+        let req = DataRequest {
+            symbol: "EURUSD".to_string(), symbol_id: 0,
+            kind: DataKind::M1Candles, action, force_rebuild: false,
+        };
+        if let Err(e) = self.data_req_tx.try_send(req) {
+            self.dashboard.ec_status = format!("Send error: {}", e);
+        } else {
+            self.dashboard.ec_capture_active = !self.dashboard.ec_capture_active;
+            self.dashboard.ec_status = if self.dashboard.ec_capture_active {
                 "Starting...".to_string()
             } else {
                 "Stopping...".to_string()

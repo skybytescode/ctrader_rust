@@ -1,4 +1,6 @@
 /target
+.prod-build/
+run_production.sh
 
 # Environment variables with sensitive credentials
 .env

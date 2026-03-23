@@ -46,6 +46,8 @@ pub enum PriceUpdate {
     EcTodayRaw(Vec<(String, String, i32, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>)>),
     /// EC Calendar status message
     EcStatus(String),
+    /// EC Calendar capture status (for the button)
+    EcCaptureActive(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -427,6 +429,7 @@ async fn run_session(
     // Force initial schedule fetch 10 seconds after auth
     let mut ec_next_schedule_fetch: Option<tokio::time::Instant> = None;
     let mut ec_last_fetch_ts: i64 = 0; // last UTC timestamp we fetched at
+    let mut ec_capturing = false; // toggled by UI button
 
     loop {
         let mut header = [0u8; 4];
@@ -937,6 +940,32 @@ async fn run_session(
                         }
                         continue;
                     }
+                    DataAction::EcCaptureStart => {
+                        if !ec_capturing {
+                            ec_capturing = true;
+                            // Trigger initial fetch in 2s
+                            ec_next_schedule_fetch = Some(
+                                tokio::time::Instant::now() + Duration::from_secs(2)
+                            );
+                            ec_schedule_loaded = false;
+                            ec_today_date = None; // force day-change detection
+                            println!("EC: capture started by user");
+                            let _ = tx.send(PriceUpdate::EcCaptureActive(true)).await;
+                            let _ = tx.send(PriceUpdate::EcStatus("Starting...".to_string())).await;
+                        }
+                        continue;
+                    }
+                    DataAction::EcCaptureStop => {
+                        if ec_capturing {
+                            ec_capturing = false;
+                            ec_scheduled_fetches.clear();
+                            ec_schedule_loaded = false;
+                            println!("EC: capture stopped by user");
+                            let _ = tx.send(PriceUpdate::EcCaptureActive(false)).await;
+                            let _ = tx.send(PriceUpdate::EcStatus("Stopped".to_string())).await;
+                        }
+                        continue;
+                    }
                     DataAction::DomCaptureStop => {
                         if dom_capturing {
                             if let Some(eurusd_id) = dom_eurusd_id {
@@ -1030,7 +1059,7 @@ async fn run_session(
         }
 
         // ── EC Calendar smart scheduling ─────────────────────────────────
-        if _auth_state == AuthState::Subscribed {
+        if _auth_state == AuthState::Subscribed && ec_capturing {
             let now_utc = chrono::Utc::now();
             let now_ts = now_utc.timestamp();
             let today_str = now_utc.format("%Y%m%d").to_string();
@@ -1138,6 +1167,13 @@ async fn run_session(
                     }
                     Err(e) => {
                         let _ = tx.send(PriceUpdate::EcStatus(format!("EC error: {}", e))).await;
+                        // Retry in 15s if the proxy isn't ready yet
+                        if !ec_schedule_loaded {
+                            ec_next_schedule_fetch = Some(
+                                tokio::time::Instant::now() + Duration::from_secs(15)
+                            );
+                            println!("EC: fetch failed ({}), retrying in 15s...", e);
+                        }
                     }
                 }
             }
@@ -1470,7 +1506,8 @@ async fn handle_data_request(
             }
         }
         // DoM capture actions are handled inline in the select! loop, not here
-        DataAction::DomCaptureStart | DataAction::DomCaptureStop => {}
+        DataAction::DomCaptureStart | DataAction::DomCaptureStop
+        | DataAction::EcCaptureStart | DataAction::EcCaptureStop => {}
     }
     Ok(())
 }

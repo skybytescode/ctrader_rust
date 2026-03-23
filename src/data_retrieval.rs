@@ -35,6 +35,10 @@ pub enum DataAction {
     DomCaptureStart,
     /// Pause/stop DoM depth quote capture
     DomCaptureStop,
+    /// Start EC Calendar live capture
+    EcCaptureStart,
+    /// Stop EC Calendar live capture
+    EcCaptureStop,
 }
 
 // ============================================================================
