@@ -127,36 +127,11 @@ fn parse_event(ev: EcEvent) -> Option<EcRow> {
     let cc = inner.international_country_code.as_deref().unwrap_or("").to_string();
     let vol = ev.volatility.unwrap_or(0) as i8;
 
-    // Parse timestamp — FXStreet "DateUtc" is actually CET/CEST, correct to real UTC
-    // CET = UTC+1 (winter), CEST = UTC+2 (summer, last Sun Mar – last Sun Oct)
+    // Parse timestamp — FXStreet "DateUtc" is actual UTC (despite the name)
     let ts_str = date_utc.replace("Z", "");
-    let ts_raw = NaiveDateTime::parse_from_str(&ts_str, "%Y-%m-%dT%H:%M:%S")
+    let ts = NaiveDateTime::parse_from_str(&ts_str, "%Y-%m-%dT%H:%M:%S")
         .or_else(|_| NaiveDateTime::parse_from_str(&ts_str, "%Y-%m-%dT%H:%M:%S%.f"))
         .ok()?;
-    // Determine if CET or CEST: DST starts last Sunday of March, ends last Sunday of October
-    let cet_offset = {
-        let month = ts_raw.month();
-        let day = ts_raw.day();
-        let weekday = ts_raw.weekday().num_days_from_sunday(); // Sun=0
-        if month >= 4 && month <= 9 {
-            2 // Apr-Sep: always CEST
-        } else if month == 3 && day >= 25 {
-            // Last week of March: CEST if past last Sunday
-            let days_since_sun = if weekday == 0 { 0 } else { weekday };
-            let last_sun_day = day - days_since_sun;
-            if day > last_sun_day || (day == last_sun_day && ts_raw.hour() >= 2) { 2 } else { 1 }
-        } else if month == 10 && day >= 25 {
-            // Last week of October: CET if past last Sunday
-            let days_since_sun = if weekday == 0 { 0 } else { weekday };
-            let last_sun_day = day - days_since_sun;
-            if day > last_sun_day || (day == last_sun_day && ts_raw.hour() >= 3) { 1 } else { 2 }
-        } else if month >= 11 || month <= 2 {
-            1 // Nov-Feb: always CET
-        } else {
-            1 // fallback
-        }
-    };
-    let ts = ts_raw - chrono::Duration::hours(cet_offset); // CET/CEST → UTC
     let weekday = ts.weekday().num_days_from_monday() as i8;
     let hour = ts.hour() as i8;
 
