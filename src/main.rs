@@ -27,6 +27,7 @@ pub mod db;
 pub mod data_retrieval;
 pub mod ec_realtime;
 pub mod news_realtime;
+pub mod news_sentiment;
 
 use db::{Candle, CandleDatabase};
 use data_retrieval::{

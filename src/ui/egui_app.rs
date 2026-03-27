@@ -108,6 +108,10 @@ pub struct BotDashboardState {
     pub news_update_status: String,
     pub news_update_is_running: bool,
     pub news_update_rx: Option<std::sync::mpsc::Receiver<String>>,
+    // News sentiment analysis
+    pub news_analyze_status: String,
+    pub news_analyze_is_running: bool,
+    pub news_analyze_rx: Option<std::sync::mpsc::Receiver<String>>,
 }
 
 // ============================================================================
@@ -253,6 +257,11 @@ impl CTraderApp {
             &mut self.dashboard.news_update_is_running,
             &mut self.dashboard.news_update_status,
             &mut self.dashboard.news_update_rx,
+        );
+        poll_background_thread(
+            &mut self.dashboard.news_analyze_is_running,
+            &mut self.dashboard.news_analyze_status,
+            &mut self.dashboard.news_analyze_rx,
         );
     }
 
@@ -728,6 +737,26 @@ impl CTraderApp {
                     }
                     ui.label(RichText::new(&self.dashboard.news_update_status).size(10.0).color(colors::TEXT_MUTED));
                 });
+
+                // News Sentiment Analysis section
+                ui.add_space(6.0);
+                ui.label(RichText::new("News Sentiment (Ollama AI):").size(10.0).color(colors::TEXT_MUTED));
+                ui.horizontal(|ui| {
+                    if Self::themed_button(ui, "Analyze News").clicked() {
+                        self.handle_news_analyze_click();
+                    }
+                    if self.dashboard.news_analyze_is_running {
+                        if Self::themed_button(ui, "Stop").clicked() {
+                            // Signal stop by dropping the receiver
+                            self.dashboard.news_analyze_rx = None;
+                            self.dashboard.news_analyze_is_running = false;
+                            self.dashboard.news_analyze_status = "Stopped by user".to_string();
+                        }
+                    }
+                });
+                if !self.dashboard.news_analyze_status.is_empty() {
+                    ui.label(RichText::new(&self.dashboard.news_analyze_status).size(10.0).color(colors::TEXT_MUTED));
+                }
             });
     }
 
@@ -1179,6 +1208,54 @@ impl CTraderApp {
                     }
                 }),
                 Err(e) => format!("Runtime error: {}", e),
+            };
+            let _ = tx.send(result);
+            let _ = tx.send("__DONE__".to_string());
+        });
+    }
+
+    fn handle_news_analyze_click(&mut self) {
+        if self.dashboard.news_analyze_is_running {
+            self.dashboard.news_analyze_status = "Already running...".to_string();
+            return;
+        }
+
+        // Check pending count first
+        let pending_info = {
+            let _lock = self.shared_db.lock().unwrap();
+            match duckdb::Connection::open(crate::DB_PATH) {
+                Ok(db) => {
+                    let _ = crate::news_sentiment::ensure_table(&db);
+                    crate::news_sentiment::count_pending(&db).ok()
+                }
+                Err(_) => None,
+            }
+        };
+
+        if let Some((total, analyzed)) = pending_info {
+            let pending = total - analyzed;
+            if pending == 0 {
+                self.dashboard.news_analyze_status = format!(
+                    "All {} articles already analyzed.", total
+                );
+                return;
+            }
+            self.dashboard.news_analyze_status = format!(
+                "Starting: {} pending of {} total...", pending, total
+            );
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        self.dashboard.news_analyze_is_running = true;
+        self.dashboard.news_analyze_rx = Some(rx);
+        let db_clone = self.shared_db.clone();
+
+        std::thread::spawn(move || {
+            let result = match crate::news_sentiment::analyze_batch_sync(
+                &db_clone, &tx, 50_000
+            ) {
+                Ok(n) => format!("Done: {} articles analyzed", n),
+                Err(e) => format!("Error: {}", e),
             };
             let _ = tx.send(result);
             let _ = tx.send("__DONE__".to_string());
