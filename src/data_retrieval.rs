@@ -39,6 +39,10 @@ pub enum DataAction {
     EcCaptureStart,
     /// Stop EC Calendar live capture
     EcCaptureStop,
+    /// Start News live capture
+    NewsCaptureStart,
+    /// Stop News live capture
+    NewsCaptureStop,
 }
 
 // ============================================================================

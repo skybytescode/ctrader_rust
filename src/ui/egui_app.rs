@@ -101,6 +101,13 @@ pub struct BotDashboardState {
     pub ec_today_lines: Vec<String>,
     pub ec_today_raw: Vec<(String, String, i32, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
     pub ec_status: String,
+    // News capture
+    pub news_capture_active: bool,
+    pub news_today_lines: Vec<String>,
+    pub news_status: String,
+    pub news_update_status: String,
+    pub news_update_is_running: bool,
+    pub news_update_rx: Option<std::sync::mpsc::Receiver<String>>,
 }
 
 // ============================================================================
@@ -118,6 +125,8 @@ pub struct CTraderApp {
     pub price_rx: mpsc::Receiver<PriceUpdate>,
     pub data_req_tx: mpsc::Sender<DataRequest>,
     pub data_resp_rx: mpsc::Receiver<DataResponse>,
+    // Shared DB
+    pub shared_db: crate::SharedDb,
     // Timers
     ec_countdown_last: Instant,
     theme_applied: bool,
@@ -128,6 +137,7 @@ impl CTraderApp {
         price_rx: mpsc::Receiver<PriceUpdate>,
         data_req_tx: mpsc::Sender<DataRequest>,
         data_resp_rx: mpsc::Receiver<DataResponse>,
+        shared_db: crate::SharedDb,
     ) -> Self {
         Self {
             app_state: AppState::default(),
@@ -138,6 +148,7 @@ impl CTraderApp {
             price_rx,
             data_req_tx,
             data_resp_rx,
+            shared_db,
             ec_countdown_last: Instant::now(),
             theme_applied: false,
         }
@@ -165,6 +176,9 @@ impl CTraderApp {
                 PriceUpdate::EcTodayRaw(raw) => self.dashboard.ec_today_raw = raw,
                 PriceUpdate::EcStatus(s) => self.dashboard.ec_status = s,
                 PriceUpdate::EcCaptureActive(active) => self.dashboard.ec_capture_active = active,
+                PriceUpdate::NewsTodayLines(lines) => self.dashboard.news_today_lines = lines,
+                PriceUpdate::NewsStatus(s) => self.dashboard.news_status = s,
+                PriceUpdate::NewsCaptureActive(active) => self.dashboard.news_capture_active = active,
             }
         }
         received
@@ -234,6 +248,11 @@ impl CTraderApp {
             &mut self.dashboard.econ_cal_update_is_running,
             &mut self.dashboard.econ_cal_update_status,
             &mut self.dashboard.econ_cal_update_rx,
+        );
+        poll_background_thread(
+            &mut self.dashboard.news_update_is_running,
+            &mut self.dashboard.news_update_status,
+            &mut self.dashboard.news_update_rx,
         );
     }
 
@@ -639,6 +658,16 @@ impl CTraderApp {
                     }
                     ui.label(RichText::new(&self.dashboard.econ_cal_status).size(10.0).color(colors::TEXT_MUTED));
                 });
+
+                // News section
+                ui.add_space(6.0);
+                ui.label(RichText::new("News:").size(10.0).color(colors::TEXT_MUTED));
+                ui.horizontal(|ui| {
+                    if Self::themed_button(ui, "News").clicked() {
+                        self.handle_news_db_click();
+                    }
+                    ui.label(RichText::new(&self.dashboard.news_status).size(10.0).color(colors::TEXT_MUTED));
+                });
             });
     }
 
@@ -688,6 +717,16 @@ impl CTraderApp {
                         self.handle_econ_cal_update_click();
                     }
                     ui.label(RichText::new(&self.dashboard.econ_cal_update_status).size(10.0).color(colors::TEXT_MUTED));
+                });
+
+                // News Update section
+                ui.add_space(6.0);
+                ui.label(RichText::new("News:").size(10.0).color(colors::TEXT_MUTED));
+                ui.horizontal(|ui| {
+                    if Self::themed_button(ui, "Update News").clicked() {
+                        self.handle_news_update_click();
+                    }
+                    ui.label(RichText::new(&self.dashboard.news_update_status).size(10.0).color(colors::TEXT_MUTED));
                 });
             });
     }
@@ -799,7 +838,38 @@ impl CTraderApp {
             });
 
         ui.add_space(8.0);
-        ui.label(RichText::new("News: coming soon...").size(10.0).color(colors::TEXT_MUTED));
+
+        // News Section
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("News:").size(10.0).color(colors::TEXT_SECONDARY));
+            let news_btn_label = if self.dashboard.news_capture_active { "Stop News Capture" } else { "Start News Capture" };
+            if Self::themed_button(ui, news_btn_label).clicked() {
+                self.handle_news_capture_click();
+            }
+            if !self.dashboard.news_status.is_empty() {
+                ui.label(RichText::new(&self.dashboard.news_status).size(10.0).color(colors::TEXT_SECONDARY));
+            } else {
+                ui.label(RichText::new("Stopped").size(10.0).color(colors::TEXT_SECONDARY));
+            }
+        });
+
+        egui::Frame::new()
+            .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
+            .corner_radius(4.0)
+            .inner_margin(egui::Margin::same(4))
+            .show(ui, |ui| {
+                if !self.dashboard.news_today_lines.is_empty() {
+                    let text = self.dashboard.news_today_lines.join("\n");
+                    ScrollArea::vertical()
+                        .id_salt("news_scroll")
+                        .max_height(180.0)
+                        .show(ui, |ui| {
+                            ui.label(RichText::new(&text).size(11.0).color(colors::TEXT_SECONDARY));
+                        });
+                } else {
+                    ui.label(RichText::new("Waiting for news capture...").size(11.0).color(colors::TEXT_SECONDARY));
+                }
+            });
     }
 
     // ── Event Handlers ───────────────────────────────────────────────────
@@ -1010,6 +1080,109 @@ impl CTraderApp {
                 "Stopping...".to_string()
             };
         }
+    }
+
+    fn handle_news_capture_click(&mut self) {
+        let action = if self.dashboard.news_capture_active {
+            DataAction::NewsCaptureStop
+        } else {
+            DataAction::NewsCaptureStart
+        };
+        let req = DataRequest {
+            symbol: "EURUSD".to_string(), symbol_id: 0,
+            kind: DataKind::M1Candles, action, force_rebuild: false,
+        };
+        if let Err(e) = self.data_req_tx.try_send(req) {
+            self.dashboard.news_status = format!("Send error: {}", e);
+        } else {
+            self.dashboard.news_capture_active = !self.dashboard.news_capture_active;
+            self.dashboard.news_status = if self.dashboard.news_capture_active {
+                "Starting...".to_string()
+            } else {
+                "Stopping...".to_string()
+            };
+        }
+    }
+
+    fn handle_news_db_click(&mut self) {
+        let _lock = self.shared_db.lock().unwrap();
+        let status = match duckdb::Connection::open(crate::DB_PATH) {
+            Ok(db) => {
+                let today_count: i64 = db.query_row(
+                    "SELECT COUNT(*) FROM news_today", [], |r| r.get(0)
+                ).unwrap_or(0);
+                let hist_count: i64 = db.query_row(
+                    "SELECT COUNT(*) FROM news_historical", [], |r| r.get(0)
+                ).unwrap_or(0);
+                format!("Today: {} | Historical: {}", today_count, hist_count)
+            }
+            Err(e) => format!("DB error: {}", e),
+        };
+        self.dashboard.news_status = status;
+    }
+
+    fn handle_news_update_click(&mut self) {
+        if self.dashboard.news_update_is_running {
+            self.dashboard.news_update_status = "Already running...".to_string();
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        self.dashboard.news_update_is_running = true;
+        self.dashboard.news_update_status = "Fetching news...".to_string();
+        self.dashboard.news_update_rx = Some(rx);
+
+        let db_clone = self.shared_db.clone();
+        std::thread::spawn(move || {
+            // Check DB for latest stored article
+            let latest = {
+                let _lock = db_clone.lock().unwrap();
+                duckdb::Connection::open(crate::DB_PATH).ok()
+                    .and_then(|db| crate::news_realtime::get_latest_news_timestamp(&db))
+            };
+
+            if let Some(ref ts) = latest {
+                let _ = tx.send(format!("Latest in DB: {} — fetching newer...", ts));
+            } else {
+                let _ = tx.send("No existing news — full fetch...".to_string());
+            }
+
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            let db_clone2 = db_clone.clone();
+            let result = match rt {
+                Ok(rt) => rt.block_on(async {
+                    match crate::news_realtime::fetch_news_since(
+                        100, 500, latest.as_deref(), Some(&tx)
+                    ).await {
+                        Ok(rows) => {
+                            let count = rows.len();
+                            let _ = tx.send(format!("Writing {} new articles to DB...", count));
+                            {
+                                let _lock = db_clone2.lock().unwrap();
+                                match duckdb::Connection::open(crate::DB_PATH) {
+                                    Ok(db) => {
+                                        let _ = crate::news_realtime::write_news_to_db(&db, &rows);
+                                        format!("Done: {} new articles stored", count)
+                                    }
+                                    Err(e) => format!("DB error: {}", e),
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            if latest.is_some() && e.contains("No articles") {
+                                "Already up to date".to_string()
+                            } else {
+                                format!("Fetch error: {}", e)
+                            }
+                        }
+                    }
+                }),
+                Err(e) => format!("Runtime error: {}", e),
+            };
+            let _ = tx.send(result);
+            let _ = tx.send("__DONE__".to_string());
+        });
     }
 
     fn handle_ml_btn(&mut self, model: MlSubCardType, btn_type: MlBtnType) {

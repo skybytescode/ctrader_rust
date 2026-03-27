@@ -2,6 +2,13 @@ use prost::Message;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
+
+const DB_PATH: &str = "Bots_db/Algo_EURUSD.duckdb";
+
+/// Mutex that serializes ALL DuckDB file access. Each caller opens/closes its own
+/// connection while holding the lock, ensuring only one connection exists at a time.
+/// This allows Python scripts to access the DB between Rust operations.
+pub type SharedDb = Arc<std::sync::Mutex<()>>;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -19,6 +26,7 @@ pub mod ui;
 pub mod db;
 pub mod data_retrieval;
 pub mod ec_realtime;
+pub mod news_realtime;
 
 use db::{Candle, CandleDatabase};
 use data_retrieval::{
@@ -48,6 +56,12 @@ pub enum PriceUpdate {
     EcStatus(String),
     /// EC Calendar capture status (for the button)
     EcCaptureActive(bool),
+    /// News today's articles for UI display
+    NewsTodayLines(Vec<String>),
+    /// News status message
+    NewsStatus(String),
+    /// News capture status (for the button)
+    NewsCaptureActive(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -136,6 +150,10 @@ fn main() {
     let (data_req_tx, data_req_rx) = mpsc::channel::<DataRequest>(32);
     let (data_resp_tx, data_resp_rx) = mpsc::channel::<DataResponse>(64);
 
+    // Mutex serializes all DuckDB file access (only one connection at a time on Windows)
+    let shared_db: SharedDb = Arc::new(std::sync::Mutex::new(()));
+    let db_for_async = shared_db.clone();
+
     // Spawn the tokio runtime in a separate thread for async tasks
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_multi_thread()
@@ -150,7 +168,7 @@ fn main() {
             let mut backoff_seconds = 1;
             loop {
                 println!("Starting cTrader price stream...");
-                match run_session(tx.clone(), &mut request_rx, data_resp_tx.clone()).await {
+                match run_session(tx.clone(), &mut request_rx, data_resp_tx.clone(), db_for_async.clone()).await {
                     Ok(_) => println!("Session ended gracefully."),
                     Err(e) => {
                         println!("Session error: {}", e);
@@ -175,7 +193,7 @@ fn main() {
     eframe::run_native(
         "cTrader Rust Terminal",
         options,
-        Box::new(|_cc| Ok(Box::new(ui::CTraderApp::new(rx, data_req_tx, data_resp_rx)))),
+        Box::new(|_cc| Ok(Box::new(ui::CTraderApp::new(rx, data_req_tx, data_resp_rx, shared_db)))),
     ).expect("Failed to start eframe");
 
     // Window closed — force exit to kill background threads and child processes
@@ -186,6 +204,7 @@ async fn run_session(
     tx: mpsc::Sender<PriceUpdate>,
     request_rx: &mut mpsc::Receiver<DataRequest>,
     response_tx: mpsc::Sender<DataResponse>,
+    shared_db: SharedDb,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Load credentials from environment variables
     let app_client_id = std::env::var("CTRADER_CLIENT_ID")
@@ -291,14 +310,15 @@ async fn run_session(
     let (dom_db_tx, mut dom_db_rx) = mpsc::channel::<DomDbCommand>(64);
 
     // Spawn the DoM DB writer on a blocking thread (lives until channel closes)
+    let dom_shared_db = shared_db.clone();
     tokio::task::spawn_blocking(move || {
-        let mut db: Option<duckdb::Connection> = None;
         let mut writer_rows: u64 = 0;
 
         while let Some(cmd) = dom_db_rx.blocking_recv() {
             match cmd {
                 DomDbCommand::Init { reply } => {
-                    let conn = duckdb::Connection::open("Bots_db/Algo_EURUSD.duckdb")
+                    let _lock = dom_shared_db.lock().unwrap();
+                    let conn = duckdb::Connection::open(DB_PATH)
                         .expect("Failed to open DuckDB for DoM");
                     conn.execute_batch("
                         CREATE TABLE IF NOT EXISTS eurusd_dom_raw (
@@ -330,7 +350,6 @@ async fn run_session(
                             snapshots    INTEGER
                         );
                     ").expect("Failed to create DoM tables");
-                    // Auto-cleanup: delete data older than 8 weeks
                     let cutoff_ms = chrono::Utc::now().timestamp_millis()
                         - (8 * 7 * 24 * 3600 * 1000_i64);
                     let _ = conn.execute(
@@ -346,11 +365,11 @@ async fn run_session(
                         Err(_) => (0, "0".to_string()),
                     };
                     writer_rows = existing.0;
-                    let _ = reply.send((existing.0, existing.1));
-                    db = Some(conn);
+                    let _ = reply.send(existing);
                 }
                 DomDbCommand::RawBatch { rows } => {
-                    if let Some(ref conn) = db {
+                    let _lock = dom_shared_db.lock().unwrap();
+                    if let Ok(conn) = duckdb::Connection::open(DB_PATH) {
                         if let Ok(mut appender) = conn.appender("eurusd_dom_raw") {
                             for &(ts, etype, qid, side, price, size) in &rows {
                                 let _ = appender.append_row(duckdb::params![
@@ -363,7 +382,8 @@ async fn run_session(
                     }
                 }
                 DomDbCommand::M1Features { params } => {
-                    if let Some(ref conn) = db {
+                    let _lock = dom_shared_db.lock().unwrap();
+                    if let Ok(conn) = duckdb::Connection::open(DB_PATH) {
                         let _ = conn.execute(
                             "INSERT OR REPLACE INTO eurusd_dom_features_m1 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             duckdb::params![
@@ -377,7 +397,6 @@ async fn run_session(
                     }
                 }
                 DomDbCommand::Close { reply } => {
-                    db = None; // drop connection, releases file lock
                     let _ = reply.send(writer_rows);
                 }
             }
@@ -433,6 +452,11 @@ async fn run_session(
     let mut ec_next_schedule_fetch: Option<tokio::time::Instant> = None;
     let mut ec_last_fetch_ts: i64 = 0; // last UTC timestamp we fetched at
     let mut ec_capturing = false; // toggled by UI button
+
+    // ── News capture state ───────────────────────────────────────────────
+    let mut news_capturing = false;
+    let mut news_next_fetch: Option<tokio::time::Instant> = None;
+    let mut news_today_date: Option<String> = None;
 
     loop {
         let mut header = [0u8; 4];
@@ -609,6 +633,7 @@ async fn run_session(
                                 account_id,
                                 &response_tx,
                                 &mut active_download,
+                                &shared_db,
                             ).await?;
                         }
                     },
@@ -621,6 +646,7 @@ async fn run_session(
                                 account_id,
                                 &response_tx,
                                 &mut active_download,
+                                &shared_db,
                             ).await?;
                         }
                     },
@@ -969,6 +995,29 @@ async fn run_session(
                         }
                         continue;
                     }
+                    DataAction::NewsCaptureStart => {
+                        if !news_capturing {
+                            news_capturing = true;
+                            news_next_fetch = Some(
+                                tokio::time::Instant::now() + Duration::from_secs(2)
+                            );
+                            news_today_date = None;
+                            println!("News: capture started by user");
+                            let _ = tx.send(PriceUpdate::NewsCaptureActive(true)).await;
+                            let _ = tx.send(PriceUpdate::NewsStatus("Starting...".to_string())).await;
+                        }
+                        continue;
+                    }
+                    DataAction::NewsCaptureStop => {
+                        if news_capturing {
+                            news_capturing = false;
+                            news_next_fetch = None;
+                            println!("News: capture stopped by user");
+                            let _ = tx.send(PriceUpdate::NewsCaptureActive(false)).await;
+                            let _ = tx.send(PriceUpdate::NewsStatus("Stopped".to_string())).await;
+                        }
+                        continue;
+                    }
                     DataAction::DomCaptureStop => {
                         if dom_capturing {
                             if let Some(eurusd_id) = dom_eurusd_id {
@@ -1045,6 +1094,7 @@ async fn run_session(
                     account_id,
                     &response_tx,
                     &mut active_download,
+                    &shared_db,
                 ).await?;
             }
             _ = heartbeat_interval.tick() => {
@@ -1137,8 +1187,10 @@ async fn run_session(
                         }
 
                         // Write to DB and read raw data (blocking)
+                        let db_clone = shared_db.clone();
                         let (lines, raw) = tokio::task::spawn_blocking(move || {
-                            match duckdb::Connection::open("Bots_db/Algo_EURUSD.duckdb") {
+                            let _lock = db_clone.lock().unwrap();
+                            match duckdb::Connection::open(DB_PATH) {
                                 Ok(db) => {
                                     let _ = ec_realtime::write_ec_to_db(&db, &rows);
                                     let raw = ec_realtime::read_ec_today_raw(&db);
@@ -1177,6 +1229,69 @@ async fn run_session(
                             );
                             println!("EC: fetch failed ({}), retrying in 15s...", e);
                         }
+                    }
+                }
+            }
+        }
+
+        // ── News periodic fetching ───────────────────────────────────────
+        if _auth_state == AuthState::Subscribed && news_capturing {
+            let now_utc = chrono::Utc::now();
+            let today_str = now_utc.format("%Y%m%d").to_string();
+
+            // Detect day change → force immediate fetch
+            if news_today_date.as_deref() != Some(&today_str) {
+                println!("News: new day ({}), resetting", today_str);
+                news_today_date = Some(today_str.clone());
+                news_next_fetch = Some(
+                    tokio::time::Instant::now() + Duration::from_secs(3)
+                );
+            }
+
+            let should_fetch = match news_next_fetch {
+                Some(t) if tokio::time::Instant::now() >= t => true,
+                _ => false,
+            };
+
+            if should_fetch {
+                // Schedule next fetch in 10 minutes
+                news_next_fetch = Some(
+                    tokio::time::Instant::now() + Duration::from_secs(600)
+                );
+
+                match news_realtime::fetch_news(50, 1, None).await {
+                    Ok(rows) => {
+                        let total = rows.len();
+
+                        let db_clone = shared_db.clone();
+                        let lines = tokio::task::spawn_blocking(move || {
+                            let _lock = db_clone.lock().unwrap();
+                            match duckdb::Connection::open(DB_PATH) {
+                                Ok(db) => {
+                                    let _ = news_realtime::write_news_to_db(&db, &rows);
+                                    let today_rows = news_realtime::read_news_today(&db);
+                                    news_realtime::format_news_lines(&today_rows)
+                                }
+                                Err(e) => vec![format!("DB error: {}", e)],
+                            }
+                        })
+                        .await
+                        .unwrap_or_else(|e| vec![format!("Task error: {}", e)]);
+
+                        let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
+                        let _ = tx.send(PriceUpdate::NewsStatus(format!(
+                            "{} articles | next: 10m | updated: {}",
+                            total, now_str
+                        ))).await;
+                        let _ = tx.send(PriceUpdate::NewsTodayLines(lines)).await;
+                    }
+                    Err(e) => {
+                        let _ = tx.send(PriceUpdate::NewsStatus(format!("News error: {}", e))).await;
+                        // Retry sooner if proxy isn't ready
+                        news_next_fetch = Some(
+                            tokio::time::Instant::now() + Duration::from_secs(15)
+                        );
+                        println!("News: fetch failed ({}), retrying in 15s...", e);
                     }
                 }
             }
@@ -1253,12 +1368,13 @@ async fn handle_data_request(
     account_id: i64,
     response_tx: &mpsc::Sender<DataResponse>,
     active_download: &mut Option<ActiveDownload>,
+    shared_db: &SharedDb,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let table_name = get_data_table_name(&request.symbol, request.kind);
 
     match request.action {
         DataAction::CheckStatus => {
-            check_db_status(request, &table_name, response_tx).await;
+            check_db_status(request, &table_name, response_tx, shared_db).await;
         }
         DataAction::RetrieveFull => {
             println!("Starting full retrieval: {} {:?}", request.symbol, request.kind);
@@ -1302,7 +1418,7 @@ async fn handle_data_request(
             let now_ms = chrono::Utc::now().timestamp_millis();
 
             // Check what we have in DB, fetch from the newest timestamp onward
-            let from_ms = get_newest_timestamp_in_db(&table_name, request.kind);
+            let from_ms = get_newest_timestamp_in_db(&table_name, request.kind, shared_db);
 
             // Create temp CSV file with header for accumulating data
             let csv_suffix = match request.kind {
@@ -1343,9 +1459,10 @@ async fn handle_data_request(
             let merged_table = format!("{}_ticks_merged", symbol.to_lowercase());
 
             let force_rebuild = request.force_rebuild;
+            let db_for_merge = shared_db.clone();
             let merge_result = tokio::task::spawn_blocking(move || {
-                let db_path = "Bots_db/Algo_EURUSD.duckdb";
-                let db = CandleDatabase::new(db_path)?;
+                let _lock = db_for_merge.lock().unwrap();
+                let db = CandleDatabase::new(DB_PATH)?;
 
                 let already_exists = db.check_ml_features_table(&merged_table).is_some();
 
@@ -1431,9 +1548,10 @@ async fn handle_data_request(
             let features_table = format!("{}_tick_features_m1", symbol.to_lowercase());
 
             let force_rebuild = request.force_rebuild;
+            let db_for_ml = shared_db.clone();
             let ml_result = tokio::task::spawn_blocking(move || {
-                let db_path = "Bots_db/Algo_EURUSD.duckdb";
-                let db = CandleDatabase::new(db_path)?;
+                let _lock = db_for_ml.lock().unwrap();
+                let db = CandleDatabase::new(DB_PATH)?;
 
                 let force_rebuild = force_rebuild;
                 let already_exists = db.check_ml_features_table(&features_table).is_some();
@@ -1472,7 +1590,8 @@ async fn handle_data_request(
             match ml_result {
                 Ok(Ok((total, new_rows, already_exists))) => {
                     let features_table2 = format!("{}_tick_features_m1", request.symbol.to_lowercase());
-                    let db2 = CandleDatabase::new("Bots_db/Algo_EURUSD.duckdb");
+                    let _lock = shared_db.lock().unwrap();
+                    let db2 = CandleDatabase::new(DB_PATH);
                     let (first_record, last_record) = match db2 {
                         Ok(db) => {
                             let first = db.get_first_ml_feature(&features_table2).ok().flatten();
@@ -1510,7 +1629,8 @@ async fn handle_data_request(
         }
         // DoM capture actions are handled inline in the select! loop, not here
         DataAction::DomCaptureStart | DataAction::DomCaptureStop
-        | DataAction::EcCaptureStart | DataAction::EcCaptureStop => {}
+        | DataAction::EcCaptureStart | DataAction::EcCaptureStop
+        | DataAction::NewsCaptureStart | DataAction::NewsCaptureStop => {}
     }
     Ok(())
 }
@@ -1520,9 +1640,10 @@ async fn check_db_status(
     request: &DataRequest,
     table_name: &str,
     response_tx: &mpsc::Sender<DataResponse>,
+    shared_db: &SharedDb,
 ) {
-    let db_path = "Bots_db/Algo_EURUSD.duckdb";
-    match CandleDatabase::new(db_path) {
+    let _lock = shared_db.lock().unwrap();
+    match CandleDatabase::new(DB_PATH) {
         Ok(db) => {
             if !db.table_exists(table_name) {
                 let _ = response_tx.send(DataResponse::StatusEmpty {
@@ -1625,9 +1746,9 @@ async fn check_db_status(
 }
 
 /// Get the newest timestamp currently in DB (returns ms)
-fn get_newest_timestamp_in_db(table_name: &str, kind: DataKind) -> i64 {
-    let db_path = "Bots_db/Algo_EURUSD.duckdb";
-    match CandleDatabase::new(db_path) {
+fn get_newest_timestamp_in_db(table_name: &str, kind: DataKind, shared_db: &SharedDb) -> i64 {
+    let _lock = shared_db.lock().unwrap();
+    match CandleDatabase::new(DB_PATH) {
         Ok(db) => {
             if !db.table_exists(table_name) {
                 // No table → start from earliest available (Jan 1, 2010)
@@ -1709,6 +1830,7 @@ async fn handle_trendbars_response(
     account_id: i64,
     response_tx: &mpsc::Sender<DataResponse>,
     active_download: &mut Option<ActiveDownload>,
+    shared_db: &SharedDb,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let dl = match active_download.as_mut() {
         Some(d) => d,
@@ -1800,9 +1922,10 @@ async fn handle_trendbars_response(
         }).await;
 
         // Bulk load CSV → DuckDB (await — only happens once, read_csv is fast)
+        let db_for_load = shared_db.clone();
         let load_result = tokio::task::spawn_blocking(move || {
-            let db_path = "Bots_db/Algo_EURUSD.duckdb";
-            let db = CandleDatabase::new(db_path)?;
+            let _lock = db_for_load.lock().unwrap();
+            let db = CandleDatabase::new(DB_PATH)?;
             db.create_table_if_not_exists(&table_name)?;
             db.bulk_load_candles_from_csv(&table_name, &csv_path)?;
             let _ = std::fs::remove_file(&csv_path);
@@ -1842,6 +1965,7 @@ async fn handle_tick_data_response(
     account_id: i64,
     response_tx: &mpsc::Sender<DataResponse>,
     active_download: &mut Option<ActiveDownload>,
+    shared_db: &SharedDb,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let dl = match active_download.as_mut() {
         Some(d) => d,
@@ -1931,9 +2055,10 @@ async fn handle_tick_data_response(
         }).await;
 
         // Bulk load CSV → DuckDB (await — only happens once, read_csv is fast)
+        let db_for_load = shared_db.clone();
         let load_result = tokio::task::spawn_blocking(move || {
-            let db_path = "Bots_db/Algo_EURUSD.duckdb";
-            let db = CandleDatabase::new(db_path)?;
+            let _lock = db_for_load.lock().unwrap();
+            let db = CandleDatabase::new(DB_PATH)?;
             if is_ask {
                 db.create_ask_tick_table_if_not_exists(&table_name)?;
                 db.bulk_load_ask_ticks_from_csv(&table_name, &csv_path)?;

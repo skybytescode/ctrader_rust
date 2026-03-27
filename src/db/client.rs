@@ -12,6 +12,7 @@ impl CandleDatabase {
         Ok(Self { conn })
     }
 
+
     pub fn create_table_if_not_exists(&self, table_name: &str) -> Result<()> {
         // Create table if it doesn't exist
         self.conn.execute(
