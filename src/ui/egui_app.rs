@@ -112,6 +112,14 @@ pub struct BotDashboardState {
     pub news_analyze_status: String,
     pub news_analyze_is_running: bool,
     pub news_analyze_rx: Option<std::sync::mpsc::Receiver<String>>,
+    // ML unified features build
+    pub ml_unified_status: String,
+    pub ml_unified_is_running: bool,
+    pub ml_unified_rx: Option<std::sync::mpsc::Receiver<String>>,
+    // Model 4b training
+    pub model4b_status: String,
+    pub model4b_is_running: bool,
+    pub model4b_rx: Option<std::sync::mpsc::Receiver<String>>,
 }
 
 // ============================================================================
@@ -262,6 +270,16 @@ impl CTraderApp {
             &mut self.dashboard.news_analyze_is_running,
             &mut self.dashboard.news_analyze_status,
             &mut self.dashboard.news_analyze_rx,
+        );
+        poll_background_thread(
+            &mut self.dashboard.ml_unified_is_running,
+            &mut self.dashboard.ml_unified_status,
+            &mut self.dashboard.ml_unified_rx,
+        );
+        poll_background_thread(
+            &mut self.dashboard.model4b_is_running,
+            &mut self.dashboard.model4b_status,
+            &mut self.dashboard.model4b_rx,
         );
     }
 
@@ -757,6 +775,18 @@ impl CTraderApp {
                 if !self.dashboard.news_analyze_status.is_empty() {
                     ui.label(RichText::new(&self.dashboard.news_analyze_status).size(10.0).color(colors::TEXT_MUTED));
                 }
+
+                // ML Unified Features Build (Model 4b)
+                ui.add_space(6.0);
+                ui.label(RichText::new("ML Features (Model 4b):").size(10.0).color(colors::TEXT_MUTED));
+                ui.horizontal(|ui| {
+                    if Self::themed_button(ui, "ml_unified_features_4b").clicked() {
+                        self.handle_ml_unified_build_click();
+                    }
+                });
+                if !self.dashboard.ml_unified_status.is_empty() {
+                    ui.label(RichText::new(&self.dashboard.ml_unified_status).size(10.0).color(colors::TEXT_MUTED));
+                }
             });
     }
 
@@ -811,6 +841,41 @@ impl CTraderApp {
                 });
             ui.add_space(4.0);
         }
+
+        // Model 4b — Unified (EC + News + Candle Patterns + Cross-Pairs)
+        egui::Frame::new()
+            .fill(colors::BG_SIDEBAR)
+            .corner_radius(6.0)
+            .inner_margin(egui::Margin::same(10))
+            .show(ui, |ui| {
+                ui.label(RichText::new("Model 4b -- EC + News + Price (XGBoost)").size(12.0).color(colors::TEXT_PRIMARY));
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    if Self::themed_button(ui, "Train Model 4b").clicked() {
+                        self.handle_train_model4b_click();
+                    }
+                    if Self::themed_button(ui, "Status").clicked() {
+                        self.handle_model4b_status_click();
+                    }
+                });
+                if !self.dashboard.model4b_status.is_empty() {
+                    ui.add_space(4.0);
+                    egui::Frame::new()
+                        .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
+                        .corner_radius(4.0)
+                        .inner_margin(egui::Margin::same(4))
+                        .show(ui, |ui| {
+                            ScrollArea::vertical()
+                                .id_salt("model4b_scroll")
+                                .max_height(220.0)
+                                .show(ui, |ui| {
+                                    ui.label(RichText::new(&self.dashboard.model4b_status).size(10.0)
+                                        .color(colors::TEXT_MUTED).font(egui::FontId::monospace(10.0)));
+                                });
+                        });
+                }
+            });
+        ui.add_space(4.0);
     }
 
     // ── Start / Pause Card Content ───────────────────────────────────────
@@ -1262,6 +1327,285 @@ impl CTraderApp {
         });
     }
 
+    fn handle_train_model4b_click(&mut self) {
+        if self.dashboard.model4b_is_running {
+            self.dashboard.model4b_status = "Already running...".to_string();
+            return;
+        }
+
+        // Check if feature table exists
+        let has_features = {
+            let _lock = self.shared_db.lock().unwrap();
+            duckdb::Connection::open(crate::DB_PATH).ok()
+                .and_then(|db| db.query_row(
+                    "SELECT COUNT(*) FROM ml_unified_features", [], |r| r.get::<_, i64>(0)
+                ).ok())
+                .unwrap_or(0) > 0
+        };
+
+        if !has_features {
+            self.dashboard.model4b_status = "No feature table found. Click 'ml_unified_features_4b' in Database tab first.".to_string();
+            return;
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        self.dashboard.model4b_is_running = true;
+        self.dashboard.model4b_status = "Starting training...".to_string();
+        self.dashboard.model4b_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let result = std::process::Command::new("C:/Windows/py.exe")
+                .args(["-3.12", "-u", "ml/train_unified.py"])
+                .current_dir("D:/RustProjects/ctrader_rust")
+                .env("PYTHONIOENCODING", "utf-8")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn();
+
+            match result {
+                Err(e) => {
+                    let _ = tx.send(format!("Failed to start Python: {}", e));
+                    let _ = tx.send("__DONE__".to_string());
+                }
+                Ok(mut child) => {
+                    use std::io::BufRead;
+
+                    // Read stderr on separate thread
+                    let stderr_tx = tx.clone();
+                    let stderr_handle = child.stderr.take().map(|stderr| {
+                        std::thread::spawn(move || {
+                            let reader = std::io::BufReader::new(stderr);
+                            for line in reader.lines().flatten() {
+                                if !line.trim().is_empty() {
+                                    let _ = stderr_tx.send(format!("ERR: {}", line));
+                                }
+                            }
+                        })
+                    });
+
+                    // Read stdout
+                    if let Some(stdout) = child.stdout.take() {
+                        let reader = std::io::BufReader::new(stdout);
+                        for line in reader.lines() {
+                            match line {
+                                Ok(l) => { let _ = tx.send(l); }
+                                Err(_) => break,
+                            }
+                        }
+                    }
+
+                    if let Some(handle) = stderr_handle {
+                        let _ = handle.join();
+                    }
+
+                    let status = child.wait().unwrap_or_else(|_| std::process::ExitStatus::default());
+                    let code = status.code().unwrap_or(-1);
+                    if code != 0 {
+                        let _ = tx.send(format!("Training exited with code: {}", code));
+                    }
+                    let _ = tx.send("__DONE__".to_string());
+                }
+            }
+        });
+    }
+
+    fn handle_model4b_status_click(&mut self) {
+        // Read metrics from saved file
+        let metrics_path = "ml/trained/unified_metrics.json";
+        match std::fs::read_to_string(metrics_path) {
+            Ok(contents) => {
+                if let Ok(metrics) = serde_json::from_str::<serde_json::Value>(&contents) {
+                    let acc = metrics.get("accuracy").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let baseline = metrics.get("baseline").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let train_rows = metrics.get("train_rows").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let test_rows = metrics.get("test_rows").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let features = metrics.get("features").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let best_iter = metrics.get("best_iteration").and_then(|v| v.as_i64()).unwrap_or(0);
+
+                    let mut text = format!(
+                        "Model 4b — EC + News + Price (XGBoost)\n\
+                         ────────────────────────────────────────\n\
+                         Accuracy:       {:.1}%\n\
+                         Baseline:       {:.1}%\n\
+                         Edge:           +{:.1}%\n\
+                         Train rows:     {}\n\
+                         Test rows:      {}\n\
+                         Features:       {}\n\
+                         Best iteration: {}\n",
+                        acc * 100.0, baseline * 100.0, (acc - baseline) * 100.0,
+                        train_rows, test_rows, features, best_iter
+                    );
+
+                    if let Some(top) = metrics.get("top_features").and_then(|v| v.as_object()) {
+                        text.push_str("\nTop Features:\n");
+                        let mut sorted: Vec<_> = top.iter().collect();
+                        sorted.sort_by(|a, b| b.1.as_f64().unwrap_or(0.0)
+                            .partial_cmp(&a.1.as_f64().unwrap_or(0.0)).unwrap());
+                        for (name, val) in sorted.iter().take(15) {
+                            text.push_str(&format!("  {:<28} {:.4}\n", name, val.as_f64().unwrap_or(0.0)));
+                        }
+                    }
+
+                    self.dashboard.model4b_status = text;
+                } else {
+                    self.dashboard.model4b_status = "Error parsing metrics JSON".to_string();
+                }
+            }
+            Err(_) => {
+                self.dashboard.model4b_status = "Model 4b not yet trained.\nClick 'Train Model 4b' to start.".to_string();
+            }
+        }
+    }
+
+    fn handle_ml_unified_build_click(&mut self) {
+        if self.dashboard.ml_unified_is_running {
+            self.dashboard.ml_unified_status = "Already running...".to_string();
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        self.dashboard.ml_unified_is_running = true;
+        self.dashboard.ml_unified_status = "Building features...".to_string();
+        self.dashboard.ml_unified_rx = Some(rx);
+        let db_clone = self.shared_db.clone();
+
+        std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+
+            let result = (|| -> Result<String, String> {
+                // Step 1: Build M5 candles
+                let _ = tx.send("Step 1/4: Building M5 candles from M1...".to_string());
+                {
+                    let _lock = db_clone.lock().unwrap();
+                    let db = duckdb::Connection::open(crate::DB_PATH)
+                        .map_err(|e| format!("DB open: {}", e))?;
+                    db.execute_batch("
+                        DROP TABLE IF EXISTS eurusd_m5;
+                        CREATE TABLE eurusd_m5 AS
+                        SELECT
+                            (timestamp // 300) * 300 AS timestamp,
+                            FIRST(open ORDER BY timestamp) AS open,
+                            MAX(high) AS high,
+                            MIN(low) AS low,
+                            LAST(close ORDER BY timestamp) AS close,
+                            SUM(volume) AS volume,
+                            COUNT(*) AS m1_count
+                        FROM eurusd_m1
+                        WHERE timestamp >= 1739923200
+                        GROUP BY (timestamp // 300) * 300
+                        HAVING COUNT(*) >= 3
+                        ORDER BY timestamp;
+                    ").map_err(|e| format!("M5 build: {}", e))?;
+                    let m5_count: i64 = db.query_row("SELECT COUNT(*) FROM eurusd_m5", [], |r| r.get(0)).unwrap_or(0);
+                    let _ = tx.send(format!("Step 1/4: {} M5 candles built", m5_count));
+                }
+
+                // Step 2: Build cross-pair M5
+                let _ = tx.send("Step 2/4: Building cross-pair M5...".to_string());
+                {
+                    let _lock = db_clone.lock().unwrap();
+                    let db = duckdb::Connection::open(crate::DB_PATH)
+                        .map_err(|e| format!("DB open: {}", e))?;
+                    db.execute_batch("
+                        DROP TABLE IF EXISTS cross_m5;
+                        CREATE TABLE cross_m5 AS
+                        WITH pairs AS (
+                            SELECT (timestamp // 300) * 300 AS ts, 'gbpusd' AS pair, LAST(close ORDER BY timestamp) AS close FROM gbpusd_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
+                            UNION ALL SELECT (timestamp // 300) * 300, 'usdjpy', LAST(close ORDER BY timestamp) FROM usdjpy_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
+                            UNION ALL SELECT (timestamp // 300) * 300, 'usdchf', LAST(close ORDER BY timestamp) FROM usdchf_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
+                            UNION ALL SELECT (timestamp // 300) * 300, 'eurjpy', LAST(close ORDER BY timestamp) FROM eurjpy_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
+                            UNION ALL SELECT (timestamp // 300) * 300, 'audusd', LAST(close ORDER BY timestamp) FROM audusd_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
+                            UNION ALL SELECT (timestamp // 300) * 300, 'xauusd', LAST(close ORDER BY timestamp) FROM xauusd_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
+                        )
+                        SELECT ts as timestamp,
+                            MAX(CASE WHEN pair='gbpusd' THEN close END) AS gbpusd_close,
+                            MAX(CASE WHEN pair='usdjpy' THEN close END) AS usdjpy_close,
+                            MAX(CASE WHEN pair='usdchf' THEN close END) AS usdchf_close,
+                            MAX(CASE WHEN pair='eurjpy' THEN close END) AS eurjpy_close,
+                            MAX(CASE WHEN pair='audusd' THEN close END) AS audusd_close,
+                            MAX(CASE WHEN pair='xauusd' THEN close END) AS xauusd_close
+                        FROM pairs GROUP BY ts ORDER BY ts;
+                    ").map_err(|e| format!("Cross M5 build: {}", e))?;
+                    let _ = tx.send("Step 2/4: Cross-pair M5 done".to_string());
+                }
+
+                // Step 3: Prepare EC and News timestamps
+                let _ = tx.send("Step 3/4: Preparing EC calendar and News timestamps...".to_string());
+                {
+                    let _lock = db_clone.lock().unwrap();
+                    let db = duckdb::Connection::open(crate::DB_PATH)
+                        .map_err(|e| format!("DB open: {}", e))?;
+                    db.execute_batch("
+                        DROP TABLE IF EXISTS ec_events_ts;
+                        CREATE TABLE ec_events_ts AS
+                        SELECT
+                            CAST(EPOCH(timestamp_utc) AS BIGINT) AS event_ts,
+                            event_name, currency, volatility,
+                            COALESCE(actual, 0) AS actual,
+                            COALESCE(forecast, 0) AS forecast,
+                            COALESCE(surprise, 0) AS surprise,
+                            COALESCE(beats_forecast, 0) AS beats_forecast
+                        FROM eurusd_economic_calendar
+                        WHERE CAST(EPOCH(timestamp_utc) AS BIGINT) >= 1739923200
+                        ORDER BY event_ts;
+
+                        DROP TABLE IF EXISTS news_ts;
+                        CREATE TABLE news_ts AS
+                        SELECT
+                            CAST(EPOCH(STRPTIME(published_utc, '%Y-%m-%dT%H:%M:%S')) AS BIGINT) AS pub_ts,
+                            COALESCE(eur_sentiment, 0) AS eur_sentiment,
+                            COALESCE(usd_sentiment, 0) AS usd_sentiment,
+                            COALESCE(eurusd_impact, 0) AS eurusd_impact,
+                            COALESCE(volatility_expected, 0) AS vol_expected,
+                            COALESCE(relevance, 0) AS relevance,
+                            COALESCE(category, 'other') AS category
+                        FROM news_sentiment
+                        WHERE published_utc IS NOT NULL AND eurusd_impact IS NOT NULL
+                        ORDER BY pub_ts;
+                    ").map_err(|e| format!("EC/News prep: {}", e))?;
+                    let _ = tx.send("Step 3/4: EC and News timestamps ready".to_string());
+                }
+
+                // Step 4: Build unified feature table
+                let _ = tx.send("Step 4/4: Building unified feature table (this may take a minute)...".to_string());
+                {
+                    let _lock = db_clone.lock().unwrap();
+                    let db = duckdb::Connection::open(crate::DB_PATH)
+                        .map_err(|e| format!("DB open: {}", e))?;
+
+                    // Read and execute the SQL file
+                    let sql = std::fs::read_to_string("build_features.sql")
+                        .map_err(|e| format!("Read build_features.sql: {}", e))?;
+                    db.execute_batch(&sql)
+                        .map_err(|e| format!("Build features: {}", e))?;
+
+                    let row_count: i64 = db.query_row(
+                        "SELECT COUNT(*) FROM ml_unified_features", [], |r| r.get(0)
+                    ).unwrap_or(0);
+                    let col_count: i64 = db.query_row(
+                        "SELECT COUNT(*) FROM information_schema.columns WHERE table_name='ml_unified_features'",
+                        [], |r| r.get(0)
+                    ).unwrap_or(0);
+
+                    // Export CSV
+                    let _ = db.execute_batch(
+                        "COPY ml_unified_features TO 'ml/ml_unified_features.csv' (HEADER, DELIMITER ',');"
+                    );
+
+                    let elapsed = start.elapsed().as_secs();
+                    Ok(format!("Done: {} rows x {} cols | CSV exported | {}s",
+                        row_count, col_count, elapsed))
+                }
+            })();
+
+            let msg = match result {
+                Ok(s) => s,
+                Err(e) => format!("Error: {}", e),
+            };
+            let _ = tx.send(msg);
+            let _ = tx.send("__DONE__".to_string());
+        });
+    }
+
     fn handle_ml_btn(&mut self, model: MlSubCardType, btn_type: MlBtnType) {
         match btn_type {
             MlBtnType::Status => {
@@ -1375,9 +1719,8 @@ fn spawn_python_subprocess(
 ) {
     let module_path = module_path.to_string();
     std::thread::spawn(move || {
-        let python = "C:/Users/kushn/AppData/Local/Programs/Python/Python314/python.exe";
-        let result = std::process::Command::new(python)
-            .args(["-u", "-m", &module_path])
+        let result = std::process::Command::new("C:/Windows/py.exe")
+            .args(["-3.12", "-u", "-m", &module_path])
             .current_dir("D:/RustProjects/ctrader_rust")
             .env("PYTHONIOENCODING", "utf-8")
             .stdout(std::process::Stdio::piped())
