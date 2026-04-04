@@ -23,6 +23,9 @@ ml/trained/*.pt
 ml/trained/*.txt
 !ml/trained/*_metrics*.json
 
+# Generated ML feature CSVs (rebuilt via UI button)
+ml/ml_unified_features.csv
+
 # Claude Code settings
 .claude/
 
