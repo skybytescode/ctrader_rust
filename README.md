@@ -41,6 +41,7 @@ for EURUSD. Records every quote change (new, update, delete) at the per-pip pric
 | `price` | INTEGER | Price as integer (115320 = 1.15320) |
 | `size` | BIGINT | Volume in cents (0 for deletes) |
 
+
 At ~31 events/second during active hours, expect ~30M rows/day, ~10-20 GB for 8 weeks.
 Auto-cleanup removes rows older than 8 weeks on each capture start.
 

@@ -158,4 +158,4 @@ with open(os.path.join(MODEL_DIR, "unified_metrics.json"), "w") as f:
     json.dump(metrics, f, indent=2)
 
 imp_df.to_csv(os.path.join(MODEL_DIR, "unified_feature_importance.csv"), index=False)
-print("Metrics and feature importance saved.")
+print("Model 4b successfully trained. Metrics and feature importance saved.")

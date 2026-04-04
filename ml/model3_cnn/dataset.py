@@ -140,10 +140,19 @@ def _build_one_direction(
     y          = y_all[valid]
     timestamps = ts_all[valid]
 
+    # Filter out positions that don't have a full window behind them
+    # (make_windows drops these internally, so we must align y/timestamps)
+    window_valid = entry_pos >= window_size - 1
+    entry_pos    = entry_pos[window_valid]
+    y            = y[window_valid]
+    timestamps   = timestamps[window_valid]
+
     # Extract windows only for valid positions
     print(f"  [{direction}] Extracting {len(entry_pos):,} windows "
           f"(window_size={window_size})...")
     X = make_windows(df, entry_pos, window_size)
+
+    assert len(X) == len(y), f"X/y size mismatch: X={len(X)}, y={len(y)}"
 
     win_rate = y.mean() * 100
     print(f"  [{direction}] Dataset: {len(X):,} windows  |  "
