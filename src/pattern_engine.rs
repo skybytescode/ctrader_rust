@@ -759,22 +759,25 @@ pub struct ClaudePatternResponse {
 /// Runs synchronously (blocking) — call from a dedicated thread.
 /// Returns the parsed response or an error string.
 pub fn call_claude_pattern_analysis(prompt: &str) -> Result<ClaudePatternResponse, String> {
-    // Write prompt to temp file (avoids command-line argument length/escaping issues on Windows)
-    let prompt_file = std::env::temp_dir().join("claude_pattern_prompt.txt");
-    std::fs::write(&prompt_file, prompt)
-        .map_err(|e| format!("Failed to write prompt file: {}", e))?;
-
-    let prompt_path = prompt_file.to_string_lossy().to_string();
-    let piped_cmd = format!("type \"{}\" | claude --output-format text", prompt_path);
-
-    let output = std::process::Command::new("cmd.exe")
-        .args(["/C", &piped_cmd])
+    // Pipe prompt via stdin to Claude CLI (avoids Windows arg escaping issues)
+    use std::io::Write;
+    let mut child = std::process::Command::new("C:/Users/kushn/AppData/Roaming/npm/claude.cmd")
+        .args(["-p", "-", "--output-format", "text"])
         .env("CLAUDE_CODE_MAX_TURNS", "1")
-        .output()
-        .map_err(|e| format!("Failed to run claude CLI: {}", e))?;
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn claude CLI: {}", e))?;
 
-    // Clean up temp file
-    let _ = std::fs::remove_file(&prompt_file);
+    // Write prompt to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(prompt.as_bytes());
+        // stdin drops here, closing the pipe
+    }
+
+    let output = child.wait_with_output()
+        .map_err(|e| format!("Failed to wait for claude CLI: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
