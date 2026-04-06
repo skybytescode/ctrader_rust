@@ -759,11 +759,22 @@ pub struct ClaudePatternResponse {
 /// Runs synchronously (blocking) — call from a dedicated thread.
 /// Returns the parsed response or an error string.
 pub fn call_claude_pattern_analysis(prompt: &str) -> Result<ClaudePatternResponse, String> {
-    let output = std::process::Command::new("C:/Users/kushn/AppData/Roaming/npm/claude.cmd")
-        .args(["-p", prompt, "--output-format", "text"])
+    // Write prompt to temp file (avoids command-line argument length/escaping issues on Windows)
+    let prompt_file = std::env::temp_dir().join("claude_pattern_prompt.txt");
+    std::fs::write(&prompt_file, prompt)
+        .map_err(|e| format!("Failed to write prompt file: {}", e))?;
+
+    let prompt_path = prompt_file.to_string_lossy().to_string();
+    let piped_cmd = format!("type \"{}\" | claude --output-format text", prompt_path);
+
+    let output = std::process::Command::new("cmd.exe")
+        .args(["/C", &piped_cmd])
         .env("CLAUDE_CODE_MAX_TURNS", "1")
         .output()
         .map_err(|e| format!("Failed to run claude CLI: {}", e))?;
+
+    // Clean up temp file
+    let _ = std::fs::remove_file(&prompt_file);
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
