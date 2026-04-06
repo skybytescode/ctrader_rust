@@ -702,7 +702,7 @@ impl PatternEngine {
 r#"You are an expert EUR/USD forex trader analyzing candlestick patterns in real-time.
 Time: {} ({} session).
 
-Analyze the raw pattern data below and form your own independent assessment.
+Analyze the raw pattern data below. Your output will be used as input for a trading decision system that also considers spread, DoM, news, economic calendar, and ML model data.
 
 {}
 
@@ -717,14 +717,35 @@ M1 ENTRY TIMING:
   Higher lows: {}
   Lower highs: {}
 
-Based ONLY on the candlestick patterns, timeframe alignment, and session timing:
-1. What is the dominant market structure right now?
-2. Is there a high-probability trade setup? On which timeframe?
-3. If yes, what direction, when to enter, and what target/stop?
-4. What would invalidate this setup?
+Analyze the patterns independently. Output a structured assessment in this EXACT JSON format, no other text:
 
-Respond ONLY with valid JSON:
-{{"analysis": "<2-3 sentence market structure summary>", "trade_setup": true/false, "direction": "LONG"/"SHORT"/"NONE", "entry_timeframe": "H1"/"M15"/"M5"/"NONE", "confidence": <0.0-1.0>, "reasoning": "<why this trade or why not>", "invalidation": "<what would cancel this setup>", "target_pips": <number or 0>, "stop_pips": <number or 0>}}"#,
+{{
+  "h4_bias": "<bullish/bearish/neutral>",
+  "h4_strength": "<strong/moderate/weak>",
+  "h4_pattern": "<main pattern or 'none'>",
+  "h1_bias": "<bullish/bearish/neutral>",
+  "h1_strength": "<strong/moderate/weak>",
+  "h1_pattern": "<main pattern or 'none'>",
+  "m15_bias": "<bullish/bearish/neutral>",
+  "m15_pattern": "<main pattern or 'none'>",
+  "m5_bias": "<bullish/bearish/neutral>",
+  "m5_pattern": "<main pattern or 'none'>",
+  "timeframe_conflict": <true/false>,
+  "conflict_detail": "<which timeframes disagree, or 'none'>",
+  "dominant_bias": "<bullish/bearish/neutral>",
+  "dominant_bias_confidence": <0.0-1.0>,
+  "session_quality": "<good/moderate/poor>",
+  "forming_candle_signal": "<strongest forming pattern and timeframe, or 'none'>",
+  "m1_entry_ready": <true/false>,
+  "recommended_action": "<enter_long/enter_short/wait/no_trade>",
+  "entry_timeframe": "<H1/M15/M5/none>",
+  "entry_condition": "<specific condition to enter, or why not>",
+  "key_resistance": <price level or 0>,
+  "key_support": <price level or 0>,
+  "target_pips": <number or 0>,
+  "stop_pips": <number or 0>,
+  "invalidation": "<what cancels this assessment>"
+}}"#,
             time_str, session,
             Self::tf_description(&self.h4),
             Self::tf_description(&self.h1),
@@ -739,18 +760,107 @@ Respond ONLY with valid JSON:
 
 // ── Claude CLI integration ───────────────────────────────────────────────────
 
-/// Response from Claude CLI pattern analysis.
-#[derive(Debug, Clone, serde::Deserialize)]
+/// Structured response from Claude CLI pattern analysis.
+/// This format is designed to be consumed by the main trading decision prompt.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct ClaudePatternResponse {
-    pub analysis: Option<String>,
-    pub trade_setup: Option<bool>,
-    pub direction: Option<String>,
+    pub h4_bias: Option<String>,
+    pub h4_strength: Option<String>,
+    pub h4_pattern: Option<String>,
+    pub h1_bias: Option<String>,
+    pub h1_strength: Option<String>,
+    pub h1_pattern: Option<String>,
+    pub m15_bias: Option<String>,
+    pub m15_pattern: Option<String>,
+    pub m5_bias: Option<String>,
+    pub m5_pattern: Option<String>,
+    pub timeframe_conflict: Option<bool>,
+    pub conflict_detail: Option<String>,
+    pub dominant_bias: Option<String>,
+    pub dominant_bias_confidence: Option<f64>,
+    pub session_quality: Option<String>,
+    pub forming_candle_signal: Option<String>,
+    pub m1_entry_ready: Option<bool>,
+    pub recommended_action: Option<String>,
     pub entry_timeframe: Option<String>,
-    pub confidence: Option<f64>,
-    pub reasoning: Option<String>,
-    pub invalidation: Option<String>,
+    pub entry_condition: Option<String>,
+    pub key_resistance: Option<f64>,
+    pub key_support: Option<f64>,
     pub target_pips: Option<f64>,
     pub stop_pips: Option<f64>,
+    pub invalidation: Option<String>,
+}
+
+impl ClaudePatternResponse {
+    /// Format for UI display.
+    pub fn display_summary(&self) -> String {
+        let bias = self.dominant_bias.as_deref().unwrap_or("?");
+        let conf = self.dominant_bias_confidence.unwrap_or(0.0);
+        let action = self.recommended_action.as_deref().unwrap_or("?");
+        let session = self.session_quality.as_deref().unwrap_or("?");
+        let conflict = self.timeframe_conflict.unwrap_or(false);
+
+        let mut lines = Vec::new();
+
+        // Header
+        lines.push(format!("Bias: {} ({:.0}%) | Action: {} | Session: {}",
+            bias.to_uppercase(), conf * 100.0, action, session));
+
+        // Per-timeframe
+        lines.push(format!("H4: {} {} [{}]",
+            self.h4_bias.as_deref().unwrap_or("?"),
+            self.h4_strength.as_deref().unwrap_or(""),
+            self.h4_pattern.as_deref().unwrap_or("none")));
+        lines.push(format!("H1: {} {} [{}]",
+            self.h1_bias.as_deref().unwrap_or("?"),
+            self.h1_strength.as_deref().unwrap_or(""),
+            self.h1_pattern.as_deref().unwrap_or("none")));
+        lines.push(format!("M15: {} [{}]",
+            self.m15_bias.as_deref().unwrap_or("?"),
+            self.m15_pattern.as_deref().unwrap_or("none")));
+        lines.push(format!("M5: {} [{}]",
+            self.m5_bias.as_deref().unwrap_or("?"),
+            self.m5_pattern.as_deref().unwrap_or("none")));
+
+        // Conflict
+        if conflict {
+            lines.push(format!("CONFLICT: {}",
+                self.conflict_detail.as_deref().unwrap_or("?")));
+        }
+
+        // Forming signal
+        if let Some(ref sig) = self.forming_candle_signal {
+            if sig != "none" {
+                lines.push(format!("Forming: {}", sig));
+            }
+        }
+
+        // Entry
+        if let Some(ref cond) = self.entry_condition {
+            lines.push(format!("Entry: {}", cond));
+        }
+
+        // Levels
+        let res = self.key_resistance.unwrap_or(0.0);
+        let sup = self.key_support.unwrap_or(0.0);
+        if res > 0.0 || sup > 0.0 {
+            lines.push(format!("Levels: R={:.5} S={:.5}", res, sup));
+        }
+
+        // Target/Stop
+        let tp = self.target_pips.unwrap_or(0.0);
+        let sl = self.stop_pips.unwrap_or(0.0);
+        if tp > 0.0 || sl > 0.0 {
+            lines.push(format!("Target: {}p | Stop: {}p", tp, sl));
+        }
+
+        // Invalidation
+        if let Some(ref inv) = self.invalidation {
+            lines.push(format!("Invalid: {}", inv));
+        }
+
+        lines.join("\n")
+    }
 }
 
 /// Call Claude CLI with a pattern analysis prompt.

@@ -725,17 +725,7 @@ async fn run_session(
 
                                         match pattern_engine::call_claude_pattern_analysis(&prompt) {
                                             Ok(resp) => {
-                                                let display = format!(
-                                                    "Claude: {} | Setup: {} {} conf:{:.0}%\n{}\nTarget: {}p Stop: {}p\nInvalid: {}",
-                                                    resp.analysis.as_deref().unwrap_or("?"),
-                                                    resp.direction.as_deref().unwrap_or("?"),
-                                                    resp.entry_timeframe.as_deref().unwrap_or("?"),
-                                                    resp.confidence.unwrap_or(0.0) * 100.0,
-                                                    resp.reasoning.as_deref().unwrap_or("?"),
-                                                    resp.target_pips.unwrap_or(0.0),
-                                                    resp.stop_pips.unwrap_or(0.0),
-                                                    resp.invalidation.as_deref().unwrap_or("?"),
-                                                );
+                                                let display = resp.display_summary();
                                                 println!("Claude analysis:\n{}", display);
                                                 let _ = tx_claude.blocking_send(PriceUpdate::ClaudeAnalysis(display));
                                             }
