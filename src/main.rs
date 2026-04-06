@@ -66,6 +66,8 @@ pub enum PriceUpdate {
     NewsCaptureActive(bool),
     /// Pattern engine status lines for UI display
     PatternStatus(Vec<String>),
+    /// Claude pattern analysis result
+    ClaudeAnalysis(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -466,6 +468,8 @@ async fn run_session(
     let mut pattern_engine = pattern_engine::PatternEngine::new();
     let mut pattern_last_update = tokio::time::Instant::now();
     let mut last_m1_ts: i64 = 0;
+    let mut claude_last_call = tokio::time::Instant::now() - Duration::from_secs(300); // allow immediate first call
+    let claude_busy = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     loop {
         let mut header = [0u8; 4];
@@ -672,6 +676,51 @@ async fn run_session(
                                     pattern_last_update = tokio::time::Instant::now();
                                     let status = pattern_engine.status_display();
                                     let _ = tx.send(PriceUpdate::PatternStatus(status)).await;
+                                }
+
+                                // Check if something interesting is happening → call Claude
+                                // Cooldown: minimum 60 seconds between calls
+                                if !claude_busy.load(std::sync::atomic::Ordering::Relaxed)
+                                    && claude_last_call.elapsed().as_secs() >= 60
+                                    && pattern_engine.has_interesting_signal()
+                                {
+                                    claude_busy.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    claude_last_call = tokio::time::Instant::now();
+                                    let prompt = pattern_engine.build_claude_prompt();
+                                    let tx_claude = tx.clone();
+                                    let busy_flag = claude_busy.clone();
+
+                                    // Run Claude CLI on a blocking thread (takes 5-15s)
+                                    tokio::task::spawn_blocking(move || {
+                                        let _ = tx_claude.blocking_send(PriceUpdate::ClaudeAnalysis(
+                                            "Asking Claude...".to_string()
+                                        ));
+
+                                        match pattern_engine::call_claude_pattern_analysis(&prompt) {
+                                            Ok(resp) => {
+                                                let display = format!(
+                                                    "Claude: {} | Setup: {} {} conf:{:.0}%\n{}\nTarget: {}p Stop: {}p\nInvalid: {}",
+                                                    resp.analysis.as_deref().unwrap_or("?"),
+                                                    resp.direction.as_deref().unwrap_or("?"),
+                                                    resp.entry_timeframe.as_deref().unwrap_or("?"),
+                                                    resp.confidence.unwrap_or(0.0) * 100.0,
+                                                    resp.reasoning.as_deref().unwrap_or("?"),
+                                                    resp.target_pips.unwrap_or(0.0),
+                                                    resp.stop_pips.unwrap_or(0.0),
+                                                    resp.invalidation.as_deref().unwrap_or("?"),
+                                                );
+                                                println!("Claude analysis:\n{}", display);
+                                                let _ = tx_claude.blocking_send(PriceUpdate::ClaudeAnalysis(display));
+                                            }
+                                            Err(e) => {
+                                                println!("Claude error: {}", e);
+                                                let _ = tx_claude.blocking_send(PriceUpdate::ClaudeAnalysis(
+                                                    format!("Claude error: {}", e)
+                                                ));
+                                            }
+                                        }
+                                        busy_flag.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    });
                                 }
                             }
 

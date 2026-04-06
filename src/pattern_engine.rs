@@ -606,6 +606,186 @@ impl PatternEngine {
 
         lines
     }
+
+    /// Check if anything interesting is happening that warrants Claude analysis.
+    /// Returns true if there's a potential setup worth analyzing.
+    pub fn has_interesting_signal(&self) -> bool {
+        // Any pattern forming > 50% on H4/H1/M15?
+        if self.h4.forming.is_active() && self.h4.forming.completion_pct() > 0.5 {
+            if self.h4.forming_patterns.is_bullish_reversal() || self.h4.forming_patterns.is_bearish_reversal() {
+                return true;
+            }
+        }
+        if self.h1.forming.is_active() && self.h1.forming.completion_pct() > 0.5 {
+            if self.h1.forming_patterns.is_bullish_reversal() || self.h1.forming_patterns.is_bearish_reversal() {
+                return true;
+            }
+        }
+        if self.m15.forming.is_active() && self.m15.forming.completion_pct() > 0.5 {
+            if self.m15.forming_patterns.is_bullish_reversal() || self.m15.forming_patterns.is_bearish_reversal() {
+                return true;
+            }
+        }
+
+        // Any completed reversal or multi-candle pattern on M5/M15/H1?
+        if self.m5.last_single.is_bullish_reversal() || self.m5.last_single.is_bearish_reversal() { return true; }
+        if self.m5.last_multi.is_bullish_signal() || self.m5.last_multi.is_bearish_signal() { return true; }
+        if self.m15.last_single.is_bullish_reversal() || self.m15.last_single.is_bearish_reversal() { return true; }
+        if self.m15.last_multi.is_bullish_signal() || self.m15.last_multi.is_bearish_signal() { return true; }
+        if self.h1.last_single.is_bullish_reversal() || self.h1.last_single.is_bearish_reversal() { return true; }
+        if self.h1.last_multi.is_bullish_signal() || self.h1.last_multi.is_bearish_signal() { return true; }
+
+        false
+    }
+
+    /// Build a detailed description of one timeframe for the prompt.
+    fn tf_description(tf: &TimeframeState) -> String {
+        let forming = if tf.forming.is_active() {
+            let pct = (tf.forming.completion_pct() * 100.0) as u32;
+            format!(
+                "Forming ({}% complete): O={:.5} H={:.5} L={:.5} C={:.5} range={:.1}pips\n  Forming pattern: {}",
+                pct, tf.forming.open, tf.forming.high, tf.forming.low, tf.forming.close,
+                tf.forming.range_pips(),
+                tf.forming_patterns.summary()
+            )
+        } else {
+            "No forming data yet".to_string()
+        };
+
+        let completed = format!("Last completed: {}", tf.last_single.summary());
+        let multi = format!("Multi-candle: {}", tf.last_multi.summary());
+
+        // Last completed bars directions
+        let bar_dirs: String = tf.completed.iter()
+            .rev()
+            .take(5)
+            .map(|c| if c.close > c.open { "Bull" } else { "Bear" })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let history = if bar_dirs.is_empty() {
+            "No history yet".to_string()
+        } else {
+            format!("Last bars: {}", bar_dirs)
+        };
+
+        // Internal structure (for M5 only — has M1 inside)
+        let internal = if tf.name == "M5" && !tf.m1_inside.is_empty() {
+            let (bull, bear, hl, lh) = tf.internal_structure();
+            format!("\n  M1 inside: {} bull, {} bear, higher_lows={}, lower_highs={}", bull, bear, hl, lh)
+        } else {
+            String::new()
+        };
+
+        format!("{}:\n  {}\n  {}\n  {}\n  {}{}", tf.name, forming, completed, multi, history, internal)
+    }
+
+    /// Build the Claude CLI prompt for pattern analysis.
+    pub fn build_claude_prompt(&self) -> String {
+        let (score, direction) = self.calculate_score();
+        let dir_str = match direction { 1 => "LONG", -1 => "SHORT", _ => "NEUTRAL" };
+
+        let (m1_mom, m1_hl, m1_lh) = self.m1_momentum();
+
+        let now = chrono::Utc::now();
+        let time_str = now.format("%H:%M UTC").to_string();
+        let session = {
+            let h = now.hour();
+            if (8..12).contains(&h) { "London" }
+            else if (12..13).contains(&h) { "London/NY overlap" }
+            else if (13..17).contains(&h) { "New York" }
+            else if (17..21).contains(&h) { "Late NY" }
+            else { "Asian/Off-hours" }
+        };
+
+        format!(
+r#"Analyze these EUR/USD candlestick patterns across all timeframes. Time: {} ({} session).
+
+{}
+
+{}
+
+{}
+
+{}
+
+M1 ENTRY TIMING:
+  Momentum: {} ({})
+  Higher lows: {}
+  Lower highs: {}
+
+PATTERN SCORE: {}/13 direction={}
+
+Based on the patterns across all timeframes:
+1. What is the dominant market structure right now?
+2. Is there a trade setup forming? On which timeframe?
+3. If yes, what direction and when to enter?
+4. What would invalidate this setup?
+
+Respond ONLY with valid JSON:
+{{"analysis": "<2-3 sentence market structure summary>", "trade_setup": true/false, "direction": "LONG"/"SHORT"/"NONE", "entry_timeframe": "H1"/"M15"/"M5"/"NONE", "confidence": <0.0-1.0>, "reasoning": "<why this trade or why not>", "invalidation": "<what would cancel this setup>", "target_pips": <number or 0>, "stop_pips": <number or 0>}}"#,
+            time_str, session,
+            Self::tf_description(&self.h4),
+            Self::tf_description(&self.h1),
+            Self::tf_description(&self.m15),
+            Self::tf_description(&self.m5),
+            m1_mom,
+            if m1_mom > 0 { "bullish" } else if m1_mom < 0 { "bearish" } else { "neutral" },
+            m1_hl, m1_lh,
+            score, dir_str,
+        )
+    }
+}
+
+// ── Claude CLI integration ───────────────────────────────────────────────────
+
+/// Response from Claude CLI pattern analysis.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ClaudePatternResponse {
+    pub analysis: Option<String>,
+    pub trade_setup: Option<bool>,
+    pub direction: Option<String>,
+    pub entry_timeframe: Option<String>,
+    pub confidence: Option<f64>,
+    pub reasoning: Option<String>,
+    pub invalidation: Option<String>,
+    pub target_pips: Option<f64>,
+    pub stop_pips: Option<f64>,
+}
+
+/// Call Claude CLI with a pattern analysis prompt.
+/// Runs synchronously (blocking) — call from a dedicated thread.
+/// Returns the parsed response or an error string.
+pub fn call_claude_pattern_analysis(prompt: &str) -> Result<ClaudePatternResponse, String> {
+    let output = std::process::Command::new("claude")
+        .args(["-p", prompt, "--output-format", "text"])
+        .env("CLAUDE_CODE_MAX_TURNS", "1")
+        .output()
+        .map_err(|e| format!("Failed to run claude CLI: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Claude CLI error: {}", stderr));
+    }
+
+    let response_text = String::from_utf8_lossy(&output.stdout).to_string();
+
+    // Find JSON in the response (Claude may add text around it)
+    let json_str = response_text.trim();
+    let json_str = if let Some(start) = json_str.find('{') {
+        if let Some(end) = json_str.rfind('}') {
+            &json_str[start..=end]
+        } else {
+            json_str
+        }
+    } else {
+        json_str
+    };
+
+    serde_json::from_str(json_str)
+        .map_err(|e| format!("JSON parse error: {} — response: {}", e, &response_text[..response_text.len().min(300)]))
 }
 
 // ── Helper: convert cTrader trendbar period to minutes ───────────────────────
