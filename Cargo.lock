@@ -865,6 +865,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "candlestick-rs"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fa2f1f58e9988b81e4645864d1c7d7bc43778b2bc485b02b0df60f9f5b9446c"
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1109,6 +1115,7 @@ name = "ctrader_rust"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "candlestick-rs",
  "chrono",
  "dotenv",
  "duckdb",

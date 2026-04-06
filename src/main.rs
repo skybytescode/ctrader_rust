@@ -28,6 +28,7 @@ pub mod data_retrieval;
 pub mod ec_realtime;
 pub mod news_realtime;
 pub mod news_sentiment;
+pub mod pattern_engine;
 
 use db::{Candle, CandleDatabase};
 use data_retrieval::{
@@ -63,6 +64,8 @@ pub enum PriceUpdate {
     NewsStatus(String),
     /// News capture status (for the button)
     NewsCaptureActive(bool),
+    /// Pattern engine status lines for UI display
+    PatternStatus(Vec<String>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -459,6 +462,10 @@ async fn run_session(
     let mut news_next_fetch: Option<tokio::time::Instant> = None;
     let mut news_today_date: Option<String> = None;
 
+    // ── Pattern detection engine ─────────────────────────────────────────
+    let mut pattern_engine = pattern_engine::PatternEngine::new();
+    let mut pattern_last_update = tokio::time::Instant::now();
+
     loop {
         let mut header = [0u8; 4];
         tokio::select! {
@@ -569,6 +576,30 @@ async fn run_session(
                                     if name == "EURUSD" {
                                         dom_eurusd_id = Some(id);
                                         println!("DoM: EURUSD symbol_id = {}", id);
+
+                                        // Subscribe to LiveTrendbar for pattern detection (M5, M15, H1, H4)
+                                        for &period in &[
+                                            openapi::ProtoOaTrendbarPeriod::M5,
+                                            openapi::ProtoOaTrendbarPeriod::M15,
+                                            openapi::ProtoOaTrendbarPeriod::H1,
+                                            openapi::ProtoOaTrendbarPeriod::H4,
+                                        ] {
+                                            let sub = openapi::ProtoOaSubscribeLiveTrendbarReq {
+                                                payload_type: Some(
+                                                    openapi::ProtoOaPayloadType::ProtoOaSubscribeLiveTrendbarReq as i32
+                                                ),
+                                                ctid_trader_account_id: account_id,
+                                                period: period as i32,
+                                                symbol_id: id,
+                                            };
+                                            send_message(
+                                                &mut tls_stream,
+                                                openapi::ProtoOaPayloadType::ProtoOaSubscribeLiveTrendbarReq as u32,
+                                                sub,
+                                            ).await?;
+                                            println!("Pattern: subscribed to EURUSD LiveTrendbar {:?}", period.as_str_name());
+                                        }
+
                                         break;
                                     }
                                 }
@@ -585,6 +616,54 @@ async fn run_session(
 
                             let bid = event.bid.unwrap_or(0) as f64 / 100_000.0;
                             let ask = event.ask.unwrap_or(0) as f64 / 100_000.0;
+
+                            // Process LiveTrendbar data for EURUSD pattern detection
+                            if Some(symbol_id) == dom_eurusd_id && !event.trendbar.is_empty() {
+                                for tb in &event.trendbar {
+                                    let low = tb.low.unwrap_or(0);
+                                    let delta_open = tb.delta_open.unwrap_or(0);
+                                    let delta_close = tb.delta_close.unwrap_or(0);
+                                    let delta_high = tb.delta_high.unwrap_or(0);
+                                    let ts_min = tb.utc_timestamp_in_minutes.unwrap_or(0);
+                                    let period = tb.period.unwrap_or(1);
+                                    let period_minutes = pattern_engine::trendbar_period_to_minutes(period);
+
+                                    if period_minutes >= 5 && low != 0 {
+                                        let candle = pattern_engine::decode_trendbar(
+                                            low, delta_open, delta_close, delta_high, tb.volume, ts_min,
+                                        );
+
+                                        // Check if this is a new bar or update to forming bar
+                                        let tf = match period_minutes {
+                                            5 => &pattern_engine.m5,
+                                            15 => &pattern_engine.m15,
+                                            60 => &pattern_engine.h1,
+                                            240 => &pattern_engine.h4,
+                                            _ => continue,
+                                        };
+
+                                        if candle.timestamp > tf.last_bar_ts && tf.last_bar_ts > 0 && tf.forming.is_active() {
+                                            // New bar started → the forming candle just completed
+                                            let completed = tf.forming.as_ohlc();
+                                            pattern_engine.push_completed_bar(period_minutes, completed);
+                                        }
+
+                                        // Update forming candle
+                                        pattern_engine.update_forming(
+                                            period_minutes,
+                                            candle.open, candle.high, candle.low, candle.close,
+                                            candle.volume, candle.timestamp,
+                                        );
+                                    }
+                                }
+
+                                // Send pattern status to UI every 5 seconds
+                                if pattern_last_update.elapsed().as_secs() >= 5 {
+                                    pattern_last_update = tokio::time::Instant::now();
+                                    let status = pattern_engine.status_display();
+                                    let _ = tx.send(PriceUpdate::PatternStatus(status)).await;
+                                }
+                            }
 
                             // Look up the symbol name from our mapping
                             if let Some(symbol_name) = symbol_id_to_name.get(&symbol_id) {

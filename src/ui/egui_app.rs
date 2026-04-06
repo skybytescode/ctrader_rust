@@ -120,6 +120,8 @@ pub struct BotDashboardState {
     pub model4b_status: String,
     pub model4b_is_running: bool,
     pub model4b_rx: Option<std::sync::mpsc::Receiver<String>>,
+    // Pattern engine display
+    pub pattern_lines: Vec<String>,
 }
 
 // ============================================================================
@@ -191,6 +193,7 @@ impl CTraderApp {
                 PriceUpdate::NewsTodayLines(lines) => self.dashboard.news_today_lines = lines,
                 PriceUpdate::NewsStatus(s) => self.dashboard.news_status = s,
                 PriceUpdate::NewsCaptureActive(active) => self.dashboard.news_capture_active = active,
+                PriceUpdate::PatternStatus(lines) => self.dashboard.pattern_lines = lines,
             }
         }
         received
@@ -962,6 +965,33 @@ impl CTraderApp {
                         });
                 } else {
                     ui.label(RichText::new("Waiting for news capture...").size(11.0).color(colors::TEXT_SECONDARY));
+                }
+            });
+
+        ui.add_space(8.0);
+
+        // Pattern Detection Section
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Pattern Detection:").size(10.0).color(colors::TEXT_SECONDARY));
+        });
+
+        egui::Frame::new()
+            .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
+            .corner_radius(4.0)
+            .inner_margin(egui::Margin::same(4))
+            .show(ui, |ui| {
+                if !self.dashboard.pattern_lines.is_empty() {
+                    let text = self.dashboard.pattern_lines.join("\n");
+                    ScrollArea::vertical()
+                        .id_salt("pattern_scroll")
+                        .max_height(160.0)
+                        .show(ui, |ui| {
+                            ui.label(RichText::new(&text).size(10.0)
+                                .color(colors::TEXT_SECONDARY)
+                                .font(egui::FontId::monospace(10.0)));
+                        });
+                } else {
+                    ui.label(RichText::new("Waiting for pattern data...").size(11.0).color(colors::TEXT_SECONDARY));
                 }
             });
     }
