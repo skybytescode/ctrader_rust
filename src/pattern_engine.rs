@@ -314,7 +314,7 @@ impl TimeframeState {
             period_minutes,
             stream: CandleStream::new(),
             forming: FormingCandle::new(period_minutes),
-            completed: Vec::with_capacity(8),
+            completed: Vec::with_capacity(22),
             last_single: SinglePatterns::default(),
             last_multi: MultiPatterns::default(),
             forming_patterns: SinglePatterns::default(),
@@ -331,9 +331,9 @@ impl TimeframeState {
         }
         self.last_bar_ts = candle.timestamp;
 
-        // Store completed candle
+        // Store completed candle (keep last 20 for trend analysis)
         self.completed.push(candle);
-        if self.completed.len() > 7 {
+        if self.completed.len() > 20 {
             self.completed.remove(0);
         }
 

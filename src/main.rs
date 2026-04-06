@@ -609,10 +609,10 @@ async fn run_session(
                                         // Load last N historical bars for each timeframe (warm up pattern engine)
                                         let now_ms = chrono::Utc::now().timestamp_millis();
                                         for &(period, count, label) in &[
-                                            (openapi::ProtoOaTrendbarPeriod::M5, 10u32, "M5"),
-                                            (openapi::ProtoOaTrendbarPeriod::M15, 10u32, "M15"),
-                                            (openapi::ProtoOaTrendbarPeriod::H1, 10u32, "H1"),
-                                            (openapi::ProtoOaTrendbarPeriod::H4, 10u32, "H4"),
+                                            (openapi::ProtoOaTrendbarPeriod::M5, 20u32, "M5"),
+                                            (openapi::ProtoOaTrendbarPeriod::M15, 20u32, "M15"),
+                                            (openapi::ProtoOaTrendbarPeriod::H1, 20u32, "H1"),
+                                            (openapi::ProtoOaTrendbarPeriod::H4, 20u32, "H4"),
                                         ] {
                                             let req = openapi::ProtoOaGetTrendbarsReq {
                                                 payload_type: Some(
