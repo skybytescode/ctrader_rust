@@ -606,6 +606,33 @@ async fn run_session(
                                             println!("Pattern: subscribed to EURUSD LiveTrendbar {:?}", period.as_str_name());
                                         }
 
+                                        // Load last N historical bars for each timeframe (warm up pattern engine)
+                                        let now_ms = chrono::Utc::now().timestamp_millis();
+                                        for &(period, count, label) in &[
+                                            (openapi::ProtoOaTrendbarPeriod::M5, 10u32, "M5"),
+                                            (openapi::ProtoOaTrendbarPeriod::M15, 10u32, "M15"),
+                                            (openapi::ProtoOaTrendbarPeriod::H1, 10u32, "H1"),
+                                            (openapi::ProtoOaTrendbarPeriod::H4, 10u32, "H4"),
+                                        ] {
+                                            let req = openapi::ProtoOaGetTrendbarsReq {
+                                                payload_type: Some(
+                                                    openapi::ProtoOaPayloadType::ProtoOaGetTrendbarsReq as i32
+                                                ),
+                                                ctid_trader_account_id: account_id,
+                                                from_timestamp: Some(now_ms - 30 * 24 * 3600 * 1000), // last 30 days
+                                                to_timestamp: Some(now_ms),
+                                                period: period as i32,
+                                                symbol_id: id,
+                                                count: Some(count),
+                                            };
+                                            send_message(
+                                                &mut tls_stream,
+                                                openapi::ProtoOaPayloadType::ProtoOaGetTrendbarsReq as u32,
+                                                req,
+                                            ).await?;
+                                            println!("Pattern: requested last {} {} bars for warmup", count, label);
+                                        }
+
                                         break;
                                     }
                                 }
@@ -766,6 +793,34 @@ async fn run_session(
                     2138 => { // ProtoOAGetTrendbarsRes
                         if let Some(payload) = &msg.payload {
                             let res = openapi::ProtoOaGetTrendbarsRes::decode(payload.as_slice())?;
+
+                            // Feed historical bars into pattern engine (warmup + ongoing)
+                            let pe_period = res.period;
+                            let pe_period_min = pattern_engine::trendbar_period_to_minutes(pe_period);
+                            if pe_period_min >= 5 && res.symbol_id == dom_eurusd_id {
+                                let mut bar_count = 0u32;
+                                for tb in &res.trendbar {
+                                    let low = tb.low.unwrap_or(0);
+                                    let delta_open = tb.delta_open.unwrap_or(0);
+                                    let delta_close = tb.delta_close.unwrap_or(0);
+                                    let delta_high = tb.delta_high.unwrap_or(0);
+                                    let ts_min = tb.utc_timestamp_in_minutes.unwrap_or(0);
+                                    if low != 0 && ts_min != 0 {
+                                        let candle = pattern_engine::decode_trendbar(
+                                            low, delta_open, delta_close, delta_high, tb.volume, ts_min,
+                                        );
+                                        pattern_engine.push_completed_bar(pe_period_min, candle);
+                                        bar_count += 1;
+                                    }
+                                }
+                                if bar_count > 0 {
+                                    println!("Pattern: loaded {} historical {} bars", bar_count,
+                                        match pe_period_min { 5=>"M5", 15=>"M15", 60=>"H1", 240=>"H4", _=>"?" });
+                                    let status = pattern_engine.status_display();
+                                    let _ = tx.send(PriceUpdate::PatternStatus(status)).await;
+                                }
+                            }
+
                             handle_trendbars_response(
                                 &mut tls_stream,
                                 &res,
