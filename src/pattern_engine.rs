@@ -759,7 +759,7 @@ pub struct ClaudePatternResponse {
 /// Runs synchronously (blocking) — call from a dedicated thread.
 /// Returns the parsed response or an error string.
 pub fn call_claude_pattern_analysis(prompt: &str) -> Result<ClaudePatternResponse, String> {
-    let output = std::process::Command::new("claude")
+    let output = std::process::Command::new("C:/Users/kushn/AppData/Roaming/npm/claude.cmd")
         .args(["-p", prompt, "--output-format", "text"])
         .env("CLAUDE_CODE_MAX_TURNS", "1")
         .output()
