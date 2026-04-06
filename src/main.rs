@@ -706,9 +706,9 @@ async fn run_session(
                                 }
 
                                 // Check if something interesting is happening → call Claude
-                                // Cooldown: minimum 60 seconds between calls
+                                // Cooldown: minimum 5 minutes between calls
                                 if !claude_busy.load(std::sync::atomic::Ordering::Relaxed)
-                                    && claude_last_call.elapsed().as_secs() >= 60
+                                    && claude_last_call.elapsed().as_secs() >= 300
                                     && pattern_engine.has_interesting_signal()
                                 {
                                     claude_busy.store(true, std::sync::atomic::Ordering::Relaxed);
