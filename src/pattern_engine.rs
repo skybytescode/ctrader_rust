@@ -449,7 +449,7 @@ impl PatternEngine {
         }
     }
 
-    /// Record a completed M1 candle. This is the main input from the price feed.
+    /// Record a completed M1 candle. Used for M5 internal structure and entry timing.
     pub fn push_m1(&mut self, m1: OhlcCandle) {
         self.last_m1 = Some(m1);
         self.m1_recent.push(m1);
@@ -457,11 +457,8 @@ impl PatternEngine {
             self.m1_recent.remove(0);
         }
 
-        // Record M1 inside each forming candle for structure analysis
+        // Record M1 inside M5 forming candle for entry timing analysis
         self.m5.push_m1_inside(m1);
-        self.m15.push_m1_inside(m1);
-        self.h1.push_m1_inside(m1);
-        self.h4.push_m1_inside(m1);
     }
 
     /// Process a completed bar for the given timeframe period.

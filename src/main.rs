@@ -465,6 +465,7 @@ async fn run_session(
     // ── Pattern detection engine ─────────────────────────────────────────
     let mut pattern_engine = pattern_engine::PatternEngine::new();
     let mut pattern_last_update = tokio::time::Instant::now();
+    let mut last_m1_ts: i64 = 0;
 
     loop {
         let mut header = [0u8; 4];
@@ -579,6 +580,7 @@ async fn run_session(
 
                                         // Subscribe to LiveTrendbar for pattern detection (M5, M15, H1, H4)
                                         for &period in &[
+                                            openapi::ProtoOaTrendbarPeriod::M1,
                                             openapi::ProtoOaTrendbarPeriod::M5,
                                             openapi::ProtoOaTrendbarPeriod::M15,
                                             openapi::ProtoOaTrendbarPeriod::H1,
@@ -628,32 +630,40 @@ async fn run_session(
                                     let period = tb.period.unwrap_or(1);
                                     let period_minutes = pattern_engine::trendbar_period_to_minutes(period);
 
-                                    if period_minutes >= 5 && low != 0 {
+                                    if low != 0 {
                                         let candle = pattern_engine::decode_trendbar(
                                             low, delta_open, delta_close, delta_high, tb.volume, ts_min,
                                         );
 
-                                        // Check if this is a new bar or update to forming bar
-                                        let tf = match period_minutes {
-                                            5 => &pattern_engine.m5,
-                                            15 => &pattern_engine.m15,
-                                            60 => &pattern_engine.h1,
-                                            240 => &pattern_engine.h4,
-                                            _ => continue,
-                                        };
+                                        if period_minutes == 1 {
+                                            // M1: when timestamp changes, previous M1 completed
+                                            if candle.timestamp > last_m1_ts && last_m1_ts > 0 {
+                                                pattern_engine.push_m1(candle);
+                                            }
+                                            last_m1_ts = candle.timestamp;
+                                        } else if period_minutes >= 5 {
+                                            // M5+: check if bar closed, update forming
+                                            let tf = match period_minutes {
+                                                5 => &pattern_engine.m5,
+                                                15 => &pattern_engine.m15,
+                                                60 => &pattern_engine.h1,
+                                                240 => &pattern_engine.h4,
+                                                _ => continue,
+                                            };
 
-                                        if candle.timestamp > tf.last_bar_ts && tf.last_bar_ts > 0 && tf.forming.is_active() {
-                                            // New bar started → the forming candle just completed
-                                            let completed = tf.forming.as_ohlc();
-                                            pattern_engine.push_completed_bar(period_minutes, completed);
+                                            if candle.timestamp > tf.last_bar_ts && tf.last_bar_ts > 0 && tf.forming.is_active() {
+                                                // New bar started → the forming candle just completed
+                                                let completed = tf.forming.as_ohlc();
+                                                pattern_engine.push_completed_bar(period_minutes, completed);
+                                            }
+
+                                            // Update forming candle
+                                            pattern_engine.update_forming(
+                                                period_minutes,
+                                                candle.open, candle.high, candle.low, candle.close,
+                                                candle.volume, candle.timestamp,
+                                            );
                                         }
-
-                                        // Update forming candle
-                                        pattern_engine.update_forming(
-                                            period_minutes,
-                                            candle.open, candle.high, candle.low, candle.close,
-                                            candle.volume, candle.timestamp,
-                                        );
                                     }
                                 }
 
