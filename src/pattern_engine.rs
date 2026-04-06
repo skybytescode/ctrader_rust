@@ -683,10 +683,8 @@ impl PatternEngine {
     }
 
     /// Build the Claude CLI prompt for pattern analysis.
+    /// No pre-calculated score — let Claude form its own opinion from raw data.
     pub fn build_claude_prompt(&self) -> String {
-        let (score, direction) = self.calculate_score();
-        let dir_str = match direction { 1 => "LONG", -1 => "SHORT", _ => "NEUTRAL" };
-
         let (m1_mom, m1_hl, m1_lh) = self.m1_momentum();
 
         let now = chrono::Utc::now();
@@ -701,7 +699,10 @@ impl PatternEngine {
         };
 
         format!(
-r#"Analyze these EUR/USD candlestick patterns across all timeframes. Time: {} ({} session).
+r#"You are an expert EUR/USD forex trader analyzing candlestick patterns in real-time.
+Time: {} ({} session).
+
+Analyze the raw pattern data below and form your own independent assessment.
 
 {}
 
@@ -716,12 +717,10 @@ M1 ENTRY TIMING:
   Higher lows: {}
   Lower highs: {}
 
-PATTERN SCORE: {}/13 direction={}
-
-Based on the patterns across all timeframes:
+Based ONLY on the candlestick patterns, timeframe alignment, and session timing:
 1. What is the dominant market structure right now?
-2. Is there a trade setup forming? On which timeframe?
-3. If yes, what direction and when to enter?
+2. Is there a high-probability trade setup? On which timeframe?
+3. If yes, what direction, when to enter, and what target/stop?
 4. What would invalidate this setup?
 
 Respond ONLY with valid JSON:
@@ -734,7 +733,6 @@ Respond ONLY with valid JSON:
             m1_mom,
             if m1_mom > 0 { "bullish" } else if m1_mom < 0 { "bearish" } else { "neutral" },
             m1_hl, m1_lh,
-            score, dir_str,
         )
     }
 }
