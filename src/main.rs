@@ -945,6 +945,19 @@ async fn run_session(
                                             dom_book.len(), total_bid, total_ask, dom_bid_levels, dom_ask_levels,
                                             bb, ba, (ba - bb) * 10000.0,
                                             if total_bid + total_ask > 0.0 { (total_bid - total_ask) / (total_bid + total_ask) } else { 0.0 });
+                                        // Dump full book once
+                                        if dom_rows_since_status < 1000 {
+                                            let mut bids: Vec<(i32, i64)> = Vec::new();
+                                            let mut asks: Vec<(i32, i64)> = Vec::new();
+                                            for &(side, price, size) in dom_book.values() {
+                                                if side == 0 { bids.push((price, size)); }
+                                                else { asks.push((price, size)); }
+                                            }
+                                            bids.sort_by(|a, b| b.0.cmp(&a.0)); // highest first
+                                            asks.sort_by(|a, b| a.0.cmp(&b.0)); // lowest first
+                                            println!("  BIDS ({}): {:?}", bids.len(), bids.iter().take(5).map(|(p,s)| format!("{:.5}:{}", *p as f64/100000.0, s)).collect::<Vec<_>>());
+                                            println!("  ASKS ({}): {:?}", asks.len(), asks.iter().take(5).map(|(p,s)| format!("{:.5}:{}", *p as f64/100000.0, s)).collect::<Vec<_>>());
+                                        }
                                     }
 
                                     if bb > 0.0 && ba > 0.0 {
