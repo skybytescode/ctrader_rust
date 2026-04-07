@@ -1450,9 +1450,9 @@ async fn run_session(
             };
 
             if should_fetch {
-                // Schedule next fetch in 10 minutes
+                // Schedule next fetch in 2 minutes
                 news_next_fetch = Some(
-                    tokio::time::Instant::now() + Duration::from_secs(600)
+                    tokio::time::Instant::now() + Duration::from_secs(120)
                 );
 
                 match news_realtime::fetch_news(50, 1, None).await {
@@ -1476,7 +1476,7 @@ async fn run_session(
 
                         let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
                         let _ = tx.send(PriceUpdate::NewsStatus(format!(
-                            "{} articles | next: 10m | updated: {}",
+                            "{} articles | next: 2m | updated: {}",
                             total, now_str
                         ))).await;
                         let _ = tx.send(PriceUpdate::NewsTodayLines(lines)).await;
