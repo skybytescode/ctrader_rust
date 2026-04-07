@@ -928,6 +928,14 @@ async fn run_session(
                                     }
                                     let bb = best_bid as f64 / 100_000.0;
                                     let ba = if best_ask < i32::MAX { best_ask as f64 / 100_000.0 } else { 0.0 };
+
+                                    // Debug: log DoM state periodically
+                                    if dom_rows_since_status % 500 == 0 && dom_book.len() > 0 {
+                                        println!("DoM debug: book_size={} bid_vol={:.0} ask_vol={:.0} bid_levels={} ask_levels={} best_bid={} best_ask={} bb={:.5} ba={:.5}",
+                                            dom_book.len(), total_bid, total_ask, dom_bid_levels, dom_ask_levels,
+                                            best_bid, best_ask, bb, ba);
+                                    }
+
                                     if bb > 0.0 && ba > 0.0 {
                                         pattern_engine.update_dom(
                                             total_bid, total_ask,
