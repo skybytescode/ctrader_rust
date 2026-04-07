@@ -689,104 +689,66 @@ impl PatternEngine {
         false
     }
 
-    /// Build a detailed description of one timeframe for the prompt.
-    /// Includes OHLC for last 10 bars, patterns per bar, trend structure, and forming candle.
+    /// Build raw OHLCV data description of one timeframe for Claude prompt.
+    /// No pattern labels, no trend analysis — let Claude interpret the raw data.
     fn tf_description(tf: &TimeframeState) -> String {
         let mut lines = Vec::new();
         lines.push(format!("{}:", tf.name));
 
-        // Forming candle
+        // Forming candle (raw OHLCV only)
         if tf.forming.is_active() {
             let pct = (tf.forming.completion_pct() * 100.0) as u32;
-            lines.push(format!("  FORMING ({}%): O={:.5} H={:.5} L={:.5} C={:.5} range={:.1}pips pattern={}",
+            lines.push(format!("  FORMING ({}% complete): O={:.5} H={:.5} L={:.5} C={:.5} V={:.0}",
                 pct, tf.forming.open, tf.forming.high, tf.forming.low, tf.forming.close,
-                tf.forming.range_pips(), tf.forming_patterns.summary()));
+                tf.forming.volume));
         }
 
-        // Multi-candle pattern on last completed bars
-        let multi_str = tf.last_multi.summary();
-        if multi_str != "None" {
-            lines.push(format!("  MULTI-CANDLE: {}", multi_str));
-        }
-
-        // Last 10 completed bars with OHLC and individual patterns
+        // Last completed bars (raw OHLCV only)
         let n_bars = tf.completed.len().min(10);
         if n_bars > 0 {
-            lines.push(format!("  LAST {} COMPLETED BARS (oldest→newest):", n_bars));
+            lines.push(format!("  COMPLETED BARS (oldest→newest):"));
             let start = if tf.completed.len() > 10 { tf.completed.len() - 10 } else { 0 };
             for (i, c) in tf.completed[start..].iter().enumerate() {
-                let dir = if c.close > c.open { "BULL" } else if c.close < c.open { "BEAR" } else { "FLAT" };
-                let range = (c.high - c.low) * 10000.0;
-                let body = ((c.close - c.open) * 10000.0).abs();
-                let pattern = SinglePatterns::detect(c);
-                let pat_str = pattern.summary();
-                lines.push(format!("    Bar{}: O={:.5} H={:.5} L={:.5} C={:.5} {} range={:.1}p body={:.1}p {}",
-                    i + 1, c.open, c.high, c.low, c.close, dir, range, body, pat_str));
+                lines.push(format!("    {}: O={:.5} H={:.5} L={:.5} C={:.5} V={:.0}",
+                    i + 1, c.open, c.high, c.low, c.close, c.volume));
             }
-
-            // Trend analysis from the bars
-            let bars = &tf.completed[start..];
-            if bars.len() >= 3 {
-                let mut higher_highs = true;
-                let mut higher_lows = true;
-                let mut lower_highs = true;
-                let mut lower_lows = true;
-                for i in 1..bars.len() {
-                    if bars[i].high <= bars[i - 1].high { higher_highs = false; }
-                    if bars[i].low <= bars[i - 1].low { higher_lows = false; }
-                    if bars[i].high >= bars[i - 1].high { lower_highs = false; }
-                    if bars[i].low >= bars[i - 1].low { lower_lows = false; }
-                }
-                let highest = bars.iter().map(|c| c.high).fold(f64::MIN, f64::max);
-                let lowest = bars.iter().map(|c| c.low).fold(f64::MAX, f64::min);
-                let bull_count = bars.iter().filter(|c| c.close > c.open).count();
-                let bear_count = bars.len() - bull_count;
-
-                let trend = if higher_highs && higher_lows { "UPTREND (HH+HL)" }
-                    else if lower_highs && lower_lows { "DOWNTREND (LH+LL)" }
-                    else if higher_lows && lower_highs { "CONSOLIDATING (HL+LH)" }
-                    else { "MIXED" };
-
-                lines.push(format!("  TREND: {} | {}bull {}bear | range={:.5}-{:.5} ({:.1}pips)",
-                    trend, bull_count, bear_count, lowest, highest, (highest - lowest) * 10000.0));
-            }
-        } else {
-            lines.push("  No completed bars yet".to_string());
         }
 
-        // Internal M1 structure (for M5 only)
+        // M1 bars inside forming M5 (raw OHLCV only)
         if tf.name == "M5" && !tf.m1_inside.is_empty() {
-            let (bull, bear, hl, lh) = tf.internal_structure();
-            lines.push(format!("  M1 INSIDE: {}bull {}bear higher_lows={} lower_highs={}",
-                bull, bear, hl, lh));
+            lines.push(format!("  M1 BARS INSIDE FORMING M5:"));
+            for (i, c) in tf.m1_inside.iter().enumerate() {
+                lines.push(format!("    m{}: O={:.5} H={:.5} L={:.5} C={:.5}",
+                    i + 1, c.open, c.high, c.low, c.close));
+            }
         }
 
         lines.join("\n")
     }
 
     /// Build the Claude CLI prompt for pattern analysis.
-    /// No pre-calculated score — let Claude form its own opinion from raw data.
+    /// Sends raw OHLCV data only — no pattern labels, no trend analysis.
+    /// Let Claude interpret the data independently.
     pub fn build_claude_prompt(&self) -> String {
-        let (m1_mom, m1_hl, m1_lh) = self.m1_momentum();
+        // Last 5 M1 bars as raw OHLC
+        let m1_bars = self.m1_recent.iter()
+            .enumerate()
+            .map(|(i, c)| format!("    {}: O={:.5} H={:.5} L={:.5} C={:.5}", i + 1, c.open, c.high, c.low, c.close))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let m1_section = if m1_bars.is_empty() {
+            "LAST 5 M1 BARS:\n  No data yet".to_string()
+        } else {
+            format!("LAST 5 M1 BARS:\n{}", m1_bars)
+        };
 
         let now = chrono::Utc::now();
         let time_str = now.format("%H:%M UTC").to_string();
-        let session = {
-            let h = now.hour();
-            if (8..12).contains(&h) { "London" }
-            else if (12..13).contains(&h) { "London/NY overlap" }
-            else if (13..17).contains(&h) { "New York" }
-            else if (17..21).contains(&h) { "Late NY" }
-            else { "Asian/Off-hours" }
-        };
 
         format!(
-r#"You are an expert EUR/USD forex trader analyzing candlestick patterns in real-time.
-Time: {} ({} session).
+r#"You are an expert EUR/USD forex trader. Analyze the raw OHLCV candlestick data below across all timeframes. Identify patterns, trend structure, support/resistance levels, and entry opportunities.
 
-Analyze the raw pattern data below. Your output will be used as input for a trading decision system that also considers spread, DoM, news, economic calendar, and ML model data.
-
-{}
+Time: {}. Your output will be used as input for a trading decision system.
 
 {}
 
@@ -794,30 +756,29 @@ Analyze the raw pattern data below. Your output will be used as input for a trad
 
 {}
 
-M1 ENTRY TIMING:
-  Momentum: {} ({})
-  Higher lows: {}
-  Lower highs: {}
+{}
 
-Analyze the patterns independently. Output a structured assessment in this EXACT JSON format, no other text:
+{}
+
+Based on the raw OHLCV data, analyze independently. Output ONLY valid JSON:
 
 {{
   "h4_bias": "<bullish/bearish/neutral>",
   "h4_strength": "<strong/moderate/weak>",
-  "h4_pattern": "<main pattern or 'none'>",
+  "h4_pattern": "<main pattern you identify, or 'none'>",
   "h1_bias": "<bullish/bearish/neutral>",
   "h1_strength": "<strong/moderate/weak>",
-  "h1_pattern": "<main pattern or 'none'>",
+  "h1_pattern": "<main pattern you identify, or 'none'>",
   "m15_bias": "<bullish/bearish/neutral>",
-  "m15_pattern": "<main pattern or 'none'>",
+  "m15_pattern": "<main pattern you identify, or 'none'>",
   "m5_bias": "<bullish/bearish/neutral>",
-  "m5_pattern": "<main pattern or 'none'>",
+  "m5_pattern": "<main pattern you identify, or 'none'>",
   "timeframe_conflict": <true/false>,
   "conflict_detail": "<which timeframes disagree, or 'none'>",
   "dominant_bias": "<bullish/bearish/neutral>",
   "dominant_bias_confidence": <0.0-1.0>,
   "session_quality": "<good/moderate/poor>",
-  "forming_candle_signal": "<strongest forming pattern and timeframe, or 'none'>",
+  "forming_candle_signal": "<what the forming candles suggest, or 'none'>",
   "m1_entry_ready": <true/false>,
   "recommended_action": "<enter_long/enter_short/wait/no_trade>",
   "entry_timeframe": "<H1/M15/M5/none>",
@@ -828,14 +789,12 @@ Analyze the patterns independently. Output a structured assessment in this EXACT
   "stop_pips": <number or 0>,
   "invalidation": "<what cancels this assessment>"
 }}"#,
-            time_str, session,
+            time_str,
             Self::tf_description(&self.h4),
             Self::tf_description(&self.h1),
             Self::tf_description(&self.m15),
             Self::tf_description(&self.m5),
-            m1_mom,
-            if m1_mom > 0 { "bullish" } else if m1_mom < 0 { "bearish" } else { "neutral" },
-            m1_hl, m1_lh,
+            m1_section,
         )
     }
 }
