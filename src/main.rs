@@ -705,11 +705,12 @@ async fn run_session(
                                     let _ = tx.send(PriceUpdate::PatternStatus(status)).await;
                                 }
 
-                                // Check if something interesting is happening → call Claude
-                                // Cooldown: minimum 5 minutes between calls
+                                // Check if score indicates a real setup → call Claude for confirmation
+                                // Score ≥ 7 = interesting, cooldown 30s between calls
+                                let (current_score, _) = pattern_engine.calculate_score();
                                 if !claude_busy.load(std::sync::atomic::Ordering::Relaxed)
-                                    && claude_last_call.elapsed().as_secs() >= 300
-                                    && pattern_engine.has_interesting_signal()
+                                    && claude_last_call.elapsed().as_secs() >= 30
+                                    && current_score >= 7
                                 {
                                     claude_busy.store(true, std::sync::atomic::Ordering::Relaxed);
                                     claude_last_call = tokio::time::Instant::now();

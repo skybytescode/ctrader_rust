@@ -500,47 +500,91 @@ impl PatternEngine {
         (momentum, higher_lows, lower_highs)
     }
 
-    /// Calculate the pattern score based on the PDF framework (0 to 13).
+    /// Helper: check forming pattern with completion-based confidence.
+    /// Returns (is_bull_reversal, is_bear_reversal) only if completion >= min_pct.
+    fn forming_signal(tf: &TimeframeState, min_pct: f64) -> (bool, bool) {
+        if !tf.forming.is_active() || tf.forming.completion_pct() < min_pct || tf.forming.range_pips() < 1.0 {
+            return (false, false);
+        }
+        (tf.forming_patterns.is_bullish_reversal(), tf.forming_patterns.is_bearish_reversal())
+    }
+
+    /// Calculate the pattern score based on the PDF framework.
+    /// Includes completed patterns, forming patterns (with completion confidence),
+    /// multi-candle patterns, session, and M1 momentum across all timeframes.
     /// Returns (score, direction): direction = 1 (long), -1 (short), 0 (no signal).
     pub fn calculate_score(&self) -> (i32, i32) {
         let mut score: i32 = 0;
         let mut bull_signals = 0i32;
         let mut bear_signals = 0i32;
 
-        // ── TIMEFRAME ALIGNMENT (0-3) ────────────────────────────────
+        // ── H4 CONTEXT (0-2) ────────────────────────────────────────
 
-        // H4 trend (check last completed bar direction)
+        // H4 completed bar trend
         if self.h4.last_single.is_bullish { bull_signals += 1; score += 1; }
         else if self.h4.last_single.is_bearish { bear_signals += 1; score += 1; }
 
-        // H1 pattern at key level
-        if self.h1.last_single.is_bullish_reversal() || self.h1.last_multi.is_bullish_signal() {
-            bull_signals += 1; score += 1;
-        } else if self.h1.last_single.is_bearish_reversal() || self.h1.last_multi.is_bearish_signal() {
-            bear_signals += 1; score += 1;
+        // H4 multi-candle pattern (3BlackCrows, 3WhiteSoldiers, etc.)
+        if self.h4.last_multi.is_bullish_signal() { bull_signals += 1; score += 1; }
+        else if self.h4.last_multi.is_bearish_signal() { bear_signals += 1; score += 1; }
+
+        // H4 forming pattern (only if >40% complete)
+        let (h4_fb, h4_fr) = Self::forming_signal(&self.h4, 0.4);
+        if h4_fb { bull_signals += 1; score += 1; }
+        else if h4_fr { bear_signals += 1; score += 1; }
+
+        // ── H1 PATTERNS (0-3) ───────────────────────────────────────
+
+        // H1 completed reversal pattern
+        if self.h1.last_single.is_bullish_reversal() { bull_signals += 1; score += 1; }
+        else if self.h1.last_single.is_bearish_reversal() { bear_signals += 1; score += 1; }
+
+        // H1 multi-candle pattern
+        if self.h1.last_multi.is_bullish_signal() { bull_signals += 1; score += 1; }
+        else if self.h1.last_multi.is_bearish_signal() { bear_signals += 1; score += 1; }
+
+        // H1 forming pattern (>50% = +1, >75% = +1 extra)
+        let (h1_fb, h1_fr) = Self::forming_signal(&self.h1, 0.5);
+        if h1_fb { bull_signals += 1; score += 1; }
+        else if h1_fr { bear_signals += 1; score += 1; }
+        if self.h1.forming.completion_pct() > 0.75 {
+            let (h1_fb75, h1_fr75) = Self::forming_signal(&self.h1, 0.75);
+            if h1_fb75 { score += 1; } // bonus for high-confidence forming
+            else if h1_fr75 { score += 1; }
         }
 
-        // H1 forming pattern adds to alignment
-        if self.h1.forming_patterns.is_bullish_reversal() { bull_signals += 1; score += 1; }
-        else if self.h1.forming_patterns.is_bearish_reversal() { bear_signals += 1; score += 1; }
+        // ── M15 PATTERNS (0-3) ──────────────────────────────────────
 
-        // ── CANDLESTICK PATTERN QUALITY (0-3) ────────────────────────
-
-        // Pattern on H1 (completed or forming)
-        if self.h1.last_single.is_bullish_reversal() || self.h1.last_single.is_bearish_reversal() {
-            score += 1;
-        }
-
-        // Confirmed on M15
+        // M15 completed reversal or multi-candle
         if self.m15.last_single.is_bullish_reversal() || self.m15.last_multi.is_bullish_signal() {
             bull_signals += 1; score += 1;
         } else if self.m15.last_single.is_bearish_reversal() || self.m15.last_multi.is_bearish_signal() {
             bear_signals += 1; score += 1;
         }
 
-        // Multi-candle pattern on H1 (stronger signal)
-        if self.h1.last_multi.is_bullish_signal() { bull_signals += 1; score += 1; }
-        else if self.h1.last_multi.is_bearish_signal() { bear_signals += 1; score += 1; }
+        // M15 forming pattern (>50% = counted, >70% = bonus)
+        let (m15_fb, m15_fr) = Self::forming_signal(&self.m15, 0.5);
+        if m15_fb { bull_signals += 1; score += 1; }
+        else if m15_fr { bear_signals += 1; score += 1; }
+        if self.m15.forming.completion_pct() > 0.7 {
+            let (m15_fb70, m15_fr70) = Self::forming_signal(&self.m15, 0.7);
+            if m15_fb70 { score += 1; }
+            else if m15_fr70 { score += 1; }
+        }
+
+        // ── M5 PATTERNS (0-2) ───────────────────────────────────────
+
+        // M5 completed reversal or multi-candle
+        if self.m5.last_single.is_bullish_reversal() || self.m5.last_multi.is_bullish_signal() {
+            bull_signals += 1; score += 1;
+        } else if self.m5.last_single.is_bearish_reversal() || self.m5.last_multi.is_bearish_signal() {
+            bear_signals += 1; score += 1;
+        }
+
+        // M5 forming pattern (>60% = counted)
+        let (m5_fb, m5_fr) = Self::forming_signal(&self.m5, 0.6);
+        if m5_fb { bull_signals += 1; score += 1; }
+        else if m5_fr { bear_signals += 1; score += 1; }
 
         // ── SESSION (0-2) ────────────────────────────────────────────
 
@@ -548,7 +592,7 @@ impl PatternEngine {
         if (8..12).contains(&hour) || (13..17).contains(&hour) {
             score += 2; // London or NY
         } else if (12..13).contains(&hour) {
-            score += 1; // Overlap
+            score += 1; // London/NY overlap
         }
 
         // ── M1 MOMENTUM (0-1) ───────────────────────────────────────
