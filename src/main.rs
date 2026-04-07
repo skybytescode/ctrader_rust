@@ -951,13 +951,14 @@ async fn run_session(
                                         0.0
                                     };
 
-                                    // Update pattern engine DoM snapshot
+                                    // Update pattern engine DoM analytics
                                     let bb = best_bid as f64 / 100_000.0;
                                     let ba = best_ask as f64 / 100_000.0;
                                     pattern_engine.update_dom(
                                         total_bid, total_ask,
                                         dom_bid_levels, dom_ask_levels,
                                         bb, ba,
+                                        &dom_book,
                                     );
 
                                     acc.snapshots += 1;

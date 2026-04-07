@@ -8,35 +8,208 @@
 
 use candlestick_rs::{CandleStick, CandleStream};
 
-// ── DoM snapshot ─────────────────────────────────────────────────────────────
+// ── DoM real-time analytics ───────────────────────────────────────────────────
 
-/// Live Depth of Market snapshot for trading decisions.
-#[derive(Debug, Clone, Default)]
+/// Wall: a large order at a specific price level.
+#[derive(Debug, Clone)]
+pub struct DomWall {
+    pub price: f64,
+    pub size: i64,
+    pub side: u8,  // 0=bid, 1=ask
+}
+
+/// Live Depth of Market analytics for trading decisions.
+#[derive(Debug, Clone)]
 pub struct DomSnapshot {
-    pub obi: f64,              // Order Book Imbalance: (bid_vol - ask_vol) / total, -1 to +1
-    pub total_bid_vol: f64,    // Total bid-side volume
-    pub total_ask_vol: f64,    // Total ask-side volume
-    pub bid_levels: u32,       // Number of bid price levels
-    pub ask_levels: u32,       // Number of ask price levels
-    pub spread_pips: f64,      // Current bid-ask spread in pips
-    pub best_bid: f64,         // Best bid price
-    pub best_ask: f64,         // Best ask price
-    pub active: bool,          // Is DoM capture running?
+    // ── Current state ──
+    pub obi: f64,              // Order Book Imbalance: -1 to +1
+    pub total_bid_vol: f64,
+    pub total_ask_vol: f64,
+    pub bid_levels: u32,
+    pub ask_levels: u32,
+    pub spread_pips: f64,
+    pub best_bid: f64,
+    pub best_ask: f64,
+    pub active: bool,
+
+    // ── OBI history (trend detection) ──
+    obi_history: Vec<f64>,           // last 60 OBI readings (~2 sec at 31/sec)
+    pub obi_trend: f64,              // OBI change over last 60 readings (positive = increasing buy pressure)
+    pub obi_flipped: bool,           // OBI crossed zero recently (pressure reversal)
+
+    // ── Spread history (tightening/widening) ──
+    spread_history: Vec<f64>,        // last 60 spread readings
+    pub spread_trend: f64,           // spread change (negative = tightening = good)
+    pub spread_spike: bool,          // spread > 2x recent average
+
+    // ── Volume tracking ──
+    total_vol_history: Vec<f64>,     // last 60 total volume readings
+    pub volume_surge: bool,          // current volume > 3x average
+    pub volume_ratio: f64,           // current / average (>1 = above normal)
+
+    // ── Wall detection ──
+    pub bid_walls: Vec<DomWall>,     // large bid orders (top 3)
+    pub ask_walls: Vec<DomWall>,     // large ask orders (top 3)
+    wall_threshold: f64,             // minimum size to be considered a wall
+
+    // ── Order flow (pulling/absorption) ──
+    prev_total_bid: f64,             // previous reading bid volume
+    prev_total_ask: f64,             // previous reading ask volume
+    pub bid_pulling: bool,           // bid volume dropped >20% in one reading
+    pub ask_pulling: bool,           // ask volume dropped >20% in one reading
+    update_count: u64,               // total updates received
+}
+
+impl Default for DomSnapshot {
+    fn default() -> Self {
+        Self {
+            obi: 0.0, total_bid_vol: 0.0, total_ask_vol: 0.0,
+            bid_levels: 0, ask_levels: 0, spread_pips: 0.0,
+            best_bid: 0.0, best_ask: 0.0, active: false,
+            obi_history: Vec::with_capacity(62),
+            obi_trend: 0.0, obi_flipped: false,
+            spread_history: Vec::with_capacity(62),
+            spread_trend: 0.0, spread_spike: false,
+            total_vol_history: Vec::with_capacity(62),
+            volume_surge: false, volume_ratio: 1.0,
+            bid_walls: Vec::new(), ask_walls: Vec::new(),
+            wall_threshold: 100_000.0,  // will be calibrated from data
+            prev_total_bid: 0.0, prev_total_ask: 0.0,
+            bid_pulling: false, ask_pulling: false,
+            update_count: 0,
+        }
+    }
 }
 
 impl DomSnapshot {
+    /// Update with new book state. Call on every DoM event (~31/sec).
+    pub fn update(&mut self, total_bid_vol: f64, total_ask_vol: f64,
+                   bid_levels: u32, ask_levels: u32,
+                   best_bid: f64, best_ask: f64,
+                   book: &std::collections::HashMap<u64, (u8, i32, i64)>) {
+        let total = total_bid_vol + total_ask_vol;
+        self.obi = if total > 0.0 { (total_bid_vol - total_ask_vol) / total } else { 0.0 };
+        self.total_bid_vol = total_bid_vol;
+        self.total_ask_vol = total_ask_vol;
+        self.bid_levels = bid_levels;
+        self.ask_levels = ask_levels;
+        self.best_bid = best_bid;
+        self.best_ask = best_ask;
+        self.spread_pips = (best_ask - best_bid) * 10000.0;
+        self.active = true;
+        self.update_count += 1;
+
+        // ── OBI history & trend ──
+        self.obi_history.push(self.obi);
+        if self.obi_history.len() > 60 { self.obi_history.remove(0); }
+        if self.obi_history.len() >= 10 {
+            let recent = self.obi_history[self.obi_history.len() - 5..].iter().sum::<f64>() / 5.0;
+            let older = self.obi_history[..5].iter().sum::<f64>() / 5.0;
+            self.obi_trend = recent - older;
+            // Flip detection: OBI crossed zero
+            let len = self.obi_history.len();
+            if len >= 2 {
+                let prev = self.obi_history[len - 2];
+                let curr = self.obi_history[len - 1];
+                self.obi_flipped = (prev > 0.05 && curr < -0.05) || (prev < -0.05 && curr > 0.05);
+            }
+        }
+
+        // ── Spread history & trend ──
+        self.spread_history.push(self.spread_pips);
+        if self.spread_history.len() > 60 { self.spread_history.remove(0); }
+        if self.spread_history.len() >= 10 {
+            let recent_avg = self.spread_history[self.spread_history.len() - 5..].iter().sum::<f64>() / 5.0;
+            let older_avg = self.spread_history[..5].iter().sum::<f64>() / 5.0;
+            self.spread_trend = recent_avg - older_avg; // negative = tightening
+            let overall_avg = self.spread_history.iter().sum::<f64>() / self.spread_history.len() as f64;
+            self.spread_spike = self.spread_pips > overall_avg * 2.0;
+        }
+
+        // ── Volume history & surge ──
+        self.total_vol_history.push(total);
+        if self.total_vol_history.len() > 60 { self.total_vol_history.remove(0); }
+        if self.total_vol_history.len() >= 10 {
+            let avg = self.total_vol_history.iter().sum::<f64>() / self.total_vol_history.len() as f64;
+            self.volume_ratio = if avg > 0.0 { total / avg } else { 1.0 };
+            self.volume_surge = self.volume_ratio > 3.0;
+        }
+
+        // ── Bid/Ask pulling detection ──
+        if self.prev_total_bid > 0.0 {
+            self.bid_pulling = total_bid_vol < self.prev_total_bid * 0.8; // >20% drop
+            self.ask_pulling = total_ask_vol < self.prev_total_ask * 0.8;
+        }
+        self.prev_total_bid = total_bid_vol;
+        self.prev_total_ask = total_ask_vol;
+
+        // ── Wall detection (scan book for large orders, every 10th update) ──
+        if self.update_count % 10 == 0 {
+            // Calibrate threshold: 5x average order size
+            let order_count = book.len().max(1) as f64;
+            let avg_size = total / order_count;
+            self.wall_threshold = (avg_size * 5.0).max(50_000.0);
+
+            self.bid_walls.clear();
+            self.ask_walls.clear();
+            for &(side, price, size) in book.values() {
+                if (size as f64) >= self.wall_threshold {
+                    let wall = DomWall {
+                        price: price as f64 / 100_000.0,
+                        size,
+                        side,
+                    };
+                    if side == 0 {
+                        self.bid_walls.push(wall);
+                    } else {
+                        self.ask_walls.push(wall);
+                    }
+                }
+            }
+            // Sort: bid walls by price descending (closest first), ask walls ascending
+            self.bid_walls.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap_or(std::cmp::Ordering::Equal));
+            self.ask_walls.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap_or(std::cmp::Ordering::Equal));
+            self.bid_walls.truncate(3);
+            self.ask_walls.truncate(3);
+        }
+    }
+
     /// Format for Claude prompt (raw data, no interpretation).
     pub fn to_prompt_section(&self) -> String {
         if !self.active {
             return "DOM:\n  Not active".to_string();
         }
-        format!(
-            "DOM:\n  Best bid={:.5} Best ask={:.5} Spread={:.1}pips\n  Bid volume={:.0} ({} levels) Ask volume={:.0} ({} levels)\n  OBI={:.3} (bid_vol-ask_vol/total)",
-            self.best_bid, self.best_ask, self.spread_pips,
-            self.total_bid_vol, self.bid_levels,
-            self.total_ask_vol, self.ask_levels,
-            self.obi,
-        )
+
+        let mut lines = Vec::new();
+        lines.push("DOM:".to_string());
+        lines.push(format!("  Best bid={:.5} Best ask={:.5} Spread={:.1}pips",
+            self.best_bid, self.best_ask, self.spread_pips));
+        lines.push(format!("  Bid volume={:.0} ({} levels) Ask volume={:.0} ({} levels)",
+            self.total_bid_vol, self.bid_levels, self.total_ask_vol, self.ask_levels));
+        lines.push(format!("  OBI={:.3} OBI_trend={:.3} OBI_flipped={}",
+            self.obi, self.obi_trend, self.obi_flipped));
+        lines.push(format!("  Spread_trend={:.2} (negative=tightening) Spread_spike={}",
+            self.spread_trend, self.spread_spike));
+        lines.push(format!("  Volume_ratio={:.2}x Volume_surge={}",
+            self.volume_ratio, self.volume_surge));
+        lines.push(format!("  Bid_pulling={} Ask_pulling={}",
+            self.bid_pulling, self.ask_pulling));
+
+        // Walls
+        if !self.bid_walls.is_empty() {
+            let walls: Vec<String> = self.bid_walls.iter()
+                .map(|w| format!("{:.5}:{}", w.price, w.size))
+                .collect();
+            lines.push(format!("  Bid walls: {}", walls.join(", ")));
+        }
+        if !self.ask_walls.is_empty() {
+            let walls: Vec<String> = self.ask_walls.iter()
+                .map(|w| format!("{:.5}:{}", w.price, w.size))
+                .collect();
+            lines.push(format!("  Ask walls: {}", walls.join(", ")));
+        }
+
+        lines.join("\n")
     }
 
     /// For display in UI.
@@ -44,11 +217,22 @@ impl DomSnapshot {
         if !self.active {
             return "DoM: not active".to_string();
         }
-        let dir = if self.obi > 0.2 { "BUY pressure" }
-            else if self.obi < -0.2 { "SELL pressure" }
-            else { "balanced" };
-        format!("DoM: OBI={:.2} ({}) | spread={:.1}p | bid_vol={:.0} ask_vol={:.0}",
-            self.obi, dir, self.spread_pips, self.total_bid_vol, self.total_ask_vol)
+        let dir = if self.obi > 0.2 { "BUY" }
+            else if self.obi < -0.2 { "SELL" }
+            else { "BAL" };
+        let spread_dir = if self.spread_trend < -0.1 { "tight" }
+            else if self.spread_trend > 0.1 { "WIDE" }
+            else { "stable" };
+        let mut extra = Vec::new();
+        if self.obi_flipped { extra.push("OBI-FLIP"); }
+        if self.volume_surge { extra.push("VOL-SURGE"); }
+        if self.spread_spike { extra.push("SPREAD-SPIKE"); }
+        if self.bid_pulling { extra.push("BID-PULL"); }
+        if self.ask_pulling { extra.push("ASK-PULL"); }
+        let walls = self.bid_walls.len() + self.ask_walls.len();
+        let extra_str = if extra.is_empty() { String::new() } else { format!(" | {}", extra.join(" ")) };
+        format!("DoM: OBI={:.2}({}) spread={:.1}p({}) walls={} vol={:.1}x{}",
+            self.obi, dir, self.spread_pips, spread_dir, walls, self.volume_ratio, extra_str)
     }
 }
 
@@ -496,20 +680,13 @@ impl PatternEngine {
         }
     }
 
-    /// Update the live DoM snapshot.
+    /// Update the live DoM analytics. Pass the full book for wall detection.
     pub fn update_dom(&mut self, total_bid_vol: f64, total_ask_vol: f64,
                        bid_levels: u32, ask_levels: u32,
-                       best_bid: f64, best_ask: f64) {
-        let total = total_bid_vol + total_ask_vol;
-        self.dom.obi = if total > 0.0 { (total_bid_vol - total_ask_vol) / total } else { 0.0 };
-        self.dom.total_bid_vol = total_bid_vol;
-        self.dom.total_ask_vol = total_ask_vol;
-        self.dom.bid_levels = bid_levels;
-        self.dom.ask_levels = ask_levels;
-        self.dom.best_bid = best_bid;
-        self.dom.best_ask = best_ask;
-        self.dom.spread_pips = (best_ask - best_bid) * 10000.0;
-        self.dom.active = true;
+                       best_bid: f64, best_ask: f64,
+                       book: &std::collections::HashMap<u64, (u8, i32, i64)>) {
+        self.dom.update(total_bid_vol, total_ask_vol, bid_levels, ask_levels,
+                        best_bid, best_ask, book);
     }
 
     /// Record a completed M1 candle. Used for M5 internal structure and entry timing.
@@ -666,7 +843,6 @@ impl PatternEngine {
                 else { 0 };                              // balanced
 
             if dom_dir != 0 {
-                // DOM has a direction — does it match the pattern direction?
                 let pattern_dir = if bull_signals > bear_signals { 1 }
                     else if bear_signals > bull_signals { -1 }
                     else { 0 };
@@ -674,18 +850,34 @@ impl PatternEngine {
                 if dom_dir == pattern_dir {
                     // DOM confirms pattern direction
                     score += 1;
-                    if self.dom.obi.abs() > 0.4 { score += 1; } // strong confirmation
+                    if self.dom.obi.abs() > 0.4 { score += 1; } // strong OBI
                     if dom_dir > 0 { bull_signals += 1; } else { bear_signals += 1; }
                 } else if pattern_dir != 0 {
-                    // DOM CONTRADICTS pattern — strong negative signal (trap warning)
+                    // DOM CONTRADICTS pattern — trap warning
                     score -= 3;
                 }
             }
 
-            // Spread too wide = danger
-            if self.dom.spread_pips > 2.0 {
-                score -= 1; // spread widening, reduce conviction
-            }
+            // OBI trend confirms direction (pressure building)
+            if self.dom.obi_trend > 0.1 && bull_signals > bear_signals { score += 1; }
+            else if self.dom.obi_trend < -0.1 && bear_signals > bull_signals { score += 1; }
+
+            // OBI flipped = pressure reversal, reduce conviction
+            if self.dom.obi_flipped { score -= 1; }
+
+            // Spread analysis
+            if self.dom.spread_pips > 2.0 { score -= 1; }        // wide spread
+            if self.dom.spread_spike { score -= 2; }              // spread spike = danger
+            if self.dom.spread_trend < -0.2 { score += 1; }      // tightening = good
+
+            // Volume surge = institutional activity
+            if self.dom.volume_surge { score += 1; }
+
+            // Bid/ask pulling = someone stepping away
+            if self.dom.bid_pulling && bear_signals > bull_signals { score += 1; } // bids pulling confirms short
+            else if self.dom.ask_pulling && bull_signals > bear_signals { score += 1; } // asks pulling confirms long
+            if self.dom.bid_pulling && bull_signals > bear_signals { score -= 1; } // bids pulling contradicts long
+            else if self.dom.ask_pulling && bear_signals > bull_signals { score -= 1; } // asks pulling contradicts short
         }
 
         // ── M1 MOMENTUM (0-3) ───────────────────────────────────────
