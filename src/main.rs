@@ -726,7 +726,8 @@ async fn run_session(
 
                                         match pattern_engine::call_claude_pattern_analysis(&prompt) {
                                             Ok(resp) => {
-                                                let display = resp.display_summary();
+                                                let ts = chrono::Local::now().format("%H:%M:%S").to_string();
+                                                let display = format!("[{}] {}", ts, resp.display_summary());
                                                 println!("Claude analysis:\n{}", display);
                                                 let _ = tx_claude.blocking_send(PriceUpdate::ClaudeAnalysis(display));
                                             }

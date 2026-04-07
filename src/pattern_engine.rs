@@ -595,11 +595,18 @@ impl PatternEngine {
             score += 1; // London/NY overlap
         }
 
-        // ── M1 MOMENTUM (0-1) ───────────────────────────────────────
+        // ── M1 MOMENTUM (0-3) ───────────────────────────────────────
 
         let (momentum, higher_lows, lower_highs) = self.m1_momentum();
-        if momentum >= 2 && higher_lows { bull_signals += 1; score += 1; }
-        else if momentum <= -2 && lower_highs { bear_signals += 1; score += 1; }
+        // Basic momentum alignment
+        if momentum >= 2 { bull_signals += 1; score += 1; }
+        else if momentum <= -2 { bear_signals += 1; score += 1; }
+        // Structure confirmation (higher lows for bull, lower highs for bear)
+        if higher_lows { bull_signals += 1; score += 1; }
+        if lower_highs { bear_signals += 1; score += 1; }
+        // Strong M1 confirmation: momentum + structure aligned with higher TF direction
+        if momentum == 3 && higher_lows && bull_signals > bear_signals { score += 1; }
+        else if momentum == -3 && lower_highs && bear_signals > bull_signals { score += 1; }
 
         // ── DETERMINE DIRECTION ──────────────────────────────────────
 
