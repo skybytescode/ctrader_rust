@@ -916,18 +916,36 @@ async fn run_session(
                                     dom_m1 = Some(DomM1Accum::new(current_minute));
                                 }
 
+                                // Update pattern engine DoM (always, independent of M1 accumulator)
+                                {
+                                    let total_bid = dom_total_bid_vol;
+                                    let total_ask = dom_total_ask_vol;
+                                    let mut best_bid: i32 = 0;
+                                    let mut best_ask: i32 = i32::MAX;
+                                    for &(side, price, _size) in dom_book.values() {
+                                        if side == 0 && price > best_bid { best_bid = price; }
+                                        else if side == 1 && price < best_ask { best_ask = price; }
+                                    }
+                                    let bb = best_bid as f64 / 100_000.0;
+                                    let ba = if best_ask < i32::MAX { best_ask as f64 / 100_000.0 } else { 0.0 };
+                                    if bb > 0.0 && ba > 0.0 {
+                                        pattern_engine.update_dom(
+                                            total_bid, total_ask,
+                                            dom_bid_levels, dom_ask_levels,
+                                            bb, ba,
+                                            &dom_book,
+                                        );
+                                    }
+                                }
+
                                 // Snapshot current book into accumulator
                                 if let Some(ref mut acc) = dom_m1 {
                                     acc.quotes_added += n_added;
                                     acc.quotes_deleted += n_deleted;
 
-                                    // Use running totals for volume/levels (O(1))
                                     let total_bid = dom_total_bid_vol;
                                     let total_ask = dom_total_ask_vol;
 
-                                    // Best bid/ask still need a scan — but only when quotes changed
-                                    // This is unavoidable without a BTreeMap, but runs less often
-                                    // than the old code (only when accumulator is active)
                                     let mut best_bid: i32 = 0;
                                     let mut best_ask: i32 = i32::MAX;
                                     let mut best_bid_size: i64 = 0;
@@ -940,26 +958,14 @@ async fn run_session(
                                         }
                                     }
 
-                                    // OBI = (bid_vol - ask_vol) / (bid_vol + ask_vol)
                                     let total = total_bid + total_ask;
                                     let obi = if total > 0.0 { (total_bid - total_ask) / total } else { 0.0 };
 
-                                    // Spread in pips (price units are /100000)
                                     let spread = if best_ask < i32::MAX && best_bid > 0 {
-                                        (best_ask - best_bid) as f64 / 10.0 // in pips
+                                        (best_ask - best_bid) as f64 / 10.0
                                     } else {
                                         0.0
                                     };
-
-                                    // Update pattern engine DoM analytics
-                                    let bb = best_bid as f64 / 100_000.0;
-                                    let ba = best_ask as f64 / 100_000.0;
-                                    pattern_engine.update_dom(
-                                        total_bid, total_ask,
-                                        dom_bid_levels, dom_ask_levels,
-                                        bb, ba,
-                                        &dom_book,
-                                    );
 
                                     acc.snapshots += 1;
                                     acc.obi_sum += obi;
