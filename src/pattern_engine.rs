@@ -690,47 +690,78 @@ impl PatternEngine {
     }
 
     /// Build a detailed description of one timeframe for the prompt.
+    /// Includes OHLC for last 10 bars, patterns per bar, trend structure, and forming candle.
     fn tf_description(tf: &TimeframeState) -> String {
-        let forming = if tf.forming.is_active() {
+        let mut lines = Vec::new();
+        lines.push(format!("{}:", tf.name));
+
+        // Forming candle
+        if tf.forming.is_active() {
             let pct = (tf.forming.completion_pct() * 100.0) as u32;
-            format!(
-                "Forming ({}% complete): O={:.5} H={:.5} L={:.5} C={:.5} range={:.1}pips\n  Forming pattern: {}",
+            lines.push(format!("  FORMING ({}%): O={:.5} H={:.5} L={:.5} C={:.5} range={:.1}pips pattern={}",
                 pct, tf.forming.open, tf.forming.high, tf.forming.low, tf.forming.close,
-                tf.forming.range_pips(),
-                tf.forming_patterns.summary()
-            )
+                tf.forming.range_pips(), tf.forming_patterns.summary()));
+        }
+
+        // Multi-candle pattern on last completed bars
+        let multi_str = tf.last_multi.summary();
+        if multi_str != "None" {
+            lines.push(format!("  MULTI-CANDLE: {}", multi_str));
+        }
+
+        // Last 10 completed bars with OHLC and individual patterns
+        let n_bars = tf.completed.len().min(10);
+        if n_bars > 0 {
+            lines.push(format!("  LAST {} COMPLETED BARS (oldest→newest):", n_bars));
+            let start = if tf.completed.len() > 10 { tf.completed.len() - 10 } else { 0 };
+            for (i, c) in tf.completed[start..].iter().enumerate() {
+                let dir = if c.close > c.open { "BULL" } else if c.close < c.open { "BEAR" } else { "FLAT" };
+                let range = (c.high - c.low) * 10000.0;
+                let body = ((c.close - c.open) * 10000.0).abs();
+                let pattern = SinglePatterns::detect(c);
+                let pat_str = pattern.summary();
+                lines.push(format!("    Bar{}: O={:.5} H={:.5} L={:.5} C={:.5} {} range={:.1}p body={:.1}p {}",
+                    i + 1, c.open, c.high, c.low, c.close, dir, range, body, pat_str));
+            }
+
+            // Trend analysis from the bars
+            let bars = &tf.completed[start..];
+            if bars.len() >= 3 {
+                let mut higher_highs = true;
+                let mut higher_lows = true;
+                let mut lower_highs = true;
+                let mut lower_lows = true;
+                for i in 1..bars.len() {
+                    if bars[i].high <= bars[i - 1].high { higher_highs = false; }
+                    if bars[i].low <= bars[i - 1].low { higher_lows = false; }
+                    if bars[i].high >= bars[i - 1].high { lower_highs = false; }
+                    if bars[i].low >= bars[i - 1].low { lower_lows = false; }
+                }
+                let highest = bars.iter().map(|c| c.high).fold(f64::MIN, f64::max);
+                let lowest = bars.iter().map(|c| c.low).fold(f64::MAX, f64::min);
+                let bull_count = bars.iter().filter(|c| c.close > c.open).count();
+                let bear_count = bars.len() - bull_count;
+
+                let trend = if higher_highs && higher_lows { "UPTREND (HH+HL)" }
+                    else if lower_highs && lower_lows { "DOWNTREND (LH+LL)" }
+                    else if higher_lows && lower_highs { "CONSOLIDATING (HL+LH)" }
+                    else { "MIXED" };
+
+                lines.push(format!("  TREND: {} | {}bull {}bear | range={:.5}-{:.5} ({:.1}pips)",
+                    trend, bull_count, bear_count, lowest, highest, (highest - lowest) * 10000.0));
+            }
         } else {
-            "No forming data yet".to_string()
-        };
+            lines.push("  No completed bars yet".to_string());
+        }
 
-        let completed = format!("Last completed: {}", tf.last_single.summary());
-        let multi = format!("Multi-candle: {}", tf.last_multi.summary());
-
-        // Last completed bars directions
-        let bar_dirs: String = tf.completed.iter()
-            .rev()
-            .take(5)
-            .map(|c| if c.close > c.open { "Bull" } else { "Bear" })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<Vec<_>>()
-            .join(", ");
-        let history = if bar_dirs.is_empty() {
-            "No history yet".to_string()
-        } else {
-            format!("Last bars: {}", bar_dirs)
-        };
-
-        // Internal structure (for M5 only — has M1 inside)
-        let internal = if tf.name == "M5" && !tf.m1_inside.is_empty() {
+        // Internal M1 structure (for M5 only)
+        if tf.name == "M5" && !tf.m1_inside.is_empty() {
             let (bull, bear, hl, lh) = tf.internal_structure();
-            format!("\n  M1 inside: {} bull, {} bear, higher_lows={}, lower_highs={}", bull, bear, hl, lh)
-        } else {
-            String::new()
-        };
+            lines.push(format!("  M1 INSIDE: {}bull {}bear higher_lows={} lower_highs={}",
+                bull, bear, hl, lh));
+        }
 
-        format!("{}:\n  {}\n  {}\n  {}\n  {}{}", tf.name, forming, completed, multi, history, internal)
+        lines.join("\n")
     }
 
     /// Build the Claude CLI prompt for pattern analysis.
