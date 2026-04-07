@@ -844,10 +844,13 @@ async fn run_session(
 
                                 // Process new/updated quotes (maintain running totals)
                                 for q in &event.new_quotes {
+                                    // cTrader convention: q.bid field = ask-side order (sellers, higher prices)
+                                    //                    q.ask field = bid-side order (buyers, lower prices)
+                                    // This is reversed from the field names — verified from live book dump
                                     let (side, price) = if let Some(bid) = q.bid {
-                                        (0u8, bid as i32)  // bid side: highest price wins
+                                        (1u8, bid as i32)  // ask side (sellers — higher prices)
                                     } else if let Some(ask) = q.ask {
-                                        (1u8, ask as i32)  // ask side: lowest price wins
+                                        (0u8, ask as i32)  // bid side (buyers — lower prices)
                                     } else {
                                         continue;
                                     };
@@ -934,10 +937,6 @@ async fn run_session(
                                     let mut bb = best_bid as f64 / 100_000.0;
                                     let mut ba = if best_ask < i32::MAX { best_ask as f64 / 100_000.0 } else { 0.0 };
 
-                                    // Fix crossed book (best_bid > best_ask) — swap if needed
-                                    if bb > 0.0 && ba > 0.0 && bb > ba {
-                                        std::mem::swap(&mut bb, &mut ba);
-                                    }
 
                                     // Debug: log DoM state periodically
                                     if dom_rows_since_status % 500 == 0 && dom_book.len() > 0 {
