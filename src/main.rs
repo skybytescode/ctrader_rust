@@ -323,7 +323,7 @@ async fn run_session(
         while let Some(cmd) = dom_db_rx.blocking_recv() {
             match cmd {
                 DomDbCommand::Init { reply } => {
-                    let _lock = dom_shared_db.lock().unwrap();
+                    let _lock = dom_shared_db.lock().unwrap_or_else(|e| e.into_inner());
                     let conn = duckdb::Connection::open(DB_PATH)
                         .expect("Failed to open DuckDB for DoM");
                     conn.execute_batch("
@@ -374,7 +374,7 @@ async fn run_session(
                     let _ = reply.send(existing);
                 }
                 DomDbCommand::RawBatch { rows } => {
-                    let _lock = dom_shared_db.lock().unwrap();
+                    let _lock = dom_shared_db.lock().unwrap_or_else(|e| e.into_inner());
                     if let Ok(conn) = duckdb::Connection::open(DB_PATH) {
                         if let Ok(mut appender) = conn.appender("eurusd_dom_raw") {
                             for &(ts, etype, qid, side, price, size) in &rows {
@@ -388,7 +388,7 @@ async fn run_session(
                     }
                 }
                 DomDbCommand::M1Features { params } => {
-                    let _lock = dom_shared_db.lock().unwrap();
+                    let _lock = dom_shared_db.lock().unwrap_or_else(|e| e.into_inner());
                     if let Ok(conn) = duckdb::Connection::open(DB_PATH) {
                         let _ = conn.execute(
                             "INSERT OR REPLACE INTO eurusd_dom_features_m1 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -1385,7 +1385,7 @@ async fn run_session(
                         // Write to DB and read raw data (blocking)
                         let db_clone = shared_db.clone();
                         let (lines, raw) = tokio::task::spawn_blocking(move || {
-                            let _lock = db_clone.lock().unwrap();
+                            let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
                             match duckdb::Connection::open(DB_PATH) {
                                 Ok(db) => {
                                     let _ = ec_realtime::write_ec_to_db(&db, &rows);
@@ -1461,7 +1461,7 @@ async fn run_session(
 
                         let db_clone = shared_db.clone();
                         let lines = tokio::task::spawn_blocking(move || {
-                            let _lock = db_clone.lock().unwrap();
+                            let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
                             match duckdb::Connection::open(DB_PATH) {
                                 Ok(db) => {
                                     let _ = news_realtime::write_news_to_db(&db, &rows);
@@ -1657,7 +1657,7 @@ async fn handle_data_request(
             let force_rebuild = request.force_rebuild;
             let db_for_merge = shared_db.clone();
             let merge_result = tokio::task::spawn_blocking(move || {
-                let _lock = db_for_merge.lock().unwrap();
+                let _lock = db_for_merge.lock().unwrap_or_else(|e| e.into_inner());
                 let db = CandleDatabase::new(DB_PATH)?;
 
                 let already_exists = db.check_ml_features_table(&merged_table).is_some();
@@ -1746,7 +1746,7 @@ async fn handle_data_request(
             let force_rebuild = request.force_rebuild;
             let db_for_ml = shared_db.clone();
             let ml_result = tokio::task::spawn_blocking(move || {
-                let _lock = db_for_ml.lock().unwrap();
+                let _lock = db_for_ml.lock().unwrap_or_else(|e| e.into_inner());
                 let db = CandleDatabase::new(DB_PATH)?;
 
                 let force_rebuild = force_rebuild;
@@ -1786,7 +1786,7 @@ async fn handle_data_request(
             match ml_result {
                 Ok(Ok((total, new_rows, already_exists))) => {
                     let features_table2 = format!("{}_tick_features_m1", request.symbol.to_lowercase());
-                    let _lock = shared_db.lock().unwrap();
+                    let _lock = shared_db.lock().unwrap_or_else(|e| e.into_inner());
                     let db2 = CandleDatabase::new(DB_PATH);
                     let (first_record, last_record) = match db2 {
                         Ok(db) => {
@@ -1838,7 +1838,7 @@ async fn check_db_status(
     response_tx: &mpsc::Sender<DataResponse>,
     shared_db: &SharedDb,
 ) {
-    let _lock = shared_db.lock().unwrap();
+    let _lock = shared_db.lock().unwrap_or_else(|e| e.into_inner());
     match CandleDatabase::new(DB_PATH) {
         Ok(db) => {
             if !db.table_exists(table_name) {
@@ -1943,7 +1943,7 @@ async fn check_db_status(
 
 /// Get the newest timestamp currently in DB (returns ms)
 fn get_newest_timestamp_in_db(table_name: &str, kind: DataKind, shared_db: &SharedDb) -> i64 {
-    let _lock = shared_db.lock().unwrap();
+    let _lock = shared_db.lock().unwrap_or_else(|e| e.into_inner());
     match CandleDatabase::new(DB_PATH) {
         Ok(db) => {
             if !db.table_exists(table_name) {
@@ -2120,7 +2120,7 @@ async fn handle_trendbars_response(
         // Bulk load CSV → DuckDB (await — only happens once, read_csv is fast)
         let db_for_load = shared_db.clone();
         let load_result = tokio::task::spawn_blocking(move || {
-            let _lock = db_for_load.lock().unwrap();
+            let _lock = db_for_load.lock().unwrap_or_else(|e| e.into_inner());
             let db = CandleDatabase::new(DB_PATH)?;
             db.create_table_if_not_exists(&table_name)?;
             db.bulk_load_candles_from_csv(&table_name, &csv_path)?;
@@ -2253,7 +2253,7 @@ async fn handle_tick_data_response(
         // Bulk load CSV → DuckDB (await — only happens once, read_csv is fast)
         let db_for_load = shared_db.clone();
         let load_result = tokio::task::spawn_blocking(move || {
-            let _lock = db_for_load.lock().unwrap();
+            let _lock = db_for_load.lock().unwrap_or_else(|e| e.into_inner());
             let db = CandleDatabase::new(DB_PATH)?;
             if is_ask {
                 db.create_ask_tick_table_if_not_exists(&table_name)?;

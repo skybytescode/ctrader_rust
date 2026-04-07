@@ -1254,7 +1254,7 @@ impl CTraderApp {
     }
 
     fn handle_news_db_click(&mut self) {
-        let _lock = self.shared_db.lock().unwrap();
+        let _lock = self.shared_db.lock().unwrap_or_else(|e| e.into_inner());
         let status = match duckdb::Connection::open(crate::DB_PATH) {
             Ok(db) => {
                 let today_count: i64 = db.query_row(
@@ -1284,7 +1284,7 @@ impl CTraderApp {
         std::thread::spawn(move || {
             // Check DB for latest stored article
             let latest = {
-                let _lock = db_clone.lock().unwrap();
+                let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
                 duckdb::Connection::open(crate::DB_PATH).ok()
                     .and_then(|db| crate::news_realtime::get_latest_news_timestamp(&db))
             };
@@ -1308,7 +1308,7 @@ impl CTraderApp {
                             let count = rows.len();
                             let _ = tx.send(format!("Writing {} new articles to DB...", count));
                             {
-                                let _lock = db_clone2.lock().unwrap();
+                                let _lock = db_clone2.lock().unwrap_or_else(|e| e.into_inner());
                                 match duckdb::Connection::open(crate::DB_PATH) {
                                     Ok(db) => {
                                         let _ = crate::news_realtime::write_news_to_db(&db, &rows);
@@ -1342,7 +1342,7 @@ impl CTraderApp {
 
         // Check pending count first
         let pending_info = {
-            let _lock = self.shared_db.lock().unwrap();
+            let _lock = self.shared_db.lock().unwrap_or_else(|e| e.into_inner());
             match duckdb::Connection::open(crate::DB_PATH) {
                 Ok(db) => {
                     let _ = crate::news_sentiment::ensure_table(&db);
@@ -1390,7 +1390,7 @@ impl CTraderApp {
 
         // Check if feature table exists
         let has_features = {
-            let _lock = self.shared_db.lock().unwrap();
+            let _lock = self.shared_db.lock().unwrap_or_else(|e| e.into_inner());
             duckdb::Connection::open(crate::DB_PATH).ok()
                 .and_then(|db| db.query_row(
                     "SELECT COUNT(*) FROM ml_unified_features", [], |r| r.get::<_, i64>(0)
@@ -1530,7 +1530,7 @@ impl CTraderApp {
                 // Step 1: Build M5 candles
                 let _ = tx.send("Step 1/4: Building M5 candles from M1...".to_string());
                 {
-                    let _lock = db_clone.lock().unwrap();
+                    let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
                     let db = duckdb::Connection::open(crate::DB_PATH)
                         .map_err(|e| format!("DB open: {}", e))?;
                     db.execute_batch("
@@ -1557,7 +1557,7 @@ impl CTraderApp {
                 // Step 2: Build cross-pair M5
                 let _ = tx.send("Step 2/4: Building cross-pair M5...".to_string());
                 {
-                    let _lock = db_clone.lock().unwrap();
+                    let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
                     let db = duckdb::Connection::open(crate::DB_PATH)
                         .map_err(|e| format!("DB open: {}", e))?;
                     db.execute_batch("
@@ -1586,7 +1586,7 @@ impl CTraderApp {
                 // Step 3: Prepare EC and News timestamps
                 let _ = tx.send("Step 3/4: Preparing EC calendar and News timestamps...".to_string());
                 {
-                    let _lock = db_clone.lock().unwrap();
+                    let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
                     let db = duckdb::Connection::open(crate::DB_PATH)
                         .map_err(|e| format!("DB open: {}", e))?;
                     db.execute_batch("
@@ -1623,7 +1623,7 @@ impl CTraderApp {
                 // Step 4: Build unified feature table
                 let _ = tx.send("Step 4/4: Building unified feature table (this may take a minute)...".to_string());
                 {
-                    let _lock = db_clone.lock().unwrap();
+                    let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
                     let db = duckdb::Connection::open(crate::DB_PATH)
                         .map_err(|e| format!("DB open: {}", e))?;
 
