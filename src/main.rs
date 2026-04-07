@@ -856,9 +856,9 @@ async fn run_session(
                                     };
                                     let size = q.size as i64;
                                     // Debug: log first few quotes to verify side/price
-                                    if dom_total_rows < 20 {
-                                        println!("DoM quote: id={} side={} price={} size={} (bid={:?} ask={:?})",
-                                            q.id, side, price, size, q.bid, q.ask);
+                                    if dom_total_rows < 30 {
+                                        println!("DoM quote: id={} bid={:?} ask={:?} size={} → side={} price={}",
+                                            q.id, q.bid, q.ask, q.size, side, price);
                                     }
                                     // Remove old entry from running totals if updating
                                     if let Some(&(old_side, _, old_size)) = dom_book.get(&q.id) {
