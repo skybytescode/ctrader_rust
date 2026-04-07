@@ -844,13 +844,13 @@ async fn run_session(
 
                                 // Process new/updated quotes (maintain running totals)
                                 for q in &event.new_quotes {
-                                    // cTrader convention: q.bid field = ask-side order (sellers, higher prices)
-                                    //                    q.ask field = bid-side order (buyers, lower prices)
-                                    // This is reversed from the field names — verified from live book dump
+                                    // cTrader: q.bid = bid-side price (buyers, BELOW current price)
+                                    //          q.ask = ask-side price (sellers, ABOVE current price)
+                                    // side 0 = bid (buyers), side 1 = ask (sellers)
                                     let (side, price) = if let Some(bid) = q.bid {
-                                        (1u8, bid as i32)  // ask side (sellers — higher prices)
+                                        (0u8, bid as i32)  // bid side (buyers — lower prices)
                                     } else if let Some(ask) = q.ask {
-                                        (0u8, ask as i32)  // bid side (buyers — lower prices)
+                                        (1u8, ask as i32)  // ask side (sellers — higher prices)
                                     } else {
                                         continue;
                                     };
