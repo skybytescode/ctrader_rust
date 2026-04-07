@@ -703,11 +703,11 @@ impl PatternEngine {
                 tf.forming.volume));
         }
 
-        // Last completed bars (raw OHLCV only)
-        let n_bars = tf.completed.len().min(10);
+        // Last completed bars (raw OHLCV only — all 20)
+        let n_bars = tf.completed.len();
         if n_bars > 0 {
             lines.push(format!("  COMPLETED BARS (oldest→newest):"));
-            let start = if tf.completed.len() > 10 { tf.completed.len() - 10 } else { 0 };
+            let start = 0;
             for (i, c) in tf.completed[start..].iter().enumerate() {
                 lines.push(format!("    {}: O={:.5} H={:.5} L={:.5} C={:.5} V={:.0}",
                     i + 1, c.open, c.high, c.low, c.close, c.volume));
