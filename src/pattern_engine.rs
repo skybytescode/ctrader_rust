@@ -8,6 +8,50 @@
 
 use candlestick_rs::{CandleStick, CandleStream};
 
+// ── DoM snapshot ─────────────────────────────────────────────────────────────
+
+/// Live Depth of Market snapshot for trading decisions.
+#[derive(Debug, Clone, Default)]
+pub struct DomSnapshot {
+    pub obi: f64,              // Order Book Imbalance: (bid_vol - ask_vol) / total, -1 to +1
+    pub total_bid_vol: f64,    // Total bid-side volume
+    pub total_ask_vol: f64,    // Total ask-side volume
+    pub bid_levels: u32,       // Number of bid price levels
+    pub ask_levels: u32,       // Number of ask price levels
+    pub spread_pips: f64,      // Current bid-ask spread in pips
+    pub best_bid: f64,         // Best bid price
+    pub best_ask: f64,         // Best ask price
+    pub active: bool,          // Is DoM capture running?
+}
+
+impl DomSnapshot {
+    /// Format for Claude prompt (raw data, no interpretation).
+    pub fn to_prompt_section(&self) -> String {
+        if !self.active {
+            return "DOM:\n  Not active".to_string();
+        }
+        format!(
+            "DOM:\n  Best bid={:.5} Best ask={:.5} Spread={:.1}pips\n  Bid volume={:.0} ({} levels) Ask volume={:.0} ({} levels)\n  OBI={:.3} (bid_vol-ask_vol/total)",
+            self.best_bid, self.best_ask, self.spread_pips,
+            self.total_bid_vol, self.bid_levels,
+            self.total_ask_vol, self.ask_levels,
+            self.obi,
+        )
+    }
+
+    /// For display in UI.
+    pub fn status_line(&self) -> String {
+        if !self.active {
+            return "DoM: not active".to_string();
+        }
+        let dir = if self.obi > 0.2 { "BUY pressure" }
+            else if self.obi < -0.2 { "SELL pressure" }
+            else { "balanced" };
+        format!("DoM: OBI={:.2} ({}) | spread={:.1}p | bid_vol={:.0} ask_vol={:.0}",
+            self.obi, dir, self.spread_pips, self.total_bid_vol, self.total_ask_vol)
+    }
+}
+
 // ── OHLCV candle for candlestick-rs ──────────────────────────────────────────
 
 /// Simple OHLCV tuple that implements the CandleStick trait.
@@ -435,6 +479,8 @@ pub struct PatternEngine {
     pub last_m1: Option<OhlcCandle>,
     /// Last 20 M1 candles (for momentum micro-read and Claude prompt).
     m1_recent: Vec<OhlcCandle>,
+    /// Live DoM snapshot.
+    pub dom: DomSnapshot,
 }
 
 impl PatternEngine {
@@ -446,7 +492,24 @@ impl PatternEngine {
             h4: TimeframeState::new("H4", 240),
             last_m1: None,
             m1_recent: Vec::with_capacity(22),
+            dom: DomSnapshot::default(),
         }
+    }
+
+    /// Update the live DoM snapshot.
+    pub fn update_dom(&mut self, total_bid_vol: f64, total_ask_vol: f64,
+                       bid_levels: u32, ask_levels: u32,
+                       best_bid: f64, best_ask: f64) {
+        let total = total_bid_vol + total_ask_vol;
+        self.dom.obi = if total > 0.0 { (total_bid_vol - total_ask_vol) / total } else { 0.0 };
+        self.dom.total_bid_vol = total_bid_vol;
+        self.dom.total_ask_vol = total_ask_vol;
+        self.dom.bid_levels = bid_levels;
+        self.dom.ask_levels = ask_levels;
+        self.dom.best_bid = best_bid;
+        self.dom.best_ask = best_ask;
+        self.dom.spread_pips = (best_ask - best_bid) * 10000.0;
+        self.dom.active = true;
     }
 
     /// Record a completed M1 candle. Used for M5 internal structure and entry timing.
@@ -595,6 +658,36 @@ impl PatternEngine {
             score += 1; // London/NY overlap
         }
 
+        // ── DOM CONFIRMATION (−3 to +3) ─────────────────────────────
+        // PDF framework: DOM contradicts = BLOCK (-3), DOM confirms = +1 to +3
+        if self.dom.active {
+            let dom_dir = if self.dom.obi > 0.2 { 1 } // buy pressure
+                else if self.dom.obi < -0.2 { -1 }     // sell pressure
+                else { 0 };                              // balanced
+
+            if dom_dir != 0 {
+                // DOM has a direction — does it match the pattern direction?
+                let pattern_dir = if bull_signals > bear_signals { 1 }
+                    else if bear_signals > bull_signals { -1 }
+                    else { 0 };
+
+                if dom_dir == pattern_dir {
+                    // DOM confirms pattern direction
+                    score += 1;
+                    if self.dom.obi.abs() > 0.4 { score += 1; } // strong confirmation
+                    if dom_dir > 0 { bull_signals += 1; } else { bear_signals += 1; }
+                } else if pattern_dir != 0 {
+                    // DOM CONTRADICTS pattern — strong negative signal (trap warning)
+                    score -= 3;
+                }
+            }
+
+            // Spread too wide = danger
+            if self.dom.spread_pips > 2.0 {
+                score -= 1; // spread widening, reduce conviction
+            }
+        }
+
         // ── M1 MOMENTUM (0-3) ───────────────────────────────────────
 
         let (momentum, higher_lows, lower_highs) = self.m1_momentum();
@@ -634,6 +727,9 @@ impl PatternEngine {
         lines.push(self.h1.status_line());
         lines.push(self.m15.status_line());
         lines.push(self.m5.status_line());
+
+        // DoM
+        lines.push(self.dom.status_line());
 
         // M1 momentum
         let (momentum, hl, lh) = self.m1_momentum();
@@ -742,13 +838,17 @@ impl PatternEngine {
             format!("M1 (last {} bars):\n{}", self.m1_recent.len(), m1_bars)
         };
 
+        let dom_section = self.dom.to_prompt_section();
+
         let now = chrono::Utc::now();
         let time_str = now.format("%H:%M UTC").to_string();
 
         format!(
-r#"You are an expert EUR/USD forex trader. Analyze the raw OHLCV candlestick data below across all timeframes. Identify patterns, trend structure, support/resistance levels, and entry opportunities.
+r#"You are an expert EUR/USD forex trader. Analyze the raw OHLCV candlestick data and Depth of Market data below across all timeframes. Identify patterns, trend structure, support/resistance levels, order flow, and entry opportunities.
 
 Time: {}. Your output will be used as input for a trading decision system.
+
+{}
 
 {}
 
@@ -795,6 +895,7 @@ Based on the raw OHLCV data, analyze independently. Output ONLY valid JSON:
             Self::tf_description(&self.m15),
             Self::tf_description(&self.m5),
             m1_section,
+            dom_section,
         )
     }
 }
