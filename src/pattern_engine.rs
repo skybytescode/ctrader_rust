@@ -95,7 +95,12 @@ impl DomSnapshot {
         self.ask_levels = ask_levels;
         self.best_bid = best_bid;
         self.best_ask = best_ask;
-        self.spread_pips = (best_ask - best_bid) * 10000.0;
+        // Spread must be non-negative; guard against stale/invalid book data
+        self.spread_pips = if best_ask > best_bid && best_bid > 0.0 {
+            (best_ask - best_bid) * 10000.0
+        } else {
+            0.0
+        };
         self.active = true;
         self.update_count += 1;
 
