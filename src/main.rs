@@ -856,10 +856,10 @@ async fn run_session(
                                         continue;
                                     };
                                     let size = q.size as i64;
-                                    // Debug: log first few quotes to verify side/price
-                                    if dom_total_rows < 30 {
-                                        println!("DoM quote: id={} bid={:?} ask={:?} size={} → side={} price={}",
-                                            q.id, q.bid, q.ask, q.size, side, price);
+                                    // Debug: log first 20 quotes after capture start
+                                    if dom_rows_since_status < 20 {
+                                        println!("DoM quote: id={} bid={:?} ask={:?} size={} → side={} price={} ({:.5})",
+                                            q.id, q.bid, q.ask, q.size, side, price, price as f64 / 100_000.0);
                                     }
                                     // Remove old entry from running totals if updating
                                     if let Some(&(old_side, _, old_size)) = dom_book.get(&q.id) {
@@ -1172,6 +1172,7 @@ async fn run_session(
                                 dom_total_ask_vol = 0.0;
                                 dom_bid_levels = 0;
                                 dom_ask_levels = 0;
+                                dom_rows_since_status = 0;
                                 pattern_engine.dom = pattern_engine::DomSnapshot::default();
                                 println!("DoM: book cleared for fresh start");
 
