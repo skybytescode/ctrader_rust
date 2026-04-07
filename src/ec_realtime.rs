@@ -360,7 +360,7 @@ pub fn format_ec_lines(
             _ => "*  ",
         };
         let event_time = NaiveDateTime::parse_from_str(ts, "%Y-%m-%dT%H:%M:%S").ok();
-        let short_name = if name.len() > 38 { &name[..38] } else { name.as_str() };
+        let short_name = if name.chars().count() > 38 { &name[..name.char_indices().nth(38).map(|(i,_)|i).unwrap_or(name.len())] } else { name.as_str() };
 
         let is_past = event_time.map(|et| et < now_utc).unwrap_or(false);
         let is_recent = event_time.map(|et| et >= thirty_min_ago && et <= now_utc).unwrap_or(false);
