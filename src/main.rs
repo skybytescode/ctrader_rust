@@ -845,13 +845,18 @@ async fn run_session(
                                 // Process new/updated quotes (maintain running totals)
                                 for q in &event.new_quotes {
                                     let (side, price) = if let Some(bid) = q.bid {
-                                        (0u8, bid as i32)
+                                        (0u8, bid as i32)  // bid side: highest price wins
                                     } else if let Some(ask) = q.ask {
-                                        (1u8, ask as i32)
+                                        (1u8, ask as i32)  // ask side: lowest price wins
                                     } else {
                                         continue;
                                     };
                                     let size = q.size as i64;
+                                    // Debug: log first few quotes to verify side/price
+                                    if dom_total_rows < 20 {
+                                        println!("DoM quote: id={} side={} price={} size={} (bid={:?} ask={:?})",
+                                            q.id, side, price, size, q.bid, q.ask);
+                                    }
                                     // Remove old entry from running totals if updating
                                     if let Some(&(old_side, _, old_size)) = dom_book.get(&q.id) {
                                         if old_side == 0 { dom_total_bid_vol -= old_size as f64; dom_bid_levels -= 1; }
