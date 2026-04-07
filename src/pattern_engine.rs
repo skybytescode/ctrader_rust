@@ -433,7 +433,7 @@ pub struct PatternEngine {
     pub h4: TimeframeState,
     /// Latest M1 candle data (for entry timing).
     pub last_m1: Option<OhlcCandle>,
-    /// Last 5 M1 candles (for momentum micro-read).
+    /// Last 20 M1 candles (for momentum micro-read and Claude prompt).
     m1_recent: Vec<OhlcCandle>,
 }
 
@@ -445,7 +445,7 @@ impl PatternEngine {
             h1: TimeframeState::new("H1", 60),
             h4: TimeframeState::new("H4", 240),
             last_m1: None,
-            m1_recent: Vec::with_capacity(10),
+            m1_recent: Vec::with_capacity(22),
         }
     }
 
@@ -453,7 +453,7 @@ impl PatternEngine {
     pub fn push_m1(&mut self, m1: OhlcCandle) {
         self.last_m1 = Some(m1);
         self.m1_recent.push(m1);
-        if self.m1_recent.len() > 5 {
+        if self.m1_recent.len() > 20 {
             self.m1_recent.remove(0);
         }
 
@@ -730,16 +730,16 @@ impl PatternEngine {
     /// Sends raw OHLCV data only — no pattern labels, no trend analysis.
     /// Let Claude interpret the data independently.
     pub fn build_claude_prompt(&self) -> String {
-        // Last 5 M1 bars as raw OHLC
+        // Last 20 M1 bars as raw OHLC
         let m1_bars = self.m1_recent.iter()
             .enumerate()
             .map(|(i, c)| format!("    {}: O={:.5} H={:.5} L={:.5} C={:.5}", i + 1, c.open, c.high, c.low, c.close))
             .collect::<Vec<_>>()
             .join("\n");
         let m1_section = if m1_bars.is_empty() {
-            "LAST 5 M1 BARS:\n  No data yet".to_string()
+            "M1 (last 20 bars):\n  No data yet".to_string()
         } else {
-            format!("LAST 5 M1 BARS:\n{}", m1_bars)
+            format!("M1 (last {} bars):\n{}", self.m1_recent.len(), m1_bars)
         };
 
         let now = chrono::Utc::now();
