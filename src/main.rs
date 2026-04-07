@@ -931,14 +931,20 @@ async fn run_session(
                                         if side == 0 && price > best_bid { best_bid = price; }
                                         else if side == 1 && price < best_ask { best_ask = price; }
                                     }
-                                    let bb = best_bid as f64 / 100_000.0;
-                                    let ba = if best_ask < i32::MAX { best_ask as f64 / 100_000.0 } else { 0.0 };
+                                    let mut bb = best_bid as f64 / 100_000.0;
+                                    let mut ba = if best_ask < i32::MAX { best_ask as f64 / 100_000.0 } else { 0.0 };
+
+                                    // Fix crossed book (best_bid > best_ask) — swap if needed
+                                    if bb > 0.0 && ba > 0.0 && bb > ba {
+                                        std::mem::swap(&mut bb, &mut ba);
+                                    }
 
                                     // Debug: log DoM state periodically
                                     if dom_rows_since_status % 500 == 0 && dom_book.len() > 0 {
-                                        println!("DoM debug: book_size={} bid_vol={:.0} ask_vol={:.0} bid_levels={} ask_levels={} best_bid={} best_ask={} bb={:.5} ba={:.5}",
+                                        println!("DoM debug: book_size={} bid_vol={:.0} ask_vol={:.0} levels={}b/{}a best={:.5}/{:.5} spread={:.1}p OBI={:.3}",
                                             dom_book.len(), total_bid, total_ask, dom_bid_levels, dom_ask_levels,
-                                            best_bid, best_ask, bb, ba);
+                                            bb, ba, (ba - bb) * 10000.0,
+                                            if total_bid + total_ask > 0.0 { (total_bid - total_ask) / (total_bid + total_ask) } else { 0.0 });
                                     }
 
                                     if bb > 0.0 && ba > 0.0 {
