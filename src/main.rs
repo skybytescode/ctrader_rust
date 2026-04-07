@@ -844,13 +844,14 @@ async fn run_session(
 
                                 // Process new/updated quotes (maintain running totals)
                                 for q in &event.new_quotes {
-                                    // cTrader: q.bid = bid-side price (buyers, BELOW current price)
-                                    //          q.ask = ask-side price (sellers, ABOVE current price)
-                                    // side 0 = bid (buyers), side 1 = ask (sellers)
+                                    // cTrader field names are misleading:
+                                    //   q.bid field = prices ABOVE market (ask side / sellers)
+                                    //   q.ask field = prices BELOW market (bid side / buyers)
+                                    // Verified: live price 1.16035, q.bid values at 1.1603+, q.ask at 1.1576
                                     let (side, price) = if let Some(bid) = q.bid {
-                                        (0u8, bid as i32)  // bid side (buyers — lower prices)
+                                        (1u8, bid as i32)  // ask side (sellers — above current price)
                                     } else if let Some(ask) = q.ask {
-                                        (1u8, ask as i32)  // ask side (sellers — higher prices)
+                                        (0u8, ask as i32)  // bid side (buyers — below current price)
                                     } else {
                                         continue;
                                     };
@@ -1164,6 +1165,15 @@ async fn run_session(
                                     "none".to_string()
                                 };
                                 println!("DoM: DB has {} existing rows, last: {}", dom_total_rows, last_str);
+
+                                // Clear in-memory book (remove stale entries from previous session)
+                                dom_book.clear();
+                                dom_total_bid_vol = 0.0;
+                                dom_total_ask_vol = 0.0;
+                                dom_bid_levels = 0;
+                                dom_ask_levels = 0;
+                                pattern_engine.dom = pattern_engine::DomSnapshot::default();
+                                println!("DoM: book cleared for fresh start");
 
                                 // Subscribe to DoM
                                 let subscribe = openapi::ProtoOaSubscribeDepthQuotesReq {
