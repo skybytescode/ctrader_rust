@@ -1,7 +1,7 @@
 //! Real-time multi-timeframe candlestick pattern detection engine.
 //!
 //! Uses `candlestick-rs` for pattern recognition on completed and forming candles
-//! across M5, M15, H1, and H4 timeframes simultaneously.
+//! across M5 and M15 timeframes simultaneously.
 //!
 //! M1 candles are the raw input — they build forming candles on higher timeframes
 //! and provide entry timing signals. Pattern detection runs on M5 and above.
@@ -10,72 +10,76 @@ use candlestick_rs::{CandleStick, CandleStream};
 
 // ── DoM real-time analytics ───────────────────────────────────────────────────
 
-/// Wall: a large order at a specific price level.
+/// A price level cluster in the DoM — a group of nearby orders.
 #[derive(Debug, Clone)]
-pub struct DomWall {
-    pub price: f64,
-    pub size: i64,
-    pub side: u8,  // 0=bid, 1=ask
+pub struct DomCluster {
+    pub center_price: f64,      // volume-weighted center of the cluster
+    pub total_size: i64,        // sum of all order sizes in cluster
+    pub level_count: u32,       // number of individual levels in cluster
+    pub price_min: f64,         // lowest price in cluster
+    pub price_max: f64,         // highest price in cluster
+}
+
+/// A gap between adjacent clusters — empty zone in the book.
+#[derive(Debug, Clone)]
+pub struct DomGap {
+    pub price_from: f64,        // lower edge of gap
+    pub price_to: f64,          // upper edge of gap
+    pub gap_pips: f64,          // gap width in pips
 }
 
 /// Live Depth of Market analytics for trading decisions.
+/// Focused on price level structure (clusters, gaps, density) rather than
+/// volume imbalance (OBI), since retail cTrader DoM has mirrored volumes.
 #[derive(Debug, Clone)]
 pub struct DomSnapshot {
     // ── Current state ──
-    pub obi: f64,              // Order Book Imbalance: -1 to +1
-    pub total_bid_vol: f64,
-    pub total_ask_vol: f64,
     pub bid_levels: u32,
     pub ask_levels: u32,
-    pub spread_pips: f64,
-    pub best_bid: f64,
-    pub best_ask: f64,
+    pub best_bid: f64,          // highest bid price (below market)
+    pub best_ask: f64,          // lowest ask price (above market)
+    pub book_spread_pips: f64,  // DoM book depth range (not trading spread)
     pub active: bool,
 
-    // ── OBI history (trend detection) ──
-    obi_history: Vec<f64>,           // last 60 OBI readings (~2 sec at 31/sec)
-    pub obi_trend: f64,              // OBI change over last 60 readings (positive = increasing buy pressure)
-    pub obi_flipped: bool,           // OBI crossed zero recently (pressure reversal)
+    // ── Level count tracking ──
+    level_history: Vec<u32>,           // last 60 total level counts
+    pub levels_trend: i32,             // level count change (negative = thinning)
+    pub levels_dropping: bool,         // levels dropped >20% from average
 
-    // ── Spread history (tightening/widening) ──
-    spread_history: Vec<f64>,        // last 60 spread readings
-    pub spread_trend: f64,           // spread change (negative = tightening = good)
-    pub spread_spike: bool,          // spread > 2x recent average
+    // ── Price level clusters ──
+    pub bid_clusters: Vec<DomCluster>, // clusters on bid side (sorted by price desc)
+    pub ask_clusters: Vec<DomCluster>, // clusters on ask side (sorted by price asc)
 
-    // ── Volume tracking ──
-    total_vol_history: Vec<f64>,     // last 60 total volume readings
-    pub volume_surge: bool,          // current volume > 3x average
-    pub volume_ratio: f64,           // current / average (>1 = above normal)
+    // ── Gaps (empty zones) ──
+    pub bid_gaps: Vec<DomGap>,         // gaps on bid side (sorted by size desc)
+    pub ask_gaps: Vec<DomGap>,         // gaps on ask side (sorted by size desc)
 
-    // ── Wall detection ──
-    pub bid_walls: Vec<DomWall>,     // large bid orders (top 3)
-    pub ask_walls: Vec<DomWall>,     // large ask orders (top 3)
-    wall_threshold: f64,             // minimum size to be considered a wall
+    // ── Density (how tightly packed levels are near current price) ──
+    pub bid_density_near: f64,         // levels per pip in closest 10 pips on bid side
+    pub ask_density_near: f64,         // levels per pip in closest 10 pips on ask side
+    pub density_imbalance: f64,        // bid_density - ask_density (positive = more bid support)
 
-    // ── Order flow (pulling/absorption) ──
-    prev_total_bid: f64,             // previous reading bid volume
-    prev_total_ask: f64,             // previous reading ask volume
-    pub bid_pulling: bool,           // bid volume dropped >20% in one reading
-    pub ask_pulling: bool,           // ask volume dropped >20% in one reading
-    update_count: u64,               // total updates received
+    // ── Churn tracking (event rate) ──
+    churn_history: Vec<u32>,           // events per update cycle (last 60)
+    pub churn_rate: f64,               // average events per cycle
+    pub churn_spike: bool,             // current churn > 2x average
+
+    update_count: u64,
 }
 
 impl Default for DomSnapshot {
     fn default() -> Self {
         Self {
-            obi: 0.0, total_bid_vol: 0.0, total_ask_vol: 0.0,
-            bid_levels: 0, ask_levels: 0, spread_pips: 0.0,
-            best_bid: 0.0, best_ask: 0.0, active: false,
-            obi_history: Vec::with_capacity(62),
-            obi_trend: 0.0, obi_flipped: false,
-            spread_history: Vec::with_capacity(62),
-            spread_trend: 0.0, spread_spike: false,
-            total_vol_history: Vec::with_capacity(62),
-            volume_surge: false, volume_ratio: 1.0,
-            bid_walls: Vec::new(), ask_walls: Vec::new(),
-            wall_threshold: 100_000.0,  // will be calibrated from data
-            prev_total_bid: 0.0, prev_total_ask: 0.0,
-            bid_pulling: false, ask_pulling: false,
+            bid_levels: 0, ask_levels: 0,
+            best_bid: 0.0, best_ask: 0.0,
+            book_spread_pips: 0.0, active: false,
+            level_history: Vec::with_capacity(62),
+            levels_trend: 0, levels_dropping: false,
+            bid_clusters: Vec::new(), ask_clusters: Vec::new(),
+            bid_gaps: Vec::new(), ask_gaps: Vec::new(),
+            bid_density_near: 0.0, ask_density_near: 0.0, density_imbalance: 0.0,
+            churn_history: Vec::with_capacity(62),
+            churn_rate: 0.0, churn_spike: false,
             update_count: 0,
         }
     }
@@ -83,20 +87,15 @@ impl Default for DomSnapshot {
 
 impl DomSnapshot {
     /// Update with new book state. Call on every DoM event (~31/sec).
-    pub fn update(&mut self, total_bid_vol: f64, total_ask_vol: f64,
+    pub fn update(&mut self, _total_bid_vol: f64, _total_ask_vol: f64,
                    bid_levels: u32, ask_levels: u32,
                    best_bid: f64, best_ask: f64,
                    book: &std::collections::HashMap<u64, (u8, i32, i64)>) {
-        let total = total_bid_vol + total_ask_vol;
-        self.obi = if total > 0.0 { (total_bid_vol - total_ask_vol) / total } else { 0.0 };
-        self.total_bid_vol = total_bid_vol;
-        self.total_ask_vol = total_ask_vol;
         self.bid_levels = bid_levels;
         self.ask_levels = ask_levels;
         self.best_bid = best_bid;
         self.best_ask = best_ask;
-        // Spread must be non-negative; guard against stale/invalid book data
-        self.spread_pips = if best_ask > best_bid && best_bid > 0.0 {
+        self.book_spread_pips = if best_ask > best_bid && best_bid > 0.0 {
             (best_ask - best_bid) * 10000.0
         } else {
             0.0
@@ -104,79 +103,115 @@ impl DomSnapshot {
         self.active = true;
         self.update_count += 1;
 
-        // ── OBI history & trend ──
-        self.obi_history.push(self.obi);
-        if self.obi_history.len() > 60 { self.obi_history.remove(0); }
-        if self.obi_history.len() >= 10 {
-            let recent = self.obi_history[self.obi_history.len() - 5..].iter().sum::<f64>() / 5.0;
-            let older = self.obi_history[..5].iter().sum::<f64>() / 5.0;
-            self.obi_trend = recent - older;
-            // Flip detection: OBI crossed zero
-            let len = self.obi_history.len();
-            if len >= 2 {
-                let prev = self.obi_history[len - 2];
-                let curr = self.obi_history[len - 1];
-                self.obi_flipped = (prev > 0.05 && curr < -0.05) || (prev < -0.05 && curr > 0.05);
+        // ── Level count tracking ──
+        let total_levels = bid_levels + ask_levels;
+        self.level_history.push(total_levels);
+        if self.level_history.len() > 60 { self.level_history.remove(0); }
+        if self.level_history.len() >= 10 {
+            let avg = self.level_history.iter().sum::<u32>() as f64 / self.level_history.len() as f64;
+            self.levels_trend = total_levels as i32 - avg as i32;
+            self.levels_dropping = (total_levels as f64) < avg * 0.8;
+        }
+
+        // ── Cluster & gap & density analysis (every 30th update, ~1/sec) ──
+        if self.update_count % 30 == 0 && book.len() > 4 {
+            self.analyze_clusters(book);
+        }
+    }
+
+    /// Find clusters of nearby price levels, gaps between them, and density near price.
+    fn analyze_clusters(&mut self, book: &std::collections::HashMap<u64, (u8, i32, i64)>) {
+        // Separate and sort by price
+        let mut bids: Vec<(f64, i64)> = Vec::new(); // (price, size) sorted desc
+        let mut asks: Vec<(f64, i64)> = Vec::new(); // (price, size) sorted asc
+        for &(side, price, size) in book.values() {
+            let p = price as f64 / 100_000.0;
+            if side == 0 { bids.push((p, size)); }
+            else { asks.push((p, size)); }
+        }
+        bids.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        asks.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Cluster detection: group levels within 3 pips of each other
+        const CLUSTER_GAP_PIPS: f64 = 3.0;
+        self.bid_clusters = Self::find_clusters(&bids, CLUSTER_GAP_PIPS);
+        self.ask_clusters = Self::find_clusters(&asks, CLUSTER_GAP_PIPS);
+
+        // Gap detection: find spaces between clusters > 5 pips
+        const MIN_GAP_PIPS: f64 = 5.0;
+        self.bid_gaps = Self::find_gaps(&self.bid_clusters, MIN_GAP_PIPS, true);
+        self.ask_gaps = Self::find_gaps(&self.ask_clusters, MIN_GAP_PIPS, false);
+
+        // Density near market: count levels within 10 pips of best bid/ask
+        if self.best_bid > 0.0 {
+            let near_count = bids.iter()
+                .filter(|(p, _)| (self.best_bid - p) * 10000.0 < 10.0)
+                .count() as f64;
+            self.bid_density_near = near_count / 10.0; // levels per pip
+        }
+        if self.best_ask > 0.0 {
+            let near_count = asks.iter()
+                .filter(|(p, _)| (p - self.best_ask) * 10000.0 < 10.0)
+                .count() as f64;
+            self.ask_density_near = near_count / 10.0;
+        }
+        self.density_imbalance = self.bid_density_near - self.ask_density_near;
+    }
+
+    /// Group sorted price levels into clusters. Levels within `gap_pips` of each other form a cluster.
+    fn find_clusters(levels: &[(f64, i64)], gap_pips: f64) -> Vec<DomCluster> {
+        if levels.is_empty() { return Vec::new(); }
+        let mut clusters: Vec<DomCluster> = Vec::new();
+        let mut cur_prices: Vec<(f64, i64)> = vec![levels[0]];
+
+        for &(price, size) in &levels[1..] {
+            let last_price = cur_prices.last().unwrap().0;
+            if (last_price - price).abs() * 10000.0 <= gap_pips {
+                cur_prices.push((price, size));
+            } else {
+                clusters.push(Self::make_cluster(&cur_prices));
+                cur_prices = vec![(price, size)];
             }
         }
+        clusters.push(Self::make_cluster(&cur_prices));
+        clusters
+    }
 
-        // ── Spread history & trend ──
-        self.spread_history.push(self.spread_pips);
-        if self.spread_history.len() > 60 { self.spread_history.remove(0); }
-        if self.spread_history.len() >= 10 {
-            let recent_avg = self.spread_history[self.spread_history.len() - 5..].iter().sum::<f64>() / 5.0;
-            let older_avg = self.spread_history[..5].iter().sum::<f64>() / 5.0;
-            self.spread_trend = recent_avg - older_avg; // negative = tightening
-            let overall_avg = self.spread_history.iter().sum::<f64>() / self.spread_history.len() as f64;
-            self.spread_spike = self.spread_pips > overall_avg * 2.0;
+    fn make_cluster(levels: &[(f64, i64)]) -> DomCluster {
+        let total_size: i64 = levels.iter().map(|(_, s)| s).sum();
+        let weighted_price: f64 = levels.iter()
+            .map(|(p, s)| p * (*s as f64))
+            .sum::<f64>() / total_size.max(1) as f64;
+        let prices: Vec<f64> = levels.iter().map(|(p, _)| *p).collect();
+        DomCluster {
+            center_price: weighted_price,
+            total_size,
+            level_count: levels.len() as u32,
+            price_min: prices.iter().cloned().fold(f64::MAX, f64::min),
+            price_max: prices.iter().cloned().fold(f64::MIN, f64::max),
         }
+    }
 
-        // ── Volume history & surge ──
-        self.total_vol_history.push(total);
-        if self.total_vol_history.len() > 60 { self.total_vol_history.remove(0); }
-        if self.total_vol_history.len() >= 10 {
-            let avg = self.total_vol_history.iter().sum::<f64>() / self.total_vol_history.len() as f64;
-            self.volume_ratio = if avg > 0.0 { total / avg } else { 1.0 };
-            self.volume_surge = self.volume_ratio > 3.0;
-        }
-
-        // ── Bid/Ask pulling detection ──
-        if self.prev_total_bid > 0.0 {
-            self.bid_pulling = total_bid_vol < self.prev_total_bid * 0.8; // >20% drop
-            self.ask_pulling = total_ask_vol < self.prev_total_ask * 0.8;
-        }
-        self.prev_total_bid = total_bid_vol;
-        self.prev_total_ask = total_ask_vol;
-
-        // ── Wall detection (scan book for large orders, every 10th update) ──
-        if self.update_count % 10 == 0 {
-            // Calibrate threshold: 5x average order size
-            let order_count = book.len().max(1) as f64;
-            let avg_size = total / order_count;
-            self.wall_threshold = (avg_size * 5.0).max(50_000.0);
-
-            self.bid_walls.clear();
-            self.ask_walls.clear();
-            for &(side, price, size) in book.values() {
-                if (size as f64) >= self.wall_threshold {
-                    let wall = DomWall {
-                        price: price as f64 / 100_000.0,
-                        size,
-                        side,
-                    };
-                    if side == 0 {
-                        self.bid_walls.push(wall);
-                    } else {
-                        self.ask_walls.push(wall);
-                    }
-                }
+    /// Find gaps between clusters larger than min_gap_pips.
+    fn find_gaps(clusters: &[DomCluster], min_gap_pips: f64, descending: bool) -> Vec<DomGap> {
+        if clusters.len() < 2 { return Vec::new(); }
+        let mut gaps: Vec<DomGap> = Vec::new();
+        for i in 0..clusters.len() - 1 {
+            let (from, to) = if descending {
+                // Bids sorted desc: gap between low of cluster[i] and high of cluster[i+1]
+                (clusters[i + 1].price_max, clusters[i].price_min)
+            } else {
+                // Asks sorted asc: gap between high of cluster[i] and low of cluster[i+1]
+                (clusters[i].price_max, clusters[i + 1].price_min)
+            };
+            let gap_pips = (to - from) * 10000.0;
+            if gap_pips > min_gap_pips {
+                gaps.push(DomGap { price_from: from, price_to: to, gap_pips });
             }
-            // Sort: bid walls by price descending (closest first), ask walls ascending
-            self.bid_walls.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap_or(std::cmp::Ordering::Equal));
-            self.ask_walls.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap_or(std::cmp::Ordering::Equal));
-            self.bid_walls.truncate(3);
-            self.ask_walls.truncate(3);
         }
+        gaps.sort_by(|a, b| b.gap_pips.partial_cmp(&a.gap_pips).unwrap_or(std::cmp::Ordering::Equal));
+        gaps.truncate(3);
+        gaps
     }
 
     /// Format for Claude prompt (raw data, no interpretation).
@@ -186,32 +221,39 @@ impl DomSnapshot {
         }
 
         let mut lines = Vec::new();
-        lines.push("DOM:".to_string());
-        lines.push(format!("  Best bid={:.5} Best ask={:.5} Spread={:.1}pips",
-            self.best_bid, self.best_ask, self.spread_pips));
-        lines.push(format!("  Bid volume={:.0} ({} levels) Ask volume={:.0} ({} levels)",
-            self.total_bid_vol, self.bid_levels, self.total_ask_vol, self.ask_levels));
-        lines.push(format!("  OBI={:.3} OBI_trend={:.3} OBI_flipped={}",
-            self.obi, self.obi_trend, self.obi_flipped));
-        lines.push(format!("  Spread_trend={:.2} (negative=tightening) Spread_spike={}",
-            self.spread_trend, self.spread_spike));
-        lines.push(format!("  Volume_ratio={:.2}x Volume_surge={}",
-            self.volume_ratio, self.volume_surge));
-        lines.push(format!("  Bid_pulling={} Ask_pulling={}",
-            self.bid_pulling, self.ask_pulling));
+        lines.push("DOM (price level structure):".to_string());
+        lines.push(format!("  Levels: {}bid / {}ask (trend={:+}{})",
+            self.bid_levels, self.ask_levels, self.levels_trend,
+            if self.levels_dropping { " THINNING" } else { "" }));
+        lines.push(format!("  Density near price: bid={:.1}/pip ask={:.1}/pip imbalance={:+.1}",
+            self.bid_density_near, self.ask_density_near, self.density_imbalance));
 
-        // Walls
-        if !self.bid_walls.is_empty() {
-            let walls: Vec<String> = self.bid_walls.iter()
-                .map(|w| format!("{:.5}:{}", w.price, w.size))
+        // Clusters
+        if !self.bid_clusters.is_empty() {
+            let cl: Vec<String> = self.bid_clusters.iter().take(5)
+                .map(|c| format!("{:.5}({}lvl)", c.center_price, c.level_count))
                 .collect();
-            lines.push(format!("  Bid walls: {}", walls.join(", ")));
+            lines.push(format!("  Bid clusters: {}", cl.join(", ")));
         }
-        if !self.ask_walls.is_empty() {
-            let walls: Vec<String> = self.ask_walls.iter()
-                .map(|w| format!("{:.5}:{}", w.price, w.size))
+        if !self.ask_clusters.is_empty() {
+            let cl: Vec<String> = self.ask_clusters.iter().take(5)
+                .map(|c| format!("{:.5}({}lvl)", c.center_price, c.level_count))
                 .collect();
-            lines.push(format!("  Ask walls: {}", walls.join(", ")));
+            lines.push(format!("  Ask clusters: {}", cl.join(", ")));
+        }
+
+        // Gaps
+        if !self.bid_gaps.is_empty() {
+            let g: Vec<String> = self.bid_gaps.iter()
+                .map(|g| format!("{:.5}-{:.5}({:.0}p)", g.price_from, g.price_to, g.gap_pips))
+                .collect();
+            lines.push(format!("  Bid gaps: {}", g.join(", ")));
+        }
+        if !self.ask_gaps.is_empty() {
+            let g: Vec<String> = self.ask_gaps.iter()
+                .map(|g| format!("{:.5}-{:.5}({:.0}p)", g.price_from, g.price_to, g.gap_pips))
+                .collect();
+            lines.push(format!("  Ask gaps: {}", g.join(", ")));
         }
 
         lines.join("\n")
@@ -222,22 +264,25 @@ impl DomSnapshot {
         if !self.active {
             return "DoM: not active".to_string();
         }
-        let dir = if self.obi > 0.2 { "BUY" }
-            else if self.obi < -0.2 { "SELL" }
-            else { "BAL" };
-        let spread_dir = if self.spread_trend < -0.1 { "tight" }
-            else if self.spread_trend > 0.1 { "WIDE" }
-            else { "stable" };
+        let lvl_status = if self.levels_dropping { "THIN" }
+            else if self.levels_trend > 5 { "thick" }
+            else { "ok" };
+        let density_dir = if self.density_imbalance > 0.3 { "bid+" }
+            else if self.density_imbalance < -0.3 { "ask+" }
+            else { "even" };
+        let bid_gaps_count = self.bid_gaps.len();
+        let ask_gaps_count = self.ask_gaps.len();
+        let largest_gap = self.bid_gaps.iter().chain(self.ask_gaps.iter())
+            .map(|g| g.gap_pips)
+            .fold(0.0f64, f64::max);
         let mut extra = Vec::new();
-        if self.obi_flipped { extra.push("OBI-FLIP"); }
-        if self.volume_surge { extra.push("VOL-SURGE"); }
-        if self.spread_spike { extra.push("SPREAD-SPIKE"); }
-        if self.bid_pulling { extra.push("BID-PULL"); }
-        if self.ask_pulling { extra.push("ASK-PULL"); }
-        let walls = self.bid_walls.len() + self.ask_walls.len();
+        if self.levels_dropping { extra.push("LEVELS-DROP"); }
+        if self.churn_spike { extra.push("CHURN-SPIKE"); }
+        if largest_gap > 15.0 { extra.push("BIG-GAP"); }
         let extra_str = if extra.is_empty() { String::new() } else { format!(" | {}", extra.join(" ")) };
-        format!("DoM: OBI={:.2}({}) spread={:.1}p({}) walls={} vol={:.1}x{}",
-            self.obi, dir, self.spread_pips, spread_dir, walls, self.volume_ratio, extra_str)
+        format!("DoM: {}b/{}a({}) density={} gaps={}b/{}a max={:.0}p{}",
+            self.bid_levels, self.ask_levels, lvl_status,
+            density_dir, bid_gaps_count, ask_gaps_count, largest_gap, extra_str)
     }
 }
 
@@ -518,6 +563,444 @@ impl MultiPatterns {
     }
 }
 
+// ── Swing Point Detection ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SwingType {
+    High,
+    Low,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SwingPoint {
+    pub swing_type: SwingType,
+    pub price: f64,
+    pub index: usize,
+    pub timestamp: i64,
+}
+
+/// Swing structure analysis from completed bars.
+#[derive(Debug, Clone, Default)]
+pub struct SwingAnalysis {
+    pub swing_highs: Vec<SwingPoint>,
+    pub swing_lows: Vec<SwingPoint>,
+    /// 1 = uptrend (HH+HL), -1 = downtrend (LH+LL), 0 = mixed/insufficient
+    pub trend_direction: i32,
+    pub last_swing_high: Option<f64>,
+    pub last_swing_low: Option<f64>,
+}
+
+impl SwingAnalysis {
+    /// Detect swing highs/lows using 3-bar pivot logic.
+    /// `min_swing_pips` filters out noise (e.g., 3.0 for M5, 5.0 for M15).
+    pub fn detect(completed: &[OhlcCandle], min_swing_pips: f64) -> Self {
+        let mut highs = Vec::new();
+        let mut lows = Vec::new();
+        let min_diff = min_swing_pips * 0.0001; // convert pips to price
+
+        if completed.len() < 3 {
+            return Self::default();
+        }
+
+        // 3-bar pivot detection
+        for i in 1..completed.len() - 1 {
+            let prev = &completed[i - 1];
+            let curr = &completed[i];
+            let next = &completed[i + 1];
+
+            // Swing high: current high > both neighbors by min_diff
+            if curr.high > prev.high + min_diff && curr.high > next.high + min_diff {
+                highs.push(SwingPoint {
+                    swing_type: SwingType::High,
+                    price: curr.high,
+                    index: i,
+                    timestamp: curr.timestamp,
+                });
+            }
+
+            // Swing low: current low < both neighbors by min_diff
+            if curr.low < prev.low - min_diff && curr.low < next.low - min_diff {
+                lows.push(SwingPoint {
+                    swing_type: SwingType::Low,
+                    price: curr.low,
+                    index: i,
+                    timestamp: curr.timestamp,
+                });
+            }
+        }
+
+        // Keep last 5 of each
+        if highs.len() > 5 { highs.drain(..highs.len() - 5); }
+        if lows.len() > 5 { lows.drain(..lows.len() - 5); }
+
+        let last_high = highs.last().map(|s| s.price);
+        let last_low = lows.last().map(|s| s.price);
+
+        // Determine trend from swing structure
+        let trend_direction = Self::classify_trend(&highs, &lows);
+
+        Self {
+            swing_highs: highs,
+            swing_lows: lows,
+            trend_direction,
+            last_swing_high: last_high,
+            last_swing_low: last_low,
+        }
+    }
+
+    fn classify_trend(highs: &[SwingPoint], lows: &[SwingPoint]) -> i32 {
+        if highs.len() < 2 || lows.len() < 2 {
+            return 0;
+        }
+        let h = &highs[highs.len() - 2..];
+        let l = &lows[lows.len() - 2..];
+
+        let higher_highs = h[1].price > h[0].price;
+        let higher_lows = l[1].price > l[0].price;
+        let lower_highs = h[1].price < h[0].price;
+        let lower_lows = l[1].price < l[0].price;
+
+        if higher_highs && higher_lows { 1 }       // uptrend
+        else if lower_highs && lower_lows { -1 }    // downtrend
+        else { 0 }                                    // mixed
+    }
+
+    pub fn summary(&self) -> String {
+        let trend = match self.trend_direction {
+            1 => "UP(HH+HL)",
+            -1 => "DN(LH+LL)",
+            _ => "mixed",
+        };
+        format!("Swing:{} H={} L={}", trend, self.swing_highs.len(), self.swing_lows.len())
+    }
+}
+
+// ── Fibonacci Retracement ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum RetracementClass {
+    #[default]
+    None,
+    ShallowPullback,   // < 38.2%
+    NormalPullback,    // 38.2% - 61.8%
+    DeepPullback,      // 61.8% - 78.6%
+    Reversal,          // > 78.6%
+}
+
+impl RetracementClass {
+    pub fn label(&self) -> &'static str {
+        match self {
+            RetracementClass::None => "none",
+            RetracementClass::ShallowPullback => "shallow",
+            RetracementClass::NormalPullback => "pullback",
+            RetracementClass::DeepPullback => "deep",
+            RetracementClass::Reversal => "reversal",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FibonacciLevels {
+    pub active: bool,
+    pub swing_high: f64,
+    pub swing_low: f64,
+    pub is_upswing: bool,
+    pub level_236: f64,
+    pub level_382: f64,
+    pub level_500: f64,
+    pub level_618: f64,
+    pub level_786: f64,
+    /// Where current price sits as retracement ratio (0.0 = no retrace, 1.0 = full retrace)
+    pub current_retracement: f64,
+    pub retracement_class: RetracementClass,
+    /// Price proximity to nearest fib level (in pips)
+    pub nearest_fib_pips: f64,
+    pub nearest_fib_name: &'static str,
+}
+
+impl FibonacciLevels {
+    /// Calculate fib levels from the most recent swing high and low.
+    /// `current_price` is the latest close or forming close.
+    pub fn calculate(swings: &SwingAnalysis, current_price: f64) -> Self {
+        let (sh, sl) = match (swings.last_swing_high, swings.last_swing_low) {
+            (Some(h), Some(l)) if (h - l).abs() > 0.0003 => (h, l), // need at least 3 pips range
+            _ => return Self::default(),
+        };
+
+        let range = sh - sl;
+
+        // Determine if we're measuring from an upswing or downswing
+        // by checking which swing point is more recent
+        let last_high_idx = swings.swing_highs.last().map(|s| s.index).unwrap_or(0);
+        let last_low_idx = swings.swing_lows.last().map(|s| s.index).unwrap_or(0);
+        let is_upswing = last_high_idx > last_low_idx; // most recent swing is a high
+
+        // Fib retracement levels
+        let (l236, l382, l500, l618, l786) = if is_upswing {
+            // Retracing down from high
+            (sh - range * 0.236, sh - range * 0.382, sh - range * 0.5,
+             sh - range * 0.618, sh - range * 0.786)
+        } else {
+            // Retracing up from low
+            (sl + range * 0.236, sl + range * 0.382, sl + range * 0.5,
+             sl + range * 0.618, sl + range * 0.786)
+        };
+
+        // Current retracement ratio
+        let retrace = if is_upswing {
+            if range > 0.0 { (sh - current_price) / range } else { 0.0 }
+        } else {
+            if range > 0.0 { (current_price - sl) / range } else { 0.0 }
+        };
+        let retrace_clamped = retrace.max(0.0);
+
+        let class = if retrace_clamped < 0.0 || retrace_clamped > 1.5 {
+            RetracementClass::None
+        } else if retrace_clamped < 0.382 {
+            RetracementClass::ShallowPullback
+        } else if retrace_clamped < 0.618 {
+            RetracementClass::NormalPullback
+        } else if retrace_clamped < 0.786 {
+            RetracementClass::DeepPullback
+        } else {
+            RetracementClass::Reversal
+        };
+
+        // Find nearest fib level
+        let fib_levels = [
+            (l236, "23.6%"), (l382, "38.2%"), (l500, "50.0%"),
+            (l618, "61.8%"), (l786, "78.6%"),
+        ];
+        let (nearest_dist, nearest_name) = fib_levels.iter()
+            .map(|(lvl, name)| (((current_price - lvl) * 10000.0).abs(), *name))
+            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or((999.0, "none"));
+
+        Self {
+            active: true,
+            swing_high: sh,
+            swing_low: sl,
+            is_upswing,
+            level_236: l236,
+            level_382: l382,
+            level_500: l500,
+            level_618: l618,
+            level_786: l786,
+            current_retracement: retrace_clamped,
+            retracement_class: class,
+            nearest_fib_pips: nearest_dist,
+            nearest_fib_name: nearest_name,
+        }
+    }
+
+    pub fn summary(&self) -> String {
+        if !self.active { return "Fib:inactive".to_string(); }
+        let dir = if self.is_upswing { "up" } else { "dn" };
+        format!("Fib({}): {:.0}% {} @{:.1}p from {}",
+            dir, self.current_retracement * 100.0,
+            self.retracement_class.label(),
+            self.nearest_fib_pips, self.nearest_fib_name)
+    }
+
+    pub fn to_prompt_section(&self, tf_name: &str) -> String {
+        if !self.active { return String::new(); }
+        let dir = if self.is_upswing { "upswing" } else { "downswing" };
+        format!(
+            "  FIBONACCI ({} {:.5}→{:.5}): 23.6%={:.5} 38.2%={:.5} 50%={:.5} 61.8%={:.5} 78.6%={:.5}\n    Current retracement: {:.0}% ({}) | nearest fib: {} ({:.1}p away)",
+            dir, self.swing_low, self.swing_high,
+            self.level_236, self.level_382, self.level_500, self.level_618, self.level_786,
+            self.current_retracement * 100.0, self.retracement_class.label(),
+            self.nearest_fib_name, self.nearest_fib_pips
+        )
+    }
+}
+
+// ── Chart Pattern Detection ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ChartPatternType {
+    AscendingChannel,
+    DescendingChannel,
+    HorizontalChannel,
+    AscendingTriangle,
+    DescendingTriangle,
+    SymmetricTriangle,
+    RisingWedge,
+    FallingWedge,
+}
+
+impl ChartPatternType {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ChartPatternType::AscendingChannel => "AscChannel",
+            ChartPatternType::DescendingChannel => "DescChannel",
+            ChartPatternType::HorizontalChannel => "HorizChannel",
+            ChartPatternType::AscendingTriangle => "AscTriangle",
+            ChartPatternType::DescendingTriangle => "DescTriangle",
+            ChartPatternType::SymmetricTriangle => "SymTriangle",
+            ChartPatternType::RisingWedge => "RisingWedge",
+            ChartPatternType::FallingWedge => "FallingWedge",
+        }
+    }
+
+    /// Expected breakout direction: 1=up, -1=down
+    pub fn breakout_bias(&self) -> i32 {
+        match self {
+            ChartPatternType::AscendingChannel => 1,
+            ChartPatternType::DescendingChannel => -1,
+            ChartPatternType::HorizontalChannel => 0,
+            ChartPatternType::AscendingTriangle => 1,
+            ChartPatternType::DescendingTriangle => -1,
+            ChartPatternType::SymmetricTriangle => 0,
+            ChartPatternType::RisingWedge => -1,   // wedges break opposite
+            ChartPatternType::FallingWedge => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ChartPattern {
+    pub pattern_type: ChartPatternType,
+    pub confidence: f64,
+    pub upper_slope: f64,   // pips per bar
+    pub lower_slope: f64,   // pips per bar
+    pub upper_at_current: f64,  // projected upper trendline at last bar
+    pub lower_at_current: f64,  // projected lower trendline at last bar
+}
+
+/// Chart pattern analysis result.
+#[derive(Debug, Clone, Default)]
+pub struct ChartPatternAnalysis {
+    pub detected: Option<ChartPattern>,
+}
+
+impl ChartPatternAnalysis {
+    /// Detect chart patterns from swing points using linear regression on swing highs/lows.
+    pub fn detect(swings: &SwingAnalysis) -> Self {
+        if swings.swing_highs.len() < 2 || swings.swing_lows.len() < 2 {
+            return Self::default();
+        }
+
+        // Linear regression on swing highs (upper trendline)
+        let (upper_slope, upper_intercept, upper_r2) = Self::linear_regression(
+            &swings.swing_highs.iter().map(|s| (s.index as f64, s.price)).collect::<Vec<_>>()
+        );
+        // Linear regression on swing lows (lower trendline)
+        let (lower_slope, lower_intercept, lower_r2) = Self::linear_regression(
+            &swings.swing_lows.iter().map(|s| (s.index as f64, s.price)).collect::<Vec<_>>()
+        );
+
+        // Convert slopes to pips/bar
+        let upper_pips = upper_slope * 10000.0;
+        let lower_pips = lower_slope * 10000.0;
+
+        // Confidence based on R-squared (need at least 3 points for meaningful R2)
+        let min_points = swings.swing_highs.len().min(swings.swing_lows.len());
+        let base_confidence = if min_points >= 3 {
+            (upper_r2 + lower_r2) / 2.0
+        } else {
+            // With only 2 points R2=1.0 always, so discount
+            0.5
+        };
+
+        // Classify pattern based on slopes
+        let flat_threshold = 0.5; // pips/bar — slopes smaller than this are "flat"
+        let parallel_threshold = 0.8; // slopes within this range are "parallel"
+
+        let upper_flat = upper_pips.abs() < flat_threshold;
+        let lower_flat = lower_pips.abs() < flat_threshold;
+        let both_up = upper_pips > flat_threshold && lower_pips > flat_threshold;
+        let both_down = upper_pips < -flat_threshold && lower_pips < -flat_threshold;
+        let slopes_converge = upper_pips < lower_pips; // upper coming down or lower going up relative
+
+        let pattern_type = if upper_flat && lower_flat {
+            Some(ChartPatternType::HorizontalChannel)
+        } else if upper_flat && lower_pips > flat_threshold {
+            Some(ChartPatternType::AscendingTriangle)
+        } else if lower_flat && upper_pips < -flat_threshold {
+            Some(ChartPatternType::DescendingTriangle)
+        } else if both_up && (upper_pips - lower_pips).abs() < parallel_threshold {
+            Some(ChartPatternType::AscendingChannel)
+        } else if both_down && (upper_pips - lower_pips).abs() < parallel_threshold {
+            Some(ChartPatternType::DescendingChannel)
+        } else if both_up && upper_pips < lower_pips {
+            Some(ChartPatternType::RisingWedge) // converging upward
+        } else if both_down && upper_pips > lower_pips {
+            Some(ChartPatternType::FallingWedge) // converging downward
+        } else if slopes_converge && upper_pips < 0.0 && lower_pips > 0.0 {
+            Some(ChartPatternType::SymmetricTriangle)
+        } else {
+            None
+        };
+
+        let detected = pattern_type.map(|pt| {
+            // Project trendlines to the last known index
+            let last_idx = swings.swing_highs.last().unwrap().index
+                .max(swings.swing_lows.last().unwrap().index) as f64;
+            ChartPattern {
+                pattern_type: pt,
+                confidence: base_confidence.max(0.0).min(1.0),
+                upper_slope: upper_pips,
+                lower_slope: lower_pips,
+                upper_at_current: upper_intercept + upper_slope * last_idx,
+                lower_at_current: lower_intercept + lower_slope * last_idx,
+            }
+        });
+
+        // Filter low confidence
+        let detected = detected.filter(|p| p.confidence >= 0.4);
+
+        Self { detected }
+    }
+
+    /// Simple least-squares linear regression.
+    /// Returns (slope, intercept, r_squared).
+    fn linear_regression(points: &[(f64, f64)]) -> (f64, f64, f64) {
+        let n = points.len() as f64;
+        if n < 2.0 { return (0.0, 0.0, 0.0); }
+
+        let sum_x: f64 = points.iter().map(|p| p.0).sum();
+        let sum_y: f64 = points.iter().map(|p| p.1).sum();
+        let sum_xy: f64 = points.iter().map(|p| p.0 * p.1).sum();
+        let sum_x2: f64 = points.iter().map(|p| p.0 * p.0).sum();
+        let sum_y2: f64 = points.iter().map(|p| p.1 * p.1).sum();
+
+        let denom = n * sum_x2 - sum_x * sum_x;
+        if denom.abs() < 1e-15 { return (0.0, sum_y / n, 0.0); }
+
+        let slope = (n * sum_xy - sum_x * sum_y) / denom;
+        let intercept = (sum_y - slope * sum_x) / n;
+
+        // R-squared
+        let ss_tot = sum_y2 - sum_y * sum_y / n;
+        let ss_res: f64 = points.iter()
+            .map(|p| { let pred = intercept + slope * p.0; (p.1 - pred).powi(2) })
+            .sum();
+        let r2 = if ss_tot > 1e-15 { 1.0 - ss_res / ss_tot } else { 1.0 };
+
+        (slope, intercept, r2.max(0.0))
+    }
+
+    pub fn summary(&self) -> String {
+        match &self.detected {
+            Some(p) => format!("{}({:.0}%)", p.pattern_type.label(), p.confidence * 100.0),
+            None => "NoPat".to_string(),
+        }
+    }
+
+    pub fn to_prompt_section(&self) -> String {
+        match &self.detected {
+            Some(p) => format!(
+                "  CHART PATTERN: {} (conf={:.0}%) upper_slope={:+.1}p/bar lower_slope={:+.1}p/bar breakout_bias={}",
+                p.pattern_type.label(), p.confidence * 100.0,
+                p.upper_slope, p.lower_slope,
+                match p.pattern_type.breakout_bias() { 1 => "UP", -1 => "DOWN", _ => "NEUTRAL" }
+            ),
+            None => String::new(),
+        }
+    }
+}
+
 // ── Timeframe state ──────────────────────────────────────────────────────────
 
 /// State for one timeframe: completed bar stream + forming candle + detected patterns.
@@ -538,6 +1021,12 @@ pub struct TimeframeState {
     pub m1_inside: Vec<OhlcCandle>,
     /// Last completed bar timestamp (to detect new bar close).
     pub last_bar_ts: i64,
+    /// Swing point analysis from completed bars.
+    pub swing_analysis: SwingAnalysis,
+    /// Fibonacci retracement levels from swing points.
+    pub fib_levels: FibonacciLevels,
+    /// Chart pattern detection (channels, triangles, wedges).
+    pub chart_pattern: ChartPatternAnalysis,
 }
 
 impl TimeframeState {
@@ -553,6 +1042,9 @@ impl TimeframeState {
             forming_patterns: SinglePatterns::default(),
             m1_inside: Vec::with_capacity(period_minutes as usize + 1),
             last_bar_ts: 0,
+            swing_analysis: SwingAnalysis::default(),
+            fib_levels: FibonacciLevels::default(),
+            chart_pattern: ChartPatternAnalysis::default(),
         }
     }
 
@@ -577,6 +1069,12 @@ impl TimeframeState {
         // CandleStream borrows, so we rebuild each time
         self.last_multi = self.detect_multi_patterns();
 
+        // Swing / Fibonacci / Chart pattern detection
+        let min_pips = if self.period_minutes >= 15 { 5.0 } else { 3.0 };
+        self.swing_analysis = SwingAnalysis::detect(&self.completed, min_pips);
+        self.fib_levels = FibonacciLevels::calculate(&self.swing_analysis, candle.close);
+        self.chart_pattern = ChartPatternAnalysis::detect(&self.swing_analysis);
+
         // Reset forming candle for next period
         self.forming = FormingCandle::new(self.period_minutes);
         self.m1_inside.clear();
@@ -592,6 +1090,11 @@ impl TimeframeState {
         if self.forming.is_active() && self.forming.range_pips() > 0.5 {
             let ohlc = self.forming.as_ohlc();
             self.forming_patterns = SinglePatterns::detect(&ohlc);
+        }
+
+        // Update fib retracement with current price
+        if self.swing_analysis.last_swing_high.is_some() {
+            self.fib_levels = FibonacciLevels::calculate(&self.swing_analysis, close);
         }
     }
 
@@ -613,6 +1116,49 @@ impl TimeframeState {
             stream.push(candle);
         }
         MultiPatterns::detect(&stream)
+    }
+
+    /// How strong is the last completed pattern relative to recent candle sizes?
+    /// Returns (bull_strength, bear_strength) each 0-3:
+    ///   0 = no pattern, 1 = normal, 2 = strong (big candle), 3 = very strong (huge + reversal)
+    pub fn pattern_strength(&self) -> (i32, i32) {
+        if self.completed.len() < 3 { return (0, 0); }
+
+        let last = self.completed.last().unwrap();
+        let last_range = last.high - last.low;
+
+        // Average range of previous bars (excluding last)
+        let prev_bars = &self.completed[self.completed.len().saturating_sub(6)..self.completed.len() - 1];
+        let avg_range = prev_bars.iter().map(|c| c.high - c.low).sum::<f64>() / prev_bars.len().max(1) as f64;
+
+        let size_ratio = if avg_range > 0.0 { last_range / avg_range } else { 1.0 };
+
+        let mut bull = 0i32;
+        let mut bear = 0i32;
+
+        // Single-candle pattern strength
+        if self.last_single.is_bullish_reversal() {
+            bull = if size_ratio > 2.5 { 3 } else if size_ratio > 1.5 { 2 } else { 1 };
+        }
+        if self.last_single.is_bearish_reversal() {
+            bear = if size_ratio > 2.5 { 3 } else if size_ratio > 1.5 { 2 } else { 1 };
+        }
+
+        // Multi-candle patterns are inherently stronger
+        if self.last_multi.is_bullish_signal() {
+            let base = if size_ratio > 2.0 { 3 } else if size_ratio > 1.3 { 2 } else { 1 };
+            bull = bull.max(base);
+        }
+        if self.last_multi.is_bearish_signal() {
+            let base = if size_ratio > 2.0 { 3 } else if size_ratio > 1.3 { 2 } else { 1 };
+            bear = bear.max(base);
+        }
+
+        // Marubozu (full body, no wicks) = strong conviction regardless of size
+        if self.last_single.is_bullish_marubozu && size_ratio > 1.2 { bull = bull.max(2); }
+        if self.last_single.is_bearish_marubozu && size_ratio > 1.2 { bear = bear.max(2); }
+
+        (bull, bear)
     }
 
     /// Analyze internal M1 structure of the forming candle.
@@ -641,18 +1187,57 @@ impl TimeframeState {
     pub fn status_line(&self) -> String {
         let forming_str = if self.forming.is_active() {
             let pct = (self.forming.completion_pct() * 100.0) as u32;
-            let fp = self.forming_patterns.summary();
-            format!("Forming({}%): {}", pct, fp)
+            if pct < 20 || self.forming.range_pips() < 1.0 {
+                format!("Forming({}%) ...", pct)
+            } else {
+                let fp = self.forming_patterns.summary();
+                format!("Forming({}%): {}", pct, fp)
+            }
         } else {
             "Waiting...".to_string()
         };
 
-        let completed_str = format!("Last: {} | Multi: {}",
-            self.last_single.summary(),
-            self.last_multi.summary()
-        );
+        // Trend summary from completed bars (last 5)
+        let trend_str = if self.completed.len() >= 3 {
+            let last5 = &self.completed[self.completed.len().saturating_sub(5)..];
+            let bull_count = last5.iter().filter(|c| c.close > c.open).count();
+            let bear_count = last5.len() - bull_count;
+            let net_move = last5.last().unwrap().close - last5.first().unwrap().open;
+            let net_pips = net_move * 10000.0;
+            let dir = if bull_count >= 4 { "UP" }
+                else if bear_count >= 4 { "DOWN" }
+                else if bull_count >= 3 { "up" }
+                else if bear_count >= 3 { "dn" }
+                else { "mix" };
+            format!("{}({}/{}) {:+.0}p", dir, bull_count, last5.len(), net_pips)
+        } else {
+            "...".to_string()
+        };
 
-        format!("{}: {} | {}", self.name, forming_str, completed_str)
+        // Pattern strength (size-weighted)
+        let (ps_bull, ps_bear) = self.pattern_strength();
+        let strength_str = if ps_bull >= 3 || ps_bear >= 3 { "STRONG" }
+            else if ps_bull >= 2 || ps_bear >= 2 { "solid" }
+            else if ps_bull >= 1 || ps_bear >= 1 { "weak" }
+            else { "" };
+
+        let multi_str = self.last_multi.summary();
+        let multi_part = if multi_str == "None" { String::new() } else { format!(" | Multi: {}", multi_str) };
+        let strength_part = if strength_str.is_empty() { String::new() } else { format!(" ({})", strength_str) };
+
+        // Swing / Fib / Chart pattern
+        let swing_str = self.swing_analysis.summary();
+        let fib_str = self.fib_levels.summary();
+        let chart_str = self.chart_pattern.summary();
+        let structure_part = if self.swing_analysis.swing_highs.is_empty() {
+            String::new()
+        } else {
+            format!("\n  {} | {} | {}", swing_str, fib_str, chart_str)
+        };
+
+        format!("{}: {} | Trend: {} | Last: {}{}{}{}",
+            self.name, forming_str, trend_str,
+            self.last_single.summary(), strength_part, multi_part, structure_part)
     }
 }
 
@@ -662,8 +1247,6 @@ impl TimeframeState {
 pub struct PatternEngine {
     pub m5: TimeframeState,
     pub m15: TimeframeState,
-    pub h1: TimeframeState,
-    pub h4: TimeframeState,
     /// Latest M1 candle data (for entry timing).
     pub last_m1: Option<OhlcCandle>,
     /// Last 20 M1 candles (for momentum micro-read and Claude prompt).
@@ -677,8 +1260,6 @@ impl PatternEngine {
         Self {
             m5: TimeframeState::new("M5", 5),
             m15: TimeframeState::new("M15", 15),
-            h1: TimeframeState::new("H1", 60),
-            h4: TimeframeState::new("H4", 240),
             last_m1: None,
             m1_recent: Vec::with_capacity(22),
             dom: DomSnapshot::default(),
@@ -712,8 +1293,6 @@ impl PatternEngine {
         match period_minutes {
             5 => { self.m5.push_completed(candle); }
             15 => { self.m15.push_completed(candle); }
-            60 => { self.h1.push_completed(candle); }
-            240 => { self.h4.push_completed(candle); }
             _ => {}
         }
     }
@@ -723,8 +1302,6 @@ impl PatternEngine {
         match period_minutes {
             5 => self.m5.update_forming(open, high, low, close, volume, timestamp),
             15 => self.m15.update_forming(open, high, low, close, volume, timestamp),
-            60 => self.h1.update_forming(open, high, low, close, volume, timestamp),
-            240 => self.h4.update_forming(open, high, low, close, volume, timestamp),
             _ => {}
         }
     }
@@ -745,6 +1322,62 @@ impl PatternEngine {
         (momentum, higher_lows, lower_highs)
     }
 
+    /// Analyze completed bars across all timeframes for trend context.
+    /// Returns (bull_score, bear_score) where each is 0-4+.
+    /// Checks: consecutive direction, large candle moves, net close-vs-open across bars.
+    fn completed_bar_trend(&self) -> (i32, i32) {
+        let mut bull = 0i32;
+        let mut bear = 0i32;
+
+        for tf in [&self.m15, &self.m5] {
+            if tf.completed.len() < 3 { continue; }
+            let bars = &tf.completed;
+            let last5 = &bars[bars.len().saturating_sub(5)..];
+
+            // Count bullish vs bearish bars in window (majority vote)
+            let bull_bars = last5.iter().filter(|c| c.close > c.open).count();
+            let bear_bars = last5.len() - bull_bars;
+            // 4+ out of 5 bars in same direction = strong signal
+            if bull_bars >= 4 { bull += 1; }
+            if bear_bars >= 4 { bear += 1; }
+
+            // Count consecutive bullish/bearish from most recent
+            let mut consec_bull = 0u32;
+            let mut consec_bear = 0u32;
+            for c in last5.iter().rev() {
+                if c.close > c.open { consec_bull += 1; } else { break; }
+            }
+            for c in last5.iter().rev() {
+                if c.close < c.open { consec_bear += 1; } else { break; }
+            }
+            if consec_bull >= 3 { bull += 1; }
+            if consec_bear >= 3 { bear += 1; }
+
+            // Large candle detection: any bar in last 3 with range > 2x average
+            if last5.len() >= 3 {
+                let avg_range: f64 = last5.iter()
+                    .map(|c| c.high - c.low)
+                    .sum::<f64>() / last5.len() as f64;
+                for c in last5.iter().rev().take(3) {
+                    let r = c.high - c.low;
+                    if r > avg_range * 2.0 && avg_range > 0.0 {
+                        if c.close > c.open { bull += 1; } else { bear += 1; }
+                        break; // count once per TF
+                    }
+                }
+            }
+
+            // Net movement: close of last bar vs open of first bar in window
+            let net_move = last5.last().unwrap().close - last5.first().unwrap().open;
+            let total_range: f64 = last5.iter().map(|c| c.high - c.low).sum::<f64>();
+            if total_range > 0.0 && net_move.abs() > total_range * 0.3 {
+                if net_move > 0.0 { bull += 1; } else { bear += 1; }
+            }
+        }
+
+        (bull, bear)
+    }
+
     /// Helper: check forming pattern with completion-based confidence.
     /// Returns (is_bull_reversal, is_bear_reversal) only if completion >= min_pct.
     fn forming_signal(tf: &TimeframeState, min_pct: f64) -> (bool, bool) {
@@ -763,73 +1396,34 @@ impl PatternEngine {
         let mut bull_signals = 0i32;
         let mut bear_signals = 0i32;
 
-        // ── H4 CONTEXT (0-2) ────────────────────────────────────────
+        // ── M15 PATTERNS (0-4) — size-weighted ────────────────────
+        {
+            let (m15_bull, m15_bear) = self.m15.pattern_strength();
+            if m15_bull > 0 { bull_signals += 1; score += m15_bull; }
+            if m15_bear > 0 { bear_signals += 1; score += m15_bear; }
 
-        // H4 completed bar trend
-        if self.h4.last_single.is_bullish { bull_signals += 1; score += 1; }
-        else if self.h4.last_single.is_bearish { bear_signals += 1; score += 1; }
-
-        // H4 multi-candle pattern (3BlackCrows, 3WhiteSoldiers, etc.)
-        if self.h4.last_multi.is_bullish_signal() { bull_signals += 1; score += 1; }
-        else if self.h4.last_multi.is_bearish_signal() { bear_signals += 1; score += 1; }
-
-        // H4 forming pattern (only if >40% complete)
-        let (h4_fb, h4_fr) = Self::forming_signal(&self.h4, 0.4);
-        if h4_fb { bull_signals += 1; score += 1; }
-        else if h4_fr { bear_signals += 1; score += 1; }
-
-        // ── H1 PATTERNS (0-3) ───────────────────────────────────────
-
-        // H1 completed reversal pattern
-        if self.h1.last_single.is_bullish_reversal() { bull_signals += 1; score += 1; }
-        else if self.h1.last_single.is_bearish_reversal() { bear_signals += 1; score += 1; }
-
-        // H1 multi-candle pattern
-        if self.h1.last_multi.is_bullish_signal() { bull_signals += 1; score += 1; }
-        else if self.h1.last_multi.is_bearish_signal() { bear_signals += 1; score += 1; }
-
-        // H1 forming pattern (>50% = +1, >75% = +1 extra)
-        let (h1_fb, h1_fr) = Self::forming_signal(&self.h1, 0.5);
-        if h1_fb { bull_signals += 1; score += 1; }
-        else if h1_fr { bear_signals += 1; score += 1; }
-        if self.h1.forming.completion_pct() > 0.75 {
-            let (h1_fb75, h1_fr75) = Self::forming_signal(&self.h1, 0.75);
-            if h1_fb75 { score += 1; } // bonus for high-confidence forming
-            else if h1_fr75 { score += 1; }
+            // M15 forming pattern (>50% = counted, >70% = bonus)
+            let (m15_fb, m15_fr) = Self::forming_signal(&self.m15, 0.5);
+            if m15_fb { bull_signals += 1; score += 1; }
+            else if m15_fr { bear_signals += 1; score += 1; }
+            if self.m15.forming.completion_pct() > 0.7 {
+                let (m15_fb70, m15_fr70) = Self::forming_signal(&self.m15, 0.7);
+                if m15_fb70 { score += 1; }
+                else if m15_fr70 { score += 1; }
+            }
         }
 
-        // ── M15 PATTERNS (0-3) ──────────────────────────────────────
+        // ── M5 PATTERNS (0-4) — size-weighted ─────────────────────
+        {
+            let (m5_bull, m5_bear) = self.m5.pattern_strength();
+            if m5_bull > 0 { bull_signals += 1; score += m5_bull; }
+            if m5_bear > 0 { bear_signals += 1; score += m5_bear; }
 
-        // M15 completed reversal or multi-candle
-        if self.m15.last_single.is_bullish_reversal() || self.m15.last_multi.is_bullish_signal() {
-            bull_signals += 1; score += 1;
-        } else if self.m15.last_single.is_bearish_reversal() || self.m15.last_multi.is_bearish_signal() {
-            bear_signals += 1; score += 1;
+            // M5 forming pattern (>60% = counted)
+            let (m5_fb, m5_fr) = Self::forming_signal(&self.m5, 0.6);
+            if m5_fb { bull_signals += 1; score += 1; }
+            else if m5_fr { bear_signals += 1; score += 1; }
         }
-
-        // M15 forming pattern (>50% = counted, >70% = bonus)
-        let (m15_fb, m15_fr) = Self::forming_signal(&self.m15, 0.5);
-        if m15_fb { bull_signals += 1; score += 1; }
-        else if m15_fr { bear_signals += 1; score += 1; }
-        if self.m15.forming.completion_pct() > 0.7 {
-            let (m15_fb70, m15_fr70) = Self::forming_signal(&self.m15, 0.7);
-            if m15_fb70 { score += 1; }
-            else if m15_fr70 { score += 1; }
-        }
-
-        // ── M5 PATTERNS (0-2) ───────────────────────────────────────
-
-        // M5 completed reversal or multi-candle
-        if self.m5.last_single.is_bullish_reversal() || self.m5.last_multi.is_bullish_signal() {
-            bull_signals += 1; score += 1;
-        } else if self.m5.last_single.is_bearish_reversal() || self.m5.last_multi.is_bearish_signal() {
-            bear_signals += 1; score += 1;
-        }
-
-        // M5 forming pattern (>60% = counted)
-        let (m5_fb, m5_fr) = Self::forming_signal(&self.m5, 0.6);
-        if m5_fb { bull_signals += 1; score += 1; }
-        else if m5_fr { bear_signals += 1; score += 1; }
 
         // ── SESSION (0-2) ────────────────────────────────────────────
 
@@ -840,49 +1434,100 @@ impl PatternEngine {
             score += 1; // London/NY overlap
         }
 
-        // ── DOM CONFIRMATION (−3 to +3) ─────────────────────────────
-        // PDF framework: DOM contradicts = BLOCK (-3), DOM confirms = +1 to +3
+        // ── DOM PRICE LEVEL STRUCTURE (−2 to +2) ─────────────────────
+        // Retail DoM has mirrored volumes (OBI always 0), so we analyze:
+        //   - Level density near price (more levels = more support)
+        //   - Gaps in the book (price can move fast through gaps)
+        //   - Level count changes (thinning = volatility incoming)
         if self.dom.active {
-            let dom_dir = if self.dom.obi > 0.2 { 1 } // buy pressure
-                else if self.dom.obi < -0.2 { -1 }     // sell pressure
-                else { 0 };                              // balanced
+            // Density imbalance: more bid levels near price = support, ask = resistance
+            let pattern_dir = if bull_signals > bear_signals { 1i32 }
+                else if bear_signals > bull_signals { -1 }
+                else { 0 };
 
-            if dom_dir != 0 {
-                let pattern_dir = if bull_signals > bear_signals { 1 }
-                    else if bear_signals > bull_signals { -1 }
-                    else { 0 };
-
-                if dom_dir == pattern_dir {
-                    // DOM confirms pattern direction
-                    score += 1;
-                    if self.dom.obi.abs() > 0.4 { score += 1; } // strong OBI
-                    if dom_dir > 0 { bull_signals += 1; } else { bear_signals += 1; }
-                } else if pattern_dir != 0 {
-                    // DOM CONTRADICTS pattern — trap warning
-                    score -= 3;
-                }
+            if self.dom.density_imbalance > 0.3 && pattern_dir > 0 {
+                score += 1; // more bid density confirms bullish
+            } else if self.dom.density_imbalance < -0.3 && pattern_dir < 0 {
+                score += 1; // more ask density confirms bearish
+            } else if self.dom.density_imbalance > 0.3 && pattern_dir < 0 {
+                score -= 1; // bid density contradicts bearish
+            } else if self.dom.density_imbalance < -0.3 && pattern_dir > 0 {
+                score -= 1; // ask density contradicts bullish
             }
 
-            // OBI trend confirms direction (pressure building)
-            if self.dom.obi_trend > 0.1 && bull_signals > bear_signals { score += 1; }
-            else if self.dom.obi_trend < -0.1 && bear_signals > bull_signals { score += 1; }
+            // Levels thinning = low liquidity, risky
+            if self.dom.levels_dropping { score -= 1; }
 
-            // OBI flipped = pressure reversal, reduce conviction
-            if self.dom.obi_flipped { score -= 1; }
+            // Large gaps on the side we're trading toward = price could accelerate
+            if pattern_dir > 0 && !self.dom.ask_gaps.is_empty() {
+                if self.dom.ask_gaps[0].gap_pips > 10.0 { score += 1; } // gap above = room to run up
+            } else if pattern_dir < 0 && !self.dom.bid_gaps.is_empty() {
+                if self.dom.bid_gaps[0].gap_pips > 10.0 { score += 1; } // gap below = room to run down
+            }
+        }
 
-            // Spread analysis
-            if self.dom.spread_pips > 2.0 { score -= 1; }        // wide spread
-            if self.dom.spread_spike { score -= 2; }              // spread spike = danger
-            if self.dom.spread_trend < -0.2 { score += 1; }      // tightening = good
+        // ── SWING / FIBONACCI / CHART PATTERN (−2 to +4) ────────────
+        // Swing structure: trend direction from higher-highs/higher-lows
+        // Fibonacci: pullback depth classification
+        // Chart patterns: channels, triangles, wedges with breakout bias
 
-            // Volume surge = institutional activity
-            if self.dom.volume_surge { score += 1; }
+        // M15 swing trend alignment
+        if self.m15.swing_analysis.trend_direction == 1 {
+            bull_signals += 1; score += 1;
+        } else if self.m15.swing_analysis.trend_direction == -1 {
+            bear_signals += 1; score += 1;
+        }
+        // M5 swing trend alignment (lighter weight)
+        if self.m5.swing_analysis.trend_direction == 1 { bull_signals += 1; }
+        else if self.m5.swing_analysis.trend_direction == -1 { bear_signals += 1; }
 
-            // Bid/ask pulling = someone stepping away
-            if self.dom.bid_pulling && bear_signals > bull_signals { score += 1; } // bids pulling confirms short
-            else if self.dom.ask_pulling && bull_signals > bear_signals { score += 1; } // asks pulling confirms long
-            if self.dom.bid_pulling && bull_signals > bear_signals { score -= 1; } // bids pulling contradicts long
-            else if self.dom.ask_pulling && bear_signals > bull_signals { score -= 1; } // asks pulling contradicts short
+        // Fibonacci retracement — ideal pullback entry or reversal warning
+        // Use M15 as primary, M5 as secondary
+        for (tf, weight) in [(&self.m15, 2i32), (&self.m5, 1i32)] {
+            if !tf.fib_levels.active { continue; }
+            let near_fib = tf.fib_levels.nearest_fib_pips < 3.0; // within 3 pips of a fib level
+            match tf.fib_levels.retracement_class {
+                RetracementClass::NormalPullback if near_fib => {
+                    // Price at 38.2-61.8% retracement near fib level = ideal pullback entry
+                    if tf.swing_analysis.trend_direction == 1 {
+                        bull_signals += 1; score += weight;
+                    } else if tf.swing_analysis.trend_direction == -1 {
+                        bear_signals += 1; score += weight;
+                    }
+                }
+                RetracementClass::DeepPullback => {
+                    // Trend weakening — discount trend-following by 1
+                    if tf.swing_analysis.trend_direction == 1 && bull_signals > 0 {
+                        score -= 1;
+                    } else if tf.swing_analysis.trend_direction == -1 && bear_signals > 0 {
+                        score -= 1;
+                    }
+                }
+                RetracementClass::Reversal => {
+                    // Trend likely broken — flip bias
+                    if tf.swing_analysis.trend_direction == 1 {
+                        bear_signals += 1; score += 1;
+                        if bull_signals > 0 { bull_signals -= 1; score -= 1; }
+                    } else if tf.swing_analysis.trend_direction == -1 {
+                        bull_signals += 1; score += 1;
+                        if bear_signals > 0 { bear_signals -= 1; score -= 1; }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Chart pattern breakout bias
+        if let Some(ref pat) = self.m15.chart_pattern.detected {
+            let bias = pat.pattern_type.breakout_bias();
+            let pts = if pat.confidence > 0.7 { 2 } else { 1 };
+            if bias > 0 { bull_signals += 1; score += pts; }
+            else if bias < 0 { bear_signals += 1; score += pts; }
+        }
+        if let Some(ref pat) = self.m5.chart_pattern.detected {
+            let bias = pat.pattern_type.breakout_bias();
+            if bias > 0 { bull_signals += 1; }
+            else if bias < 0 { bear_signals += 1; }
         }
 
         // ── M1 MOMENTUM (0-3) ───────────────────────────────────────
@@ -897,6 +1542,40 @@ impl PatternEngine {
         // Strong M1 confirmation: momentum + structure aligned with higher TF direction
         if momentum == 3 && higher_lows && bull_signals > bear_signals { score += 1; }
         else if momentum == -3 && lower_highs && bear_signals > bull_signals { score += 1; }
+
+        // ── COMPLETED BAR TREND CONTEXT (−2 to +4) ────────────────
+        // Prevents false reversal signals after strong directional moves.
+        // Looks at the last 5 completed bars on each timeframe for:
+        //   - Consecutive bullish/bearish bars (trend strength)
+        //   - Large candles (strong momentum)
+        //   - Net direction across all timeframes
+
+        let (trend_bull, trend_bear) = self.completed_bar_trend();
+
+        // Strong trend should dominate over single-candle reversal patterns.
+        // A single red candle in a strong uptrend shouldn't flip signal to SHORT.
+        if trend_bull >= 4 {
+            bull_signals += 3; score += 3;
+            // Discount opposing signals heavily (likely noise/pullback)
+            let discount = bear_signals.min(2);
+            bear_signals -= discount; score -= discount;
+        } else if trend_bull >= 3 {
+            bull_signals += 2; score += 2;
+            if bear_signals > 0 { bear_signals -= 1; score -= 1; }
+        } else if trend_bull >= 2 {
+            bull_signals += 1; score += 1;
+        }
+
+        if trend_bear >= 4 {
+            bear_signals += 3; score += 3;
+            let discount = bull_signals.min(2);
+            bull_signals -= discount; score -= discount;
+        } else if trend_bear >= 3 {
+            bear_signals += 2; score += 2;
+            if bull_signals > 0 { bull_signals -= 1; score -= 1; }
+        } else if trend_bear >= 2 {
+            bear_signals += 1; score += 1;
+        }
 
         // ── DETERMINE DIRECTION ──────────────────────────────────────
 
@@ -920,19 +1599,21 @@ impl PatternEngine {
     pub fn status_display(&self) -> Vec<String> {
         let mut lines = Vec::new();
 
-        lines.push(self.h4.status_line());
-        lines.push(self.h1.status_line());
         lines.push(self.m15.status_line());
         lines.push(self.m5.status_line());
 
         // DoM
         lines.push(self.dom.status_line());
 
-        // M1 momentum
-        let (momentum, hl, lh) = self.m1_momentum();
-        let m1_str = format!("M1: momentum={} higher_lows={} lower_highs={}",
-            momentum, hl, lh);
-        lines.push(m1_str);
+        // Trend context from completed bars
+        let (trend_bull, trend_bear) = self.completed_bar_trend();
+        let trend_str = if trend_bull > trend_bear && trend_bull >= 2 { format!("BULL({})", trend_bull) }
+            else if trend_bear > trend_bull && trend_bear >= 2 { format!("BEAR({})", trend_bear) }
+            else if trend_bull > 0 || trend_bear > 0 { format!("mixed(b{}:s{})", trend_bull, trend_bear) }
+            else { "flat".to_string() };
+        lines.push(format!("Trend: {} | M1: mom={} hl={} lh={}",
+            trend_str,
+            self.m1_momentum().0, self.m1_momentum().1, self.m1_momentum().2));
 
         // Overall score
         let (score, direction) = self.calculate_score();
@@ -954,30 +1635,33 @@ impl PatternEngine {
     /// Check if anything interesting is happening that warrants Claude analysis.
     /// Returns true if there's a potential setup worth analyzing.
     pub fn has_interesting_signal(&self) -> bool {
-        // Any pattern forming > 50% on H4/H1/M15?
-        if self.h4.forming.is_active() && self.h4.forming.completion_pct() > 0.5 {
-            if self.h4.forming_patterns.is_bullish_reversal() || self.h4.forming_patterns.is_bearish_reversal() {
-                return true;
-            }
-        }
-        if self.h1.forming.is_active() && self.h1.forming.completion_pct() > 0.5 {
-            if self.h1.forming_patterns.is_bullish_reversal() || self.h1.forming_patterns.is_bearish_reversal() {
-                return true;
-            }
-        }
+        // Any pattern forming > 50% on M15?
         if self.m15.forming.is_active() && self.m15.forming.completion_pct() > 0.5 {
             if self.m15.forming_patterns.is_bullish_reversal() || self.m15.forming_patterns.is_bearish_reversal() {
                 return true;
             }
         }
 
-        // Any completed reversal or multi-candle pattern on M5/M15/H1?
+        // Any completed reversal or multi-candle pattern on M5/M15?
         if self.m5.last_single.is_bullish_reversal() || self.m5.last_single.is_bearish_reversal() { return true; }
         if self.m5.last_multi.is_bullish_signal() || self.m5.last_multi.is_bearish_signal() { return true; }
         if self.m15.last_single.is_bullish_reversal() || self.m15.last_single.is_bearish_reversal() { return true; }
         if self.m15.last_multi.is_bullish_signal() || self.m15.last_multi.is_bearish_signal() { return true; }
-        if self.h1.last_single.is_bullish_reversal() || self.h1.last_single.is_bearish_reversal() { return true; }
-        if self.h1.last_multi.is_bullish_signal() || self.h1.last_multi.is_bearish_signal() { return true; }
+
+        // Price near a Fibonacci level (within 3 pips) on M15?
+        if self.m15.fib_levels.active && self.m15.fib_levels.nearest_fib_pips < 3.0 {
+            return true;
+        }
+
+        // Chart pattern detected with decent confidence on M15?
+        if let Some(ref pat) = self.m15.chart_pattern.detected {
+            if pat.confidence > 0.6 { return true; }
+        }
+
+        // Fib retracement at reversal level on M15? (trend breaking)
+        if self.m15.fib_levels.retracement_class == RetracementClass::Reversal {
+            return true;
+        }
 
         false
     }
@@ -1016,13 +1700,36 @@ impl PatternEngine {
             }
         }
 
+        // Swing points
+        if !tf.swing_analysis.swing_highs.is_empty() || !tf.swing_analysis.swing_lows.is_empty() {
+            let highs: Vec<String> = tf.swing_analysis.swing_highs.iter().map(|s| format!("{:.5}", s.price)).collect();
+            let lows: Vec<String> = tf.swing_analysis.swing_lows.iter().map(|s| format!("{:.5}", s.price)).collect();
+            let trend = match tf.swing_analysis.trend_direction {
+                1 => "uptrend(HH+HL)", -1 => "downtrend(LH+LL)", _ => "mixed",
+            };
+            lines.push(format!("  SWING POINTS: highs=[{}] lows=[{}] trend={}",
+                highs.join(", "), lows.join(", "), trend));
+        }
+
+        // Fibonacci levels
+        let fib_section = tf.fib_levels.to_prompt_section(tf.name);
+        if !fib_section.is_empty() {
+            lines.push(fib_section);
+        }
+
+        // Chart pattern
+        let chart_section = tf.chart_pattern.to_prompt_section();
+        if !chart_section.is_empty() {
+            lines.push(chart_section);
+        }
+
         lines.join("\n")
     }
 
     /// Build the Claude CLI prompt for pattern analysis.
     /// Sends raw OHLCV data only — no pattern labels, no trend analysis.
     /// Let Claude interpret the data independently.
-    pub fn build_claude_prompt(&self) -> String {
+    pub fn build_claude_prompt(&self, news_lines: &[String], ec_lines: &[String], model_predictions: &str) -> String {
         // Last 20 M1 bars as raw OHLC
         let m1_bars = self.m1_recent.iter()
             .enumerate()
@@ -1037,11 +1744,38 @@ impl PatternEngine {
 
         let dom_section = self.dom.to_prompt_section();
 
+        // News section
+        let news_section = if news_lines.is_empty() {
+            "NEWS TODAY:\n  No news data available".to_string()
+        } else {
+            format!("NEWS TODAY ({} articles):\n{}", news_lines.len(),
+                news_lines.iter().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n"))
+        };
+
+        // EC Calendar section
+        let ec_section = if ec_lines.is_empty() {
+            "ECONOMIC CALENDAR TODAY:\n  No events".to_string()
+        } else {
+            format!("ECONOMIC CALENDAR TODAY:\n{}",
+                ec_lines.iter().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n"))
+        };
+
+        // ML Model predictions section
+        let model_section = if model_predictions.is_empty() {
+            "ML MODELS:\n  Not available".to_string()
+        } else {
+            format!("ML MODELS (probability of profitable trade):\n{}", model_predictions)
+        };
+
         let now = chrono::Utc::now();
         let time_str = now.format("%H:%M UTC").to_string();
 
         format!(
-r#"You are an expert EUR/USD forex trader. Analyze the raw OHLCV candlestick data and Depth of Market data below across all timeframes. Identify patterns, trend structure, support/resistance levels, order flow, and entry opportunities.
+r#"You are an expert EUR/USD forex trader. Analyze the raw OHLCV candlestick data, Depth of Market, News, Economic Calendar, and ML model predictions below. Identify patterns, trend structure, support/resistance levels, news-driven moves, and entry opportunities.
+
+IMPORTANT: If a major news event just occurred and price made a large move, this is a NEWS-DRIVEN breakout. Do not dismiss it due to session quality. News moves can continue and extend significantly.
+
+The ML models provide independent probability estimates. Consider them as additional signals — they are NOT authoritative. Weight them alongside your own analysis of the raw data.
 
 Time: {}. Your output will be used as input for a trading decision system.
 
@@ -1057,15 +1791,11 @@ Time: {}. Your output will be used as input for a trading decision system.
 
 {}
 
-Based on the raw OHLCV data, analyze independently. Output ONLY valid JSON:
+{}
+
+Based on all data (price action + news + EC calendar + DoM + ML models), analyze and output ONLY valid JSON:
 
 {{
-  "h4_bias": "<bullish/bearish/neutral>",
-  "h4_strength": "<strong/moderate/weak>",
-  "h4_pattern": "<main pattern you identify, or 'none'>",
-  "h1_bias": "<bullish/bearish/neutral>",
-  "h1_strength": "<strong/moderate/weak>",
-  "h1_pattern": "<main pattern you identify, or 'none'>",
   "m15_bias": "<bullish/bearish/neutral>",
   "m15_pattern": "<main pattern you identify, or 'none'>",
   "m5_bias": "<bullish/bearish/neutral>",
@@ -1074,11 +1804,13 @@ Based on the raw OHLCV data, analyze independently. Output ONLY valid JSON:
   "conflict_detail": "<which timeframes disagree, or 'none'>",
   "dominant_bias": "<bullish/bearish/neutral>",
   "dominant_bias_confidence": <0.0-1.0>,
+  "news_driven": <true/false>,
+  "news_impact": "<brief description of which news is driving price, or 'none'>",
   "session_quality": "<good/moderate/poor>",
   "forming_candle_signal": "<what the forming candles suggest, or 'none'>",
   "m1_entry_ready": <true/false>,
   "recommended_action": "<enter_long/enter_short/wait/no_trade>",
-  "entry_timeframe": "<H1/M15/M5/none>",
+  "entry_timeframe": "<M15/M5/none>",
   "entry_condition": "<specific condition to enter, or why not>",
   "key_resistance": <price level or 0>,
   "key_support": <price level or 0>,
@@ -1087,12 +1819,13 @@ Based on the raw OHLCV data, analyze independently. Output ONLY valid JSON:
   "invalidation": "<what cancels this assessment>"
 }}"#,
             time_str,
-            Self::tf_description(&self.h4),
-            Self::tf_description(&self.h1),
             Self::tf_description(&self.m15),
             Self::tf_description(&self.m5),
             m1_section,
             dom_section,
+            news_section,
+            ec_section,
+            model_section,
         )
     }
 }
@@ -1103,12 +1836,6 @@ Based on the raw OHLCV data, analyze independently. Output ONLY valid JSON:
 /// This format is designed to be consumed by the main trading decision prompt.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct ClaudePatternResponse {
-    pub h4_bias: Option<String>,
-    pub h4_strength: Option<String>,
-    pub h4_pattern: Option<String>,
-    pub h1_bias: Option<String>,
-    pub h1_strength: Option<String>,
-    pub h1_pattern: Option<String>,
     pub m15_bias: Option<String>,
     pub m15_pattern: Option<String>,
     pub m5_bias: Option<String>,
@@ -1117,6 +1844,8 @@ pub struct ClaudePatternResponse {
     pub conflict_detail: Option<String>,
     pub dominant_bias: Option<String>,
     pub dominant_bias_confidence: Option<f64>,
+    pub news_driven: Option<bool>,
+    pub news_impact: Option<String>,
     pub session_quality: Option<String>,
     pub forming_candle_signal: Option<String>,
     pub m1_entry_ready: Option<bool>,
@@ -1142,18 +1871,20 @@ impl ClaudePatternResponse {
         let mut lines = Vec::new();
 
         // Header
-        lines.push(format!("Bias: {} ({:.0}%) | Action: {} | Session: {}",
-            bias.to_uppercase(), conf * 100.0, action, session));
+        let news_flag = if self.news_driven.unwrap_or(false) { " | NEWS-DRIVEN" } else { "" };
+        lines.push(format!("Bias: {} ({:.0}%) | Action: {} | Session: {}{}",
+            bias.to_uppercase(), conf * 100.0, action, session, news_flag));
+
+        // News impact
+        if self.news_driven.unwrap_or(false) {
+            if let Some(ref impact) = self.news_impact {
+                if impact != "none" {
+                    lines.push(format!("News: {}", impact));
+                }
+            }
+        }
 
         // Per-timeframe
-        lines.push(format!("H4: {} {} [{}]",
-            self.h4_bias.as_deref().unwrap_or("?"),
-            self.h4_strength.as_deref().unwrap_or(""),
-            self.h4_pattern.as_deref().unwrap_or("none")));
-        lines.push(format!("H1: {} {} [{}]",
-            self.h1_bias.as_deref().unwrap_or("?"),
-            self.h1_strength.as_deref().unwrap_or(""),
-            self.h1_pattern.as_deref().unwrap_or("none")));
         lines.push(format!("M15: {} [{}]",
             self.m15_bias.as_deref().unwrap_or("?"),
             self.m15_pattern.as_deref().unwrap_or("none")));

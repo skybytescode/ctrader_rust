@@ -108,10 +108,14 @@ pub struct BotDashboardState {
     pub news_update_status: String,
     pub news_update_is_running: bool,
     pub news_update_rx: Option<std::sync::mpsc::Receiver<String>>,
-    // News sentiment analysis
+    // News sentiment analysis (Ollama)
     pub news_analyze_status: String,
     pub news_analyze_is_running: bool,
     pub news_analyze_rx: Option<std::sync::mpsc::Receiver<String>>,
+    // News daily analysis (Gemini)
+    pub news_gemini_status: String,
+    pub news_gemini_is_running: bool,
+    pub news_gemini_rx: Option<std::sync::mpsc::Receiver<String>>,
     // ML unified features build
     pub ml_unified_status: String,
     pub ml_unified_is_running: bool,
@@ -122,8 +126,15 @@ pub struct BotDashboardState {
     pub model4b_rx: Option<std::sync::mpsc::Receiver<String>>,
     // Pattern engine display
     pub pattern_lines: Vec<String>,
-    // Claude pattern analysis
+    // AI analysis display (used by auto-timer DeepSeek)
     pub claude_analysis: String,
+    // Manual AI decision buttons
+    pub ai_deepseek_status: String,
+    pub ai_deepseek_busy: bool,
+    pub ai_claude_status: String,
+    pub ai_claude_busy: bool,
+    pub ai_qwen_status: String,
+    pub ai_qwen_busy: bool,
 }
 
 // ============================================================================
@@ -143,6 +154,8 @@ pub struct CTraderApp {
     pub data_resp_rx: mpsc::Receiver<DataResponse>,
     // Shared DB
     pub shared_db: crate::SharedDb,
+    // AI decision pending results: (model_name, receiver)
+    ai_pending: Vec<(String, std::sync::mpsc::Receiver<String>)>,
     // Timers
     ec_countdown_last: Instant,
     theme_applied: bool,
@@ -165,6 +178,7 @@ impl CTraderApp {
             data_req_tx,
             data_resp_rx,
             shared_db,
+            ai_pending: Vec::new(),
             ec_countdown_last: Instant::now(),
             theme_applied: false,
         }
@@ -278,6 +292,11 @@ impl CTraderApp {
             &mut self.dashboard.news_analyze_rx,
         );
         poll_background_thread(
+            &mut self.dashboard.news_gemini_is_running,
+            &mut self.dashboard.news_gemini_status,
+            &mut self.dashboard.news_gemini_rx,
+        );
+        poll_background_thread(
             &mut self.dashboard.ml_unified_is_running,
             &mut self.dashboard.ml_unified_status,
             &mut self.dashboard.ml_unified_rx,
@@ -287,6 +306,33 @@ impl CTraderApp {
             &mut self.dashboard.model4b_status,
             &mut self.dashboard.model4b_rx,
         );
+
+        // Poll AI decision results
+        self.ai_pending.retain_mut(|(model, rx)| {
+            match rx.try_recv() {
+                Ok(result) => {
+                    let ts = chrono::Local::now().format("%H:%M:%S").to_string();
+                    let display = format!("[{}] {}", ts, result);
+                    match model.as_str() {
+                        "deepseek" => { self.dashboard.ai_deepseek_status = display; self.dashboard.ai_deepseek_busy = false; }
+                        "claude" => { self.dashboard.ai_claude_status = display; self.dashboard.ai_claude_busy = false; }
+                        "qwen" => { self.dashboard.ai_qwen_status = display; self.dashboard.ai_qwen_busy = false; }
+                        _ => {}
+                    }
+                    false // remove from pending
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => true, // keep waiting
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    match model.as_str() {
+                        "deepseek" => { self.dashboard.ai_deepseek_status = "Disconnected".to_string(); self.dashboard.ai_deepseek_busy = false; }
+                        "claude" => { self.dashboard.ai_claude_status = "Disconnected".to_string(); self.dashboard.ai_claude_busy = false; }
+                        "qwen" => { self.dashboard.ai_qwen_status = "Disconnected".to_string(); self.dashboard.ai_qwen_busy = false; }
+                        _ => {}
+                    }
+                    false
+                }
+            }
+        });
     }
 
     fn refresh_ec_countdown(&mut self) {
@@ -782,6 +828,18 @@ impl CTraderApp {
                     ui.label(RichText::new(&self.dashboard.news_analyze_status).size(10.0).color(colors::TEXT_MUTED));
                 }
 
+                // News Daily Analysis (Gemini)
+                ui.add_space(6.0);
+                ui.label(RichText::new("News Daily (Gemini Flash):").size(10.0).color(colors::TEXT_MUTED));
+                ui.horizontal(|ui| {
+                    if Self::themed_button(ui, "Analyze Today").clicked() {
+                        self.handle_news_gemini_click();
+                    }
+                });
+                if !self.dashboard.news_gemini_status.is_empty() {
+                    ui.label(RichText::new(&self.dashboard.news_gemini_status).size(10.0).color(colors::TEXT_MUTED));
+                }
+
                 // ML Unified Features Build (Model 4b)
                 ui.add_space(6.0);
                 ui.label(RichText::new("ML Features (Model 4b):").size(10.0).color(colors::TEXT_MUTED));
@@ -886,8 +944,80 @@ impl CTraderApp {
 
     // ── Start / Pause Card Content ───────────────────────────────────────
 
-    fn draw_start_pause_content(&self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("Bot is stopped.").size(10.0).color(colors::TEXT_MUTED));
+    fn draw_start_pause_content(&mut self, ui: &mut egui::Ui) {
+        ui.label(RichText::new("AI Trading Decisions:").size(11.0).color(colors::TEXT_SECONDARY));
+        ui.add_space(4.0);
+
+        // DeepSeek R1 button
+        ui.horizontal(|ui| {
+            let btn = if self.dashboard.ai_deepseek_busy {
+                ui.add_enabled(false, egui::Button::new("DeepSeek R1"))
+            } else {
+                Self::themed_button(ui, "DeepSeek R1")
+            };
+            if btn.clicked() && !self.dashboard.ai_deepseek_busy {
+                self.trigger_ai_decision("deepseek");
+            }
+            if !self.dashboard.ai_deepseek_status.is_empty() {
+                ui.label(RichText::new(&self.dashboard.ai_deepseek_status).size(9.0).color(colors::TEXT_MUTED));
+            }
+        });
+
+        // Claude CLI button
+        ui.horizontal(|ui| {
+            let btn = if self.dashboard.ai_claude_busy {
+                ui.add_enabled(false, egui::Button::new("Claude"))
+            } else {
+                Self::themed_button(ui, "Claude")
+            };
+            if btn.clicked() && !self.dashboard.ai_claude_busy {
+                self.trigger_ai_decision("claude");
+            }
+            if !self.dashboard.ai_claude_status.is_empty() {
+                ui.label(RichText::new(&self.dashboard.ai_claude_status).size(9.0).color(colors::TEXT_MUTED));
+            }
+        });
+
+        // Qwen 2.5 button
+        ui.horizontal(|ui| {
+            let btn = if self.dashboard.ai_qwen_busy {
+                ui.add_enabled(false, egui::Button::new("Qwen 2.5"))
+            } else {
+                Self::themed_button(ui, "Qwen 2.5")
+            };
+            if btn.clicked() && !self.dashboard.ai_qwen_busy {
+                self.trigger_ai_decision("qwen");
+            }
+            if !self.dashboard.ai_qwen_status.is_empty() {
+                ui.label(RichText::new(&self.dashboard.ai_qwen_status).size(9.0).color(colors::TEXT_MUTED));
+            }
+        });
+
+        // Results display
+        for (label, status) in [
+            ("DeepSeek", &self.dashboard.ai_deepseek_status),
+            ("Claude", &self.dashboard.ai_claude_status),
+            ("Qwen", &self.dashboard.ai_qwen_status),
+        ] {
+            if status.contains('\n') {
+                ui.add_space(4.0);
+                egui::Frame::new()
+                    .fill(Color32::from_rgba_premultiplied(0, 40, 0, 50))
+                    .corner_radius(4.0)
+                    .inner_margin(egui::Margin::same(4))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(format!("[{}]", label)).size(9.0).color(colors::TEXT_SECONDARY));
+                        ScrollArea::vertical()
+                            .id_salt(format!("ai_{}_scroll", label))
+                            .max_height(100.0)
+                            .show(ui, |ui| {
+                                ui.label(RichText::new(status).size(9.0)
+                                    .color(colors::TEXT_PRIMARY)
+                                    .font(egui::FontId::monospace(9.0)));
+                            });
+                    });
+            }
+        }
     }
 
     // ── Real-Time Data Card Content ──────────────────────────────────────
@@ -1382,6 +1512,85 @@ impl CTraderApp {
         });
     }
 
+    fn handle_news_gemini_click(&mut self) {
+        if self.dashboard.news_gemini_is_running {
+            self.dashboard.news_gemini_status = "Already running...".to_string();
+            return;
+        }
+
+        self.dashboard.news_gemini_status = "Starting Gemini analysis...".to_string();
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        self.dashboard.news_gemini_is_running = true;
+        self.dashboard.news_gemini_rx = Some(rx);
+        let db_clone = self.shared_db.clone();
+
+        std::thread::spawn(move || {
+            let result = match crate::news_gemini::analyze_today_news(&db_clone, Some(&tx)) {
+                Ok(n) => format!("Done: {} articles analyzed with Gemini", n),
+                Err(e) => format!("Error: {}", e),
+            };
+            let _ = tx.send(result);
+            let _ = tx.send("__DONE__".to_string());
+        });
+    }
+
+    fn trigger_ai_decision(&mut self, model: &str) {
+        let model = model.to_string();
+
+        // Read all data for the prompt
+        let (news_lines, ec_lines, model_preds) = {
+            let _lock = self.shared_db.lock().unwrap_or_else(|e| e.into_inner());
+            let db = duckdb::Connection::open(crate::DB_PATH).ok();
+            let news = db.as_ref()
+                .map(|d| crate::news_gemini::read_for_claude(d))
+                .unwrap_or_default();
+            let ec = db.as_ref()
+                .map(|d| crate::ec_realtime::read_ec_today(d))
+                .unwrap_or_default();
+            let models = db.and_then(|d| {
+                d.query_row(
+                    "SELECT data FROM ml_predictions_live LIMIT 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                ).ok()
+            })
+            .map(|json_str| crate::format_model_predictions(&json_str))
+            .unwrap_or_else(|| "  Models not available".to_string());
+            (news, ec, models)
+        };
+
+        let pattern_status = self.dashboard.pattern_lines.join("\n");
+        let prompt = build_decisive_prompt(&pattern_status, &news_lines, &ec_lines, &model_preds);
+
+        // Set busy state
+        match model.as_str() {
+            "deepseek" => { self.dashboard.ai_deepseek_busy = true; self.dashboard.ai_deepseek_status = "Asking DeepSeek R1...".to_string(); }
+            "claude" => { self.dashboard.ai_claude_busy = true; self.dashboard.ai_claude_status = "Asking Claude...".to_string(); }
+            "qwen" => { self.dashboard.ai_qwen_busy = true; self.dashboard.ai_qwen_status = "Asking Qwen 2.5...".to_string(); }
+            _ => {}
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+
+        let model_clone = model.clone();
+        std::thread::spawn(move || {
+            let result = match model_clone.as_str() {
+                "deepseek" => call_ollama_decision(&prompt, "deepseek-r1:8b-llama-distill-q4_K_M"),
+                "claude" => {
+                    match crate::pattern_engine::call_claude_pattern_analysis(&prompt) {
+                        Ok(resp) => resp.display_summary(),
+                        Err(e) => format!("Error: {}", e),
+                    }
+                }
+                "qwen" => call_ollama_decision(&prompt, "qwen2.5:3b-instruct-q5_K_M"),
+                _ => "Unknown model".to_string(),
+            };
+            let _ = tx.send(result);
+        });
+
+        self.ai_pending.push((model, rx));
+    }
+
     fn handle_train_model4b_click(&mut self) {
         if self.dashboard.model4b_is_running {
             self.dashboard.model4b_status = "Already running...".to_string();
@@ -1762,6 +1971,139 @@ fn poll_background_thread(
     if done {
         *is_running = false;
         *rx_opt = None;
+    }
+}
+
+/// Build a decisive trading prompt from current state.
+fn build_decisive_prompt(
+    pattern_status: &str,
+    news_lines: &[String],
+    ec_lines: &[String],
+    model_preds: &str,
+) -> String {
+    let news_section = if news_lines.is_empty() {
+        "NEWS TODAY:\n  No news data".to_string()
+    } else {
+        format!("NEWS TODAY ({} articles):\n{}", news_lines.len(),
+            news_lines.iter().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n"))
+    };
+
+    let ec_section = if ec_lines.is_empty() {
+        "ECONOMIC CALENDAR:\n  No events".to_string()
+    } else {
+        format!("ECONOMIC CALENDAR:\n{}",
+            ec_lines.iter().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n"))
+    };
+
+    let now = chrono::Utc::now();
+    let time_str = now.format("%H:%M UTC").to_string();
+
+    format!(
+r#"You are an expert EUR/USD forex trader making real-time trading decisions.
+
+CRITICAL RULES:
+- You MUST choose enter_long or enter_short if ANY valid setup exists. Only say "wait" if there is genuinely NO pattern and NO directional bias.
+- Be DECISIVE. Traders lose money by waiting too long. If the data shows a direction, commit to it.
+- A strong trend with a pullback is an ENTRY opportunity, not a reason to wait.
+- News-driven moves can extend — do NOT dismiss them due to session quality.
+
+Time: {time_str}
+
+PATTERN DETECTION (real-time):
+{pattern_status}
+
+{news_section}
+
+{ec_section}
+
+ML MODELS:
+{model_preds}
+
+Based on ALL data above, output ONLY valid JSON:
+
+{{
+  "m15_bias": "<bullish/bearish/neutral>",
+  "m15_pattern": "<what you see>",
+  "m5_bias": "<bullish/bearish/neutral>",
+  "m5_pattern": "<what you see>",
+  "dominant_bias": "<bullish/bearish/neutral>",
+  "dominant_bias_confidence": <0.0-1.0>,
+  "news_driven": <true/false>,
+  "news_impact": "<which news matters or none>",
+  "session_quality": "<good/moderate/poor>",
+  "recommended_action": "<enter_long/enter_short/wait>",
+  "entry_timeframe": "<M15/M5/none>",
+  "entry_condition": "<specific reason for your decision>",
+  "key_resistance": <price or 0>,
+  "key_support": <price or 0>,
+  "target_pips": <number or 0>,
+  "stop_pips": <number or 0>,
+  "invalidation": "<what cancels this>"
+}}"#)
+}
+
+/// Call Ollama with a prompt and return formatted text result.
+fn call_ollama_decision(prompt: &str, model: &str) -> String {
+    #[derive(serde::Serialize)]
+    struct Req { model: String, prompt: String, stream: bool, keep_alive: String }
+    #[derive(serde::Deserialize)]
+    struct Resp { #[serde(default)] response: String }
+
+    let client = reqwest::blocking::Client::new();
+    let req = Req {
+        model: model.to_string(),
+        prompt: prompt.to_string(),
+        stream: false,
+        keep_alive: "30m".to_string(),
+    };
+
+    let resp = match client
+        .post("http://localhost:11434/api/generate")
+        .json(&req)
+        .timeout(std::time::Duration::from_secs(120))
+        .send()
+    {
+        Ok(r) => r,
+        Err(e) => return format!("Error: {}", e),
+    };
+
+    if !resp.status().is_success() {
+        return format!("Error: HTTP {}", resp.status());
+    }
+
+    let ollama: Resp = match resp.json() {
+        Ok(r) => r,
+        Err(e) => return format!("Error: parse {}", e),
+    };
+
+    let text = ollama.response.trim();
+
+    // DeepSeek R1: strip <think>...</think> block
+    let text = if let Some(end) = text.find("</think>") {
+        text[end + 8..].trim()
+    } else {
+        text
+    };
+
+    // Try to parse as TradingDecision for nice display
+    let json_clean = if text.contains("```") {
+        text.lines().filter(|l| !l.trim().starts_with("```")).collect::<Vec<_>>().join("\n")
+    } else {
+        text.to_string()
+    };
+
+    let json_str = if let Some(start) = json_clean.find('{') {
+        if let Some(end) = json_clean.rfind('}') {
+            &json_clean[start..=end]
+        } else { &json_clean }
+    } else { &json_clean };
+
+    match serde_json::from_str::<crate::decision_engine::TradingDecision>(json_str) {
+        Ok(d) => d.display_summary(),
+        Err(_) => {
+            // Return raw text if can't parse JSON (truncated)
+            if text.len() > 500 { format!("{}...", &text[..500]) } else { text.to_string() }
+        }
     }
 }
 

@@ -321,6 +321,68 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+/// Read today's news with sentiment scores for Claude prompt.
+/// Returns compact lines like: "02:15 | impact=+0.8 vol=0.9 | trade_war | Trump tariff pause"
+/// Sorted by time descending (newest first), limited to 30 most recent.
+pub fn read_news_for_claude(db: &duckdb::Connection) -> Vec<String> {
+    let query = "
+        SELECT n.published_utc, n.title,
+               s.eurusd_impact, s.volatility_expected, s.relevance,
+               s.category, s.timeframe, s.key_driver
+        FROM news_today n
+        LEFT JOIN news_sentiment s ON n.article_id = s.article_id
+        ORDER BY n.published_utc DESC
+        LIMIT 30
+    ";
+    let mut stmt = match db.prepare(query) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let rows = stmt.query_map([], |row| {
+        let pub_utc: String = row.get(0)?;
+        let title: String = row.get(1)?;
+        let impact: Option<f64> = row.get(2)?;
+        let volatility: Option<f64> = row.get(3)?;
+        let relevance: Option<f64> = row.get(4)?;
+        let category: Option<String> = row.get(5)?;
+        let timeframe: Option<String> = row.get(6)?;
+        let key_driver: Option<String> = row.get(7)?;
+
+        let time = if pub_utc.len() >= 16 { &pub_utc[11..16] } else { &pub_utc };
+
+        let line = if let Some(imp) = impact {
+            let rel = relevance.unwrap_or(0.0);
+            let vol = volatility.unwrap_or(0.0);
+            let cat = category.as_deref().unwrap_or("?");
+            let tf = timeframe.as_deref().unwrap_or("?");
+            let driver = key_driver.as_deref().unwrap_or("");
+            let short_title = if title.chars().count() > 60 {
+                let end: usize = title.char_indices().nth(57).map(|(i, _)| i).unwrap_or(title.len());
+                format!("{}...", &title[..end])
+            } else {
+                title
+            };
+            format!("{} | impact={:+.1} vol={:.1} rel={:.1} | {} ({}) | {} | {}",
+                time, imp, vol, rel, cat, tf, driver, short_title)
+        } else {
+            // Not yet analyzed by Ollama
+            let short_title = if title.chars().count() > 70 {
+                let end: usize = title.char_indices().nth(67).map(|(i, _)| i).unwrap_or(title.len());
+                format!("{}...", &title[..end])
+            } else {
+                title
+            };
+            format!("{} | (not analyzed) | {}", time, short_title)
+        };
+
+        Ok(line)
+    });
+    match rows {
+        Ok(r) => r.flatten().collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 fn format_duration(secs: f64) -> String {
     let s = secs as u64;
     if s >= 3600 {

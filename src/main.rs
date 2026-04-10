@@ -28,7 +28,9 @@ pub mod data_retrieval;
 pub mod ec_realtime;
 pub mod news_realtime;
 pub mod news_sentiment;
+pub mod news_gemini;
 pub mod pattern_engine;
+pub mod decision_engine;
 
 use db::{Candle, CandleDatabase};
 use data_retrieval::{
@@ -142,12 +144,59 @@ fn start_econcal_server() {
     });
 }
 
+/// Start ML prediction loop in the background.
+/// Runs `py -3.12 ml/predict_all.py --loop 60` which computes model predictions
+/// every 60 seconds and writes results to `ml_predictions_live` table in DuckDB.
+fn start_ml_predictions() {
+    std::thread::spawn(|| {
+        println!("[ML] Starting prediction loop (py -3.12 ml/predict_all.py --loop 60)...");
+
+        let result = std::process::Command::new("py")
+            .args(["-3.12", "ml/predict_all.py", "--loop", "60"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn();
+
+        match result {
+            Err(e) => {
+                println!("[ML] Failed to start prediction loop: {}", e);
+            }
+            Ok(mut child) => {
+                use std::io::BufRead;
+                // Stream stdout
+                if let Some(stdout) = child.stdout.take() {
+                    std::thread::spawn(move || {
+                        let reader = std::io::BufReader::new(stdout);
+                        for line in reader.lines().flatten() {
+                            println!("[ML] {}", line);
+                        }
+                    });
+                }
+                // Stream stderr
+                if let Some(stderr) = child.stderr.take() {
+                    std::thread::spawn(move || {
+                        let reader = std::io::BufReader::new(stderr);
+                        for line in reader.lines().flatten() {
+                            println!("[ML] ERR: {}", line);
+                        }
+                    });
+                }
+                let _ = child.wait();
+                println!("[ML] Prediction loop exited.");
+            }
+        }
+    });
+}
+
 fn main() {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
 
     // Start the econcal FXStreet proxy server in the background
     start_econcal_server();
+
+    // Start ML prediction loop in the background (every 60s)
+    start_ml_predictions();
 
     // Create channel for price updates (network -> UI)
     let (tx, rx) = mpsc::channel::<PriceUpdate>(100);
@@ -582,13 +631,11 @@ async fn run_session(
                                         dom_eurusd_id = Some(id);
                                         println!("DoM: EURUSD symbol_id = {}", id);
 
-                                        // Subscribe to LiveTrendbar for pattern detection (M5, M15, H1, H4)
+                                        // Subscribe to LiveTrendbar for pattern detection (M1, M5, M15)
                                         for &period in &[
                                             openapi::ProtoOaTrendbarPeriod::M1,
                                             openapi::ProtoOaTrendbarPeriod::M5,
                                             openapi::ProtoOaTrendbarPeriod::M15,
-                                            openapi::ProtoOaTrendbarPeriod::H1,
-                                            openapi::ProtoOaTrendbarPeriod::H4,
                                         ] {
                                             let sub = openapi::ProtoOaSubscribeLiveTrendbarReq {
                                                 payload_type: Some(
@@ -611,8 +658,6 @@ async fn run_session(
                                         for &(period, count, label) in &[
                                             (openapi::ProtoOaTrendbarPeriod::M5, 20u32, "M5"),
                                             (openapi::ProtoOaTrendbarPeriod::M15, 20u32, "M15"),
-                                            (openapi::ProtoOaTrendbarPeriod::H1, 20u32, "H1"),
-                                            (openapi::ProtoOaTrendbarPeriod::H4, 20u32, "H4"),
                                         ] {
                                             let req = openapi::ProtoOaGetTrendbarsReq {
                                                 payload_type: Some(
@@ -677,8 +722,6 @@ async fn run_session(
                                             let tf = match period_minutes {
                                                 5 => &pattern_engine.m5,
                                                 15 => &pattern_engine.m15,
-                                                60 => &pattern_engine.h1,
-                                                240 => &pattern_engine.h4,
                                                 _ => continue,
                                             };
 
@@ -705,36 +748,56 @@ async fn run_session(
                                     let _ = tx.send(PriceUpdate::PatternStatus(status)).await;
                                 }
 
-                                // Check if score indicates a real setup → call Claude for confirmation
-                                // Score ≥ 7 = interesting, cooldown 30s between calls
-                                let (current_score, _) = pattern_engine.calculate_score();
+                                // DeepSeek R1 decision engine — runs every 2 minutes (no score gate)
                                 if !claude_busy.load(std::sync::atomic::Ordering::Relaxed)
-                                    && claude_last_call.elapsed().as_secs() >= 30
-                                    && current_score >= 7
+                                    && claude_last_call.elapsed().as_secs() >= 120
                                 {
                                     claude_busy.store(true, std::sync::atomic::Ordering::Relaxed);
                                     claude_last_call = tokio::time::Instant::now();
-                                    let prompt = pattern_engine.build_claude_prompt();
-                                    let tx_claude = tx.clone();
+
+                                    // Read news, EC, and ML predictions for the prompt
+                                    let (news_lines, ec_lines, model_predictions) = {
+                                        let _lock = shared_db.lock().unwrap_or_else(|e| e.into_inner());
+                                        let db = duckdb::Connection::open("ctrader.duckdb").ok();
+                                        let news = db.as_ref()
+                                            .map(|d| news_gemini::read_for_claude(d))
+                                            .unwrap_or_default();
+                                        let ec = db.as_ref()
+                                            .map(|d| ec_realtime::read_ec_today(d))
+                                            .unwrap_or_default();
+                                        let models = db.and_then(|d| {
+                                            d.query_row(
+                                                "SELECT data FROM ml_predictions_live LIMIT 1",
+                                                [],
+                                                |row| row.get::<_, String>(0),
+                                            ).ok()
+                                        })
+                                        .map(|json_str| format_model_predictions(&json_str))
+                                        .unwrap_or_else(|| "  Models not available".to_string());
+                                        (news, ec, models)
+                                    };
+
+                                    let prompt = pattern_engine.build_claude_prompt(&news_lines, &ec_lines, &model_predictions);
+                                    let tx_ds = tx.clone();
                                     let busy_flag = claude_busy.clone();
 
-                                    // Run Claude CLI on a blocking thread (takes 5-15s)
+                                    // Run DeepSeek R1 on a blocking thread (takes 5-15s)
                                     tokio::task::spawn_blocking(move || {
-                                        let _ = tx_claude.blocking_send(PriceUpdate::ClaudeAnalysis(
-                                            "Asking Claude...".to_string()
+                                        let _ = tx_ds.blocking_send(PriceUpdate::ClaudeAnalysis(
+                                            "Asking DeepSeek R1...".to_string()
                                         ));
 
-                                        match pattern_engine::call_claude_pattern_analysis(&prompt) {
-                                            Ok(resp) => {
+                                        match decision_engine::call_decision(&prompt) {
+                                            Ok(decision) => {
                                                 let ts = chrono::Local::now().format("%H:%M:%S").to_string();
-                                                let display = format!("[{}] {}", ts, resp.display_summary());
-                                                println!("Claude analysis:\n{}", display);
-                                                let _ = tx_claude.blocking_send(PriceUpdate::ClaudeAnalysis(display));
+                                                let display = format!("[{}] {}", ts, decision.display_summary());
+                                                println!("DeepSeek decision:\n{}", display);
+                                                let _ = tx_ds.blocking_send(PriceUpdate::ClaudeAnalysis(display));
                                             }
                                             Err(e) => {
-                                                println!("Claude error: {}", e);
-                                                let _ = tx_claude.blocking_send(PriceUpdate::ClaudeAnalysis(
-                                                    format!("Claude error: {}", e)
+                                                println!("DeepSeek error: {}", e);
+                                                let _ = tx_ds.blocking_send(PriceUpdate::ClaudeAnalysis(
+                                                    format!("DeepSeek error: {}", e)
                                                 ));
                                             }
                                         }
@@ -807,7 +870,7 @@ async fn run_session(
                                 }
                                 if bar_count > 0 {
                                     println!("Pattern: loaded {} historical {} bars", bar_count,
-                                        match pe_period_min { 5=>"M5", 15=>"M15", 60=>"H1", 240=>"H4", _=>"?" });
+                                        match pe_period_min { 5=>"M5", 15=>"M15", _=>"?" });
                                     let status = pattern_engine.status_display();
                                     let _ = tx.send(PriceUpdate::PatternStatus(status)).await;
                                 }
@@ -844,10 +907,8 @@ async fn run_session(
 
                                 // Process new/updated quotes (maintain running totals)
                                 for q in &event.new_quotes {
-                                    // cTrader field names are misleading:
-                                    //   q.bid field = prices ABOVE market (ask side / sellers)
-                                    //   q.ask field = prices BELOW market (bid side / buyers)
-                                    // Verified: live price 1.16035, q.bid values at 1.1603+, q.ask at 1.1576
+                                    // cTrader: q.bid = prices ABOVE market (ask/sell side)
+                                    //          q.ask = prices BELOW market (bid/buy side)
                                     let (side, price) = if let Some(bid) = q.bid {
                                         (1u8, bid as i32)  // ask side (sellers — above current price)
                                     } else if let Some(ask) = q.ask {
@@ -856,11 +917,6 @@ async fn run_session(
                                         continue;
                                     };
                                     let size = q.size as i64;
-                                    // Debug: log first 20 quotes after capture start
-                                    if dom_rows_since_status < 20 {
-                                        println!("DoM quote: id={} bid={:?} ask={:?} size={} → side={} price={} ({:.5})",
-                                            q.id, q.bid, q.ask, q.size, side, price, price as f64 / 100_000.0);
-                                    }
                                     // Remove old entry from running totals if updating
                                     if let Some(&(old_side, _, old_size)) = dom_book.get(&q.id) {
                                         if old_side == 0 { dom_total_bid_vol -= old_size as f64; dom_bid_levels -= 1; }
@@ -939,25 +995,10 @@ async fn run_session(
                                     let mut ba = if best_ask < i32::MAX { best_ask as f64 / 100_000.0 } else { 0.0 };
 
 
-                                    // Debug: log DoM state periodically
-                                    if dom_rows_since_status % 500 == 0 && dom_book.len() > 0 {
-                                        println!("DoM debug: book_size={} bid_vol={:.0} ask_vol={:.0} levels={}b/{}a best={:.5}/{:.5} spread={:.1}p OBI={:.3}",
-                                            dom_book.len(), total_bid, total_ask, dom_bid_levels, dom_ask_levels,
-                                            bb, ba, (ba - bb) * 10000.0,
-                                            if total_bid + total_ask > 0.0 { (total_bid - total_ask) / (total_bid + total_ask) } else { 0.0 });
-                                        // Dump full book once
-                                        if dom_rows_since_status < 1000 {
-                                            let mut bids: Vec<(i32, i64)> = Vec::new();
-                                            let mut asks: Vec<(i32, i64)> = Vec::new();
-                                            for &(side, price, size) in dom_book.values() {
-                                                if side == 0 { bids.push((price, size)); }
-                                                else { asks.push((price, size)); }
-                                            }
-                                            bids.sort_by(|a, b| b.0.cmp(&a.0)); // highest first
-                                            asks.sort_by(|a, b| a.0.cmp(&b.0)); // lowest first
-                                            println!("  BIDS ({}): {:?}", bids.len(), bids.iter().take(5).map(|(p,s)| format!("{:.5}:{}", *p as f64/100000.0, s)).collect::<Vec<_>>());
-                                            println!("  ASKS ({}): {:?}", asks.len(), asks.iter().take(5).map(|(p,s)| format!("{:.5}:{}", *p as f64/100000.0, s)).collect::<Vec<_>>());
-                                        }
+                                    // Log DoM level structure periodically
+                                    if dom_rows_since_status % 5000 == 0 && dom_book.len() > 0 {
+                                        println!("DoM: {}b/{}a levels, best_bid={:.5} best_ask={:.5}",
+                                            dom_bid_levels, dom_ask_levels, bb, ba);
                                     }
 
                                     if bb > 0.0 && ba > 0.0 {
@@ -1987,6 +2028,62 @@ async fn check_db_status(
             }).await;
         }
     }
+}
+
+/// Format ML model predictions JSON into human-readable lines for Claude prompt.
+fn format_model_predictions(json_str: &str) -> String {
+    let v: serde_json::Value = match serde_json::from_str(json_str) {
+        Ok(v) => v,
+        Err(_) => return format!("  Parse error: {}", &json_str[..json_str.len().min(100)]),
+    };
+
+    let mut lines = Vec::new();
+
+    // Model 1: Technical Indicators
+    if let (Some(long), Some(short)) = (v["model1_long"].as_f64(), v["model1_short"].as_f64()) {
+        let dir = if long > short { "LONG" } else if short > long { "SHORT" } else { "NEUTRAL" };
+        lines.push(format!("  M1-Technical: long={:.0}% short={:.0}% → {}", long * 100.0, short * 100.0, dir));
+    } else {
+        lines.push("  M1-Technical: not available".to_string());
+    }
+
+    // Model 2: Regime
+    if let Some(regime) = v["model2_regime"].as_str() {
+        lines.push(format!("  M2-Regime: {}", regime));
+    } else {
+        lines.push("  M2-Regime: not available".to_string());
+    }
+
+    // Model 3: CNN Pattern
+    if let (Some(long), Some(short)) = (v["model3_long"].as_f64(), v["model3_short"].as_f64()) {
+        let dir = if long > short { "LONG" } else if short > long { "SHORT" } else { "NEUTRAL" };
+        lines.push(format!("  M3-CNN: long={:.0}% short={:.0}% → {}", long * 100.0, short * 100.0, dir));
+    } else {
+        lines.push("  M3-CNN: not available".to_string());
+    }
+
+    // Model 4: EC Calendar
+    if let (Some(long), Some(short)) = (v["model4_long"].as_f64(), v["model4_short"].as_f64()) {
+        let dir = if long > short { "LONG" } else if short > long { "SHORT" } else { "NEUTRAL" };
+        lines.push(format!("  M4-EconCal: long={:.0}% short={:.0}% → {}", long * 100.0, short * 100.0, dir));
+    } else {
+        lines.push("  M4-EconCal: not available".to_string());
+    }
+
+    // Unified model
+    if let Some(prob) = v["unified_prob"].as_f64() {
+        let dir = if prob > 0.55 { "BULLISH" } else if prob < 0.45 { "BEARISH" } else { "NEUTRAL" };
+        lines.push(format!("  M4b-Unified: up={:.0}% → {}", prob * 100.0, dir));
+    } else {
+        lines.push("  M4b-Unified: not available".to_string());
+    }
+
+    // Error
+    if let Some(err) = v["error"].as_str() {
+        lines.push(format!("  Error: {}", err));
+    }
+
+    lines.join("\n")
 }
 
 /// Get the newest timestamp currently in DB (returns ms)
