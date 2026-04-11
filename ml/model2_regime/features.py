@@ -1,101 +1,142 @@
 """
-Model 2 — Regime Detection Feature Engineering
-===============================================
-Computes 8 volatility/return features from EURUSD M1 candles + tick spread
-data stored in DuckDB.
+Model 2 — Rule-Based Regime Detection
+======================================
+Replaces the HMM-based regime with a simple, robust rule-based approach
+using ATR percentile (volatility) + trend slope (direction).
 
-All features characterize the *current* bar using only past and current-bar
-data.  No session filter — regimes operate 24h.  The JOIN with
-eurusd_tick_features_m1 means the earliest usable bar is ~Aug 2012;
-we default to 2013-01-01 to ensure full tick coverage.
+Regime states:
+  - "Trending Up"   : slope > threshold AND volatility not extreme
+  - "Trending Down"  : slope < -threshold AND volatility not extreme
+  - "Volatile"       : ATR percentile > 80th (regardless of direction)
+  - "Ranging"        : low volatility + no clear trend
+
+All features are backward-looking only (no look-ahead).
 
 Usage:
-    from ml.model2_regime.features import load_data, compute_features
-    df      = load_data()
-    df_feat = compute_features(df)
+    from ml.model2_regime.features import compute_regime
+    regime_name, regime_id = compute_regime(df)  # df has OHLCV columns
 """
 
 import numpy as np
 import pandas as pd
-import duckdb
 
-# ── Default paths ─────────────────────────────────────────────────────────────
-DB_PATH    = "Bots_db/Algo_EURUSD.duckdb"
-START_YEAR = 2013          # tick features fully available from here
+# Regime state IDs
+REGIME_MAP = {
+    0: "Trending Down",
+    1: "Ranging",
+    2: "Volatile",
+    3: "Trending Up",
+}
 
-# Ordered list of feature names (must stay stable across versions)
-FEATURE_NAMES = [
-    "log_return",       # bar log-return
-    "realized_vol_20",  # 20-bar rolling std of log-returns
-    "realized_vol_5",   # 5-bar rolling std (fast vol)
-    "atr_ratio",        # ATR(14) / close  (normalized bar range)
-    "hl_range",         # (high - low) / close
-    "spread_mean_pips", # mean bid-ask spread during bar (pips)
-    "return_abs_20",    # 20-bar rolling mean of |log_return|
-    "vol_ratio",        # realized_vol_5 / realized_vol_20  (breakout signal)
-]
+REGIME_REVERSE = {v: k for k, v in REGIME_MAP.items()}
+
+# ── Configuration ────────────────────────────────────────────────────────────
+
+# ATR settings
+ATR_PERIOD = 14
+ATR_PERCENTILE_WINDOW = 500   # ~8 hours of M1 bars for percentile calc
+
+# Trend slope: linear regression slope of close over N bars, normalized by ATR
+SLOPE_PERIOD = 60             # 1-hour slope lookback
+SLOPE_TREND_THRESHOLD = 0.5   # slope/ATR ratio above this = trending
+
+# Volatility threshold: ATR percentile above this = volatile
+VOLATILITY_PERCENTILE_THRESHOLD = 80
 
 
-# ── Data loading ──────────────────────────────────────────────────────────────
+# ── Core computation ─────────────────────────────────────────────────────────
 
-def load_data(db_path: str = DB_PATH, start_year: int = START_YEAR) -> pd.DataFrame:
+def compute_atr(df: pd.DataFrame, period: int = ATR_PERIOD) -> pd.Series:
+    """Compute ATR(period) from OHLC data."""
+    hl = df["high"] - df["low"]
+    hpc = (df["high"] - df["close"].shift(1)).abs()
+    lpc = (df["low"] - df["close"].shift(1)).abs()
+    tr = pd.concat([hl, hpc, lpc], axis=1).max(axis=1)
+    return tr.rolling(period).mean()
+
+
+def compute_slope(close: pd.Series, period: int = SLOPE_PERIOD) -> pd.Series:
     """
-    Load M1 OHLCV candles joined with per-bar spread features.
-    Returns a DataFrame indexed by tz-aware UTC DatetimeIndex.
-    Only bars where tick_count > 0 are included (ensures spread is valid).
+    Compute linear regression slope of close prices over rolling window.
+    Returns slope in price-per-bar units.
     """
-    con     = duckdb.connect(db_path, read_only=True)
-    cutoff  = int(pd.Timestamp(f"{start_year}-01-01", tz="UTC").timestamp())
-    df      = con.execute(f"""
-        SELECT m.timestamp, m.high, m.low, m.close,
-               t.spread_mean_pips
-        FROM eurusd_m1 m
-        JOIN eurusd_tick_features_m1 t ON m.timestamp = t.timestamp
-        WHERE m.timestamp >= {cutoff}
-          AND t.tick_count > 0
-        ORDER BY m.timestamp
-    """).df()
-    con.close()
+    def _linreg_slope(arr):
+        if len(arr) < period or np.isnan(arr).any():
+            return np.nan
+        x = np.arange(len(arr))
+        return np.polyfit(x, arr, 1)[0]
 
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
-    df = df.set_index("timestamp")
-    print(f"Loaded {len(df):,} M1 bars  ({df.index[0]} -> {df.index[-1]})")
-    return df
+    return close.rolling(period).apply(_linreg_slope, raw=True)
 
 
-# ── Feature computation ───────────────────────────────────────────────────────
+def compute_regime_series(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute regime for every bar in the DataFrame.
+
+    Args:
+        df: DataFrame with columns [open, high, low, close, volume]
+            and a DatetimeIndex.
+
+    Returns:
+        DataFrame with columns [regime_name, regime_id, atr, atr_percentile,
+        slope_norm] aligned to input index.
+    """
+    atr = compute_atr(df, ATR_PERIOD)
+
+    # ATR percentile: where does current ATR sit relative to recent history?
+    atr_pct = atr.rolling(ATR_PERCENTILE_WINDOW, min_periods=50).apply(
+        lambda x: pd.Series(x).rank(pct=True).iloc[-1] * 100, raw=True
+    )
+
+    # Trend slope normalized by ATR (unit-free directional strength)
+    slope = compute_slope(df["close"], SLOPE_PERIOD)
+    slope_norm = slope / (atr + 1e-10)
+
+    # Classify regime
+    regime_id = pd.Series(1, index=df.index, dtype=int)  # default: Ranging
+
+    # Volatile: ATR percentile > threshold (checked first, overrides trend)
+    volatile_mask = atr_pct > VOLATILITY_PERCENTILE_THRESHOLD
+    regime_id[volatile_mask] = 2
+
+    # Trending: slope exceeds threshold AND not volatile
+    trending_up = (slope_norm > SLOPE_TREND_THRESHOLD) & ~volatile_mask
+    trending_down = (slope_norm < -SLOPE_TREND_THRESHOLD) & ~volatile_mask
+    regime_id[trending_up] = 3
+    regime_id[trending_down] = 0
+
+    regime_name = regime_id.map(REGIME_MAP)
+
+    result = pd.DataFrame({
+        "regime_name": regime_name,
+        "regime_id": regime_id,
+        "atr": atr,
+        "atr_percentile": atr_pct,
+        "slope_norm": slope_norm,
+    }, index=df.index)
+
+    return result.dropna()
+
+
+def compute_regime(df: pd.DataFrame) -> tuple[str, int]:
+    """
+    Compute regime for the latest bar only.
+    Returns (regime_name, regime_id) for the most recent bar.
+    """
+    result = compute_regime_series(df)
+    if result.empty:
+        return "Ranging", 1
+
+    last = result.iloc[-1]
+    return str(last["regime_name"]), int(last["regime_id"])
+
 
 def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute all 8 regime features.
-
-    Input : OHLCV + spread_mean_pips DataFrame (from load_data)
-    Output: feature-only DataFrame with FEATURE_NAMES columns.
-            Warmup NaN rows (first ~20 bars) are dropped here.
+    Backward-compatible interface for predict_all.py.
+    Returns a DataFrame with regime features for the latest bar.
     """
-    out = pd.DataFrame(index=df.index)
-
-    log_ret = np.log(df["close"] / df["close"].shift(1))
-
-    out["log_return"]      = log_ret
-    out["realized_vol_20"] = log_ret.rolling(20).std()
-    out["realized_vol_5"]  = log_ret.rolling(5).std()
-
-    # ATR(14): max of HL, |H-PrevC|, |L-PrevC|, smoothed over 14 bars
-    hl  = df["high"] - df["low"]
-    hpc = (df["high"] - df["close"].shift(1)).abs()
-    lpc = (df["low"]  - df["close"].shift(1)).abs()
-    atr = pd.concat([hl, hpc, lpc], axis=1).max(axis=1).rolling(14).mean()
-    out["atr_ratio"]    = atr / (df["close"] + 1e-10)
-
-    out["hl_range"]         = (df["high"] - df["low"]) / (df["close"] + 1e-10)
-    out["spread_mean_pips"] = df["spread_mean_pips"]
-    out["return_abs_20"]    = log_ret.abs().rolling(20).mean()
-    out["vol_ratio"]        = out["realized_vol_5"] / (out["realized_vol_20"] + 1e-10)
-
-    # Drop warmup rows (rolling windows produce NaN for first N bars)
-    before = len(out)
-    out    = out.dropna()
-    print(f"Computed {out.shape[1]} features over {len(out):,} bars  "
-          f"(dropped {before - len(out)} warmup rows)")
-    return out[FEATURE_NAMES]
+    result = compute_regime_series(df)
+    if result.empty:
+        return pd.DataFrame()
+    return result.iloc[[-1]]

@@ -16,34 +16,33 @@ Outputs:
     ml/trained/model1_metrics.json     ← walk-forward CV results
 """
 
+import sys
+print("Python process started, importing libraries...", flush=True)
+
 import gc
 import json
-import sys
 import time
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-import xgboost as xgb
+import numpy as np; print("  numpy ok", flush=True)
+import pandas as pd; print("  pandas ok", flush=True)
+import xgboost as xgb; print("  xgboost ok", flush=True)
 from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    log_loss,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
+    accuracy_score, classification_report, log_loss,
+    precision_score, recall_score, roc_auc_score,
+); print("  sklearn ok", flush=True)
 
-# Add project root to path when running directly
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+print("  loading features module (pandas_ta + duckdb)...", flush=True)
 from ml.model1_technical.features import (
     load_candles, load_tick_features, add_tick_features, compute_features,
     load_cross_pair_candles, compute_cross_pair_features, add_regime_feature,
     load_order_flow_features, add_order_flow_features,
-)
+); print("  features ok", flush=True)
 from ml.model1_technical.labels import build_dataset, build_dataset_dual
+print("All imports done.", flush=True)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -58,7 +57,7 @@ CONFIG = {
     "horizon_bars":  120,     # 2 hours
 
     # Walk-forward: number of yearly folds
-    "n_folds":       4,       # e.g. test on 2022, 2023, 2024, 2025
+    "n_folds":       2,       # 2023-2024 train, 2025 test; 2023-2025 train, 2026 test
 
     # Decision threshold for precision/recall (not for training)
     "threshold":     0.50,
@@ -66,11 +65,8 @@ CONFIG = {
     # Train both a long model and a short model
     "train_short_model": True,
 
-    # Regime filter: restrict training to favorable HMM states (requires Model 2)
-    # LONG  model trains on: "Trending Up" + "Ranging" bars only
-    # SHORT model trains on: "Trending Down" + "Ranging" bars only
-    # Set to False to train on all regimes (old behaviour)
-    "regime_filter": True,
+    # Regime filter: removed (M2 dropped from stack)
+    "regime_filter": False,
 
     # XGBoost hyperparameters
     "xgb_params": {
@@ -281,20 +277,29 @@ def train():
     df_features = compute_features(df_raw)
 
     print("\n      Loading tick features from eurusd_tick_features_m1...")
-    df_ticks = load_tick_features(CONFIG["db_path"])
-    df_features = add_tick_features(
-        df_features, df_ticks, target_pips=CONFIG["target_pips"]
-    )
-    del df_ticks
+    try:
+        df_ticks = load_tick_features(CONFIG["db_path"])
+        if len(df_ticks) > 0:
+            df_features = add_tick_features(
+                df_features, df_ticks, target_pips=CONFIG["target_pips"]
+            )
+            del df_ticks
+        else:
+            print(f"      WARNING: tick features table is empty — training without spread features")
+    except Exception as e:
+        print(f"      WARNING: tick features not available ({e}) — training without spread features")
     gc.collect()
 
     print("\n      Loading cross-pair M1 data (GBPUSD, USDJPY, USDCHF, AUDUSD, EURJPY, XAUUSD)...")
-    cross_closes = load_cross_pair_candles(CONFIG["db_path"])
-    if cross_closes:
-        df_cross = compute_cross_pair_features(df_raw, cross_closes)
-        df_features = df_features.join(df_cross, how="left")
-        del df_cross
-    del cross_closes
+    try:
+        cross_closes = load_cross_pair_candles(CONFIG["db_path"])
+        if cross_closes:
+            df_cross = compute_cross_pair_features(df_raw, cross_closes)
+            df_features = df_features.join(df_cross, how="left")
+            del df_cross
+        del cross_closes
+    except Exception as e:
+        print(f"      WARNING: cross-pair data not available ({e}) — training without cross-pair features")
     gc.collect()
 
     print("\n      Loading order flow delta from tick data...")
@@ -304,10 +309,6 @@ def train():
         del df_of
     except Exception as e:
         print(f"      WARNING: order flow failed ({e}) — skipping")
-    gc.collect()
-
-    print("\n      Adding Model 2 regime feature...")
-    df_features = add_regime_feature(df_features, df_raw)
     gc.collect()
 
     df_features = df_features.astype("float32")
@@ -377,12 +378,25 @@ def train():
     def prepare_arrays(dataset: pd.DataFrame):
         feature_cols = [c for c in dataset.columns if c != "label"]
         df_feat      = dataset[feature_cols].replace([np.inf, -np.inf], np.nan)
+
+        # Drop columns that are entirely NaN (missing tick/cross-pair data)
+        all_nan_cols = df_feat.columns[df_feat.isna().all()]
+        if len(all_nan_cols) > 0:
+            print(f"  Dropping {len(all_nan_cols)} all-NaN columns: {list(all_nan_cols[:10])}...")
+            df_feat = df_feat.drop(columns=all_nan_cols)
+            feature_cols = [c for c in feature_cols if c not in all_nan_cols]
+
         valid_mask   = df_feat.notna().all(axis=1)
         n_dropped    = (~valid_mask).sum()
         if n_dropped > 0:
             print(f"  Dropped {n_dropped:,} rows with inf/nan in features")
         df_feat  = df_feat[valid_mask]
         dataset  = dataset[valid_mask]
+
+        if len(dataset) == 0:
+            raise ValueError("No valid training rows after filtering. "
+                             "Make sure tick data and cross-pair data are downloaded.")
+
         X = df_feat.to_numpy(dtype=np.float32)
         y = dataset["label"].to_numpy(dtype=np.int32)
         print(f"  Final: {X.shape[0]:,} rows x {X.shape[1]} features "

@@ -18,7 +18,7 @@ use crate::ui::theme::colors;
 // ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TopCardType { Database, TrainModel, StartPause, CurrentStatus }
+pub enum TopCardType { Database, TrainModel, Backtesting, StartPause }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbSubCardType { HistoryBot, UpdateHistory, Status, Dom }
@@ -27,8 +27,8 @@ pub enum DbSubCardType { HistoryBot, UpdateHistory, Status, Dom }
 #[repr(usize)]
 pub enum MlSubCardType { Model1 = 0, Model2 = 1, Model3 = 2, Model4 = 3, Model5 = 4, Model6 = 5 }
 impl MlSubCardType {
-    pub fn all() -> [MlSubCardType; 6] {
-        [Self::Model1, Self::Model2, Self::Model3, Self::Model4, Self::Model5, Self::Model6]
+    pub fn all() -> [MlSubCardType; 2] {
+        [Self::Model1, Self::Model3]
     }
 }
 
@@ -89,14 +89,15 @@ pub struct BotDashboardState {
     pub cross_pair_status: HashMap<String, String>,
     pub cross_pair_update_status: HashMap<String, String>,
     pub updating_cross_pairs: HashSet<String>,
+    pub clear_data_status: String,
+    pub clear_data_is_running: bool,
+    pub clear_data_rx: Option<std::sync::mpsc::Receiver<String>>,
     pub econ_cal_status: String,
     pub econ_cal_is_running: bool,
     pub econ_cal_rx: Option<std::sync::mpsc::Receiver<String>>,
     pub econ_cal_update_status: String,
     pub econ_cal_update_is_running: bool,
     pub econ_cal_update_rx: Option<std::sync::mpsc::Receiver<String>>,
-    pub dom_capture_active: bool,
-    pub dom_capture_status: String,
     pub ec_capture_active: bool,
     pub ec_today_lines: Vec<String>,
     pub ec_today_raw: Vec<(String, String, i32, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
@@ -116,14 +117,13 @@ pub struct BotDashboardState {
     pub news_gemini_status: String,
     pub news_gemini_is_running: bool,
     pub news_gemini_rx: Option<std::sync::mpsc::Receiver<String>>,
-    // ML unified features build
-    pub ml_unified_status: String,
-    pub ml_unified_is_running: bool,
-    pub ml_unified_rx: Option<std::sync::mpsc::Receiver<String>>,
-    // Model 4b training
-    pub model4b_status: String,
-    pub model4b_is_running: bool,
-    pub model4b_rx: Option<std::sync::mpsc::Receiver<String>>,
+    // Backtesting
+    pub bt_signal_status: String,
+    pub bt_signal_is_running: bool,
+    pub bt_signal_rx: Option<std::sync::mpsc::Receiver<String>>,
+    pub bt_m1_status: String,
+    pub bt_m1_is_running: bool,
+    pub bt_m1_rx: Option<std::sync::mpsc::Receiver<String>>,
     // Pattern engine display
     pub pattern_lines: Vec<String>,
     // AI analysis display (used by auto-timer DeepSeek)
@@ -201,16 +201,7 @@ impl CTraderApp {
                     println!("Received symbol mapping: {} symbols", m.len());
                     self.symbol_map.name_to_id = m;
                 }
-                PriceUpdate::DomCaptureStatus(s) => self.dashboard.dom_capture_status = s,
-                PriceUpdate::EcTodayEvents(lines) => self.dashboard.ec_today_lines = lines,
-                PriceUpdate::EcTodayRaw(raw) => self.dashboard.ec_today_raw = raw,
-                PriceUpdate::EcStatus(s) => self.dashboard.ec_status = s,
-                PriceUpdate::EcCaptureActive(active) => self.dashboard.ec_capture_active = active,
-                PriceUpdate::NewsTodayLines(lines) => self.dashboard.news_today_lines = lines,
-                PriceUpdate::NewsStatus(s) => self.dashboard.news_status = s,
-                PriceUpdate::NewsCaptureActive(active) => self.dashboard.news_capture_active = active,
-                PriceUpdate::PatternStatus(lines) => self.dashboard.pattern_lines = lines,
-                PriceUpdate::ClaudeAnalysis(text) => self.dashboard.claude_analysis = text,
+                PriceUpdate::DomCaptureStatus(_) => {},
             }
         }
         received
@@ -236,7 +227,8 @@ impl CTraderApp {
         received
     }
 
-    fn poll_ml_training(&mut self) {
+    fn poll_ml_training(&mut self) -> bool {
+        let mut received = false;
         for i in 0..6 {
             if !self.ml_train.states[i].is_training { continue; }
             let mut lines: Vec<String> = Vec::new();
@@ -244,8 +236,8 @@ impl CTraderApp {
             if let Some(ref rx) = self.ml_train.states[i].training_rx {
                 loop {
                     match rx.try_recv() {
-                        Ok(line) if line == "__DONE__" => { done = true; break; }
-                        Ok(line) => lines.push(line),
+                        Ok(line) if line == "__DONE__" => { done = true; received = true; break; }
+                        Ok(line) => { lines.push(line); received = true; }
                         Err(_) => break,
                     }
                 }
@@ -268,45 +260,10 @@ impl CTraderApp {
                 self.ml_train.states[i].training_rx = None;
             }
         }
+        received
     }
 
-    fn poll_econ_cal(&mut self) {
-        poll_background_thread(
-            &mut self.dashboard.econ_cal_is_running,
-            &mut self.dashboard.econ_cal_status,
-            &mut self.dashboard.econ_cal_rx,
-        );
-        poll_background_thread(
-            &mut self.dashboard.econ_cal_update_is_running,
-            &mut self.dashboard.econ_cal_update_status,
-            &mut self.dashboard.econ_cal_update_rx,
-        );
-        poll_background_thread(
-            &mut self.dashboard.news_update_is_running,
-            &mut self.dashboard.news_update_status,
-            &mut self.dashboard.news_update_rx,
-        );
-        poll_background_thread(
-            &mut self.dashboard.news_analyze_is_running,
-            &mut self.dashboard.news_analyze_status,
-            &mut self.dashboard.news_analyze_rx,
-        );
-        poll_background_thread(
-            &mut self.dashboard.news_gemini_is_running,
-            &mut self.dashboard.news_gemini_status,
-            &mut self.dashboard.news_gemini_rx,
-        );
-        poll_background_thread(
-            &mut self.dashboard.ml_unified_is_running,
-            &mut self.dashboard.ml_unified_status,
-            &mut self.dashboard.ml_unified_rx,
-        );
-        poll_background_thread(
-            &mut self.dashboard.model4b_is_running,
-            &mut self.dashboard.model4b_status,
-            &mut self.dashboard.model4b_rx,
-        );
-
+    fn poll_ai_decisions(&mut self) {
         // Poll AI decision results
         self.ai_pending.retain_mut(|(model, rx)| {
             match rx.try_recv() {
@@ -335,15 +292,7 @@ impl CTraderApp {
         });
     }
 
-    fn refresh_ec_countdown(&mut self) {
-        if self.ec_countdown_last.elapsed().as_secs() < 30 { return; }
-        self.ec_countdown_last = Instant::now();
-        if self.dashboard.ec_today_raw.is_empty() { return; }
-        let lines = crate::ec_realtime::format_ec_lines(&self.dashboard.ec_today_raw);
-        if lines != self.dashboard.ec_today_lines {
-            self.dashboard.ec_today_lines = lines;
-        }
-    }
+    fn refresh_ec_countdown(&mut self) {}
 
     // ── UI Drawing ───────────────────────────────────────────────────────
 
@@ -569,7 +518,7 @@ impl CTraderApp {
                             ui.vertical(|ui| {
                                 ui.set_width(side_w);
                                 let others = [TopCardType::Database, TopCardType::TrainModel,
-                                              TopCardType::StartPause, TopCardType::CurrentStatus];
+                                              TopCardType::Backtesting, TopCardType::StartPause];
                                 for ct in others {
                                     if ct != exp {
                                         self.draw_card(ui, ct, &symbol, false);
@@ -594,16 +543,16 @@ impl CTraderApp {
                             });
                         });
                         ui.add_space(gap);
-                        // Row 2: Start/Pause | Real-Time Data
+                        // Row 2: Backtesting | Start/Pause
                         ui.horizontal_top(|ui| {
                             ui.vertical(|ui| {
                                 ui.set_width(half);
-                                self.draw_card(ui, TopCardType::StartPause, &symbol, false);
+                                self.draw_card(ui, TopCardType::Backtesting, &symbol, false);
                             });
                             ui.add_space(gap);
                             ui.vertical(|ui| {
                                 ui.set_width(half);
-                                self.draw_card(ui, TopCardType::CurrentStatus, &symbol, false);
+                                self.draw_card(ui, TopCardType::StartPause, &symbol, false);
                             });
                         });
                     }
@@ -616,17 +565,17 @@ impl CTraderApp {
         let title = match card_type {
             TopCardType::Database => "Database",
             TopCardType::TrainModel => "Train Model",
+            TopCardType::Backtesting => "Backtesting",
             TopCardType::StartPause => "Start / Pause",
-            TopCardType::CurrentStatus => "Real-Time Data",
         };
         let expanded = self.dashboard.expanded_top;
         let is_this_expanded = expanded == Some(card_type);
         let icon = if is_this_expanded { "[-]" } else { "[+]" };
 
-        // Always show content for Database, TrainModel, CurrentStatus;
+        // Always show content for Database, TrainModel;
         // others only when expanded
         let always_show = matches!(card_type,
-            TopCardType::Database | TopCardType::TrainModel | TopCardType::CurrentStatus);
+            TopCardType::Database | TopCardType::TrainModel | TopCardType::Backtesting);
         let show_content = always_show || is_this_expanded;
 
         Self::card_frame().show(ui, |ui| {
@@ -654,8 +603,8 @@ impl CTraderApp {
                 match card_type {
                     TopCardType::Database => self.draw_database_content(ui, symbol),
                     TopCardType::TrainModel => self.draw_train_model_content(ui),
+                    TopCardType::Backtesting => self.draw_backtesting_content(ui),
                     TopCardType::StartPause => self.draw_start_pause_content(ui),
-                    TopCardType::CurrentStatus => self.draw_realtime_data_content(ui),
                 }
             }
         });
@@ -683,6 +632,34 @@ impl CTraderApp {
 
         ui.add_space(4.0);
 
+        // Clear All Data button
+        ui.horizontal(|ui| {
+            let btn = egui::Button::new(
+                RichText::new("Clear All Data").size(11.0).color(Color32::from_rgb(255, 100, 100))
+            ).fill(Color32::from_rgb(80, 20, 20)).corner_radius(4.0);
+            if ui.add(btn).clicked() {
+                self.handle_clear_all_data();
+            }
+            if !self.dashboard.clear_data_status.is_empty() {
+                ui.add_space(4.0);
+                egui::Frame::new()
+                    .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
+                    .corner_radius(4.0)
+                    .inner_margin(egui::Margin::same(4))
+                    .show(ui, |ui| {
+                        ScrollArea::vertical()
+                            .id_salt("clear_data_scroll")
+                            .max_height(200.0)
+                            .show(ui, |ui| {
+                                ui.label(RichText::new(&self.dashboard.clear_data_status).size(10.0)
+                                    .color(colors::TEXT_MUTED).font(egui::FontId::monospace(10.0)));
+                            });
+                    });
+            }
+        });
+
+        ui.add_space(4.0);
+
         // 2x2 sub-card grid
         ui.columns(2, |cols| {
             self.draw_history_bot_subcard(&mut cols[0], symbol);
@@ -705,9 +682,6 @@ impl CTraderApp {
                     if Self::themed_button(ui, "Tick Data").clicked() {
                         self.handle_timeframe_click(symbol, DbSubCardType::HistoryBot, BotTimeframe::TickData);
                     }
-                    if Self::themed_button(ui, "ML Features").clicked() {
-                        self.handle_timeframe_click(symbol, DbSubCardType::HistoryBot, BotTimeframe::MLFeatures);
-                    }
                 });
                 if let Some(ref msg) = self.dashboard.download_message {
                     ui.add_space(2.0);
@@ -728,25 +702,6 @@ impl CTraderApp {
                     });
                 }
 
-                // Economic Calendar section
-                ui.add_space(6.0);
-                ui.label(RichText::new("Economic Calendar:").size(10.0).color(colors::TEXT_MUTED));
-                ui.horizontal(|ui| {
-                    if Self::themed_button(ui, "Economic Calendar").clicked() {
-                        self.handle_econ_cal_click();
-                    }
-                    ui.label(RichText::new(&self.dashboard.econ_cal_status).size(10.0).color(colors::TEXT_MUTED));
-                });
-
-                // News section
-                ui.add_space(6.0);
-                ui.label(RichText::new("News:").size(10.0).color(colors::TEXT_MUTED));
-                ui.horizontal(|ui| {
-                    if Self::themed_button(ui, "News").clicked() {
-                        self.handle_news_db_click();
-                    }
-                    ui.label(RichText::new(&self.dashboard.news_status).size(10.0).color(colors::TEXT_MUTED));
-                });
             });
     }
 
@@ -764,9 +719,6 @@ impl CTraderApp {
                     }
                     if Self::themed_button(ui, "Tick Data").clicked() {
                         self.handle_timeframe_click(symbol, DbSubCardType::UpdateHistory, BotTimeframe::TickData);
-                    }
-                    if Self::themed_button(ui, "ML Features").clicked() {
-                        self.handle_timeframe_click(symbol, DbSubCardType::UpdateHistory, BotTimeframe::MLFeatures);
                     }
                 });
                 if let Some(ref msg) = self.dashboard.update_history_message {
@@ -788,69 +740,6 @@ impl CTraderApp {
                     });
                 }
 
-                // EC Update section
-                ui.add_space(6.0);
-                ui.label(RichText::new("Economic Calendar:").size(10.0).color(colors::TEXT_MUTED));
-                ui.horizontal(|ui| {
-                    if Self::themed_button(ui, "Update EC").clicked() {
-                        self.handle_econ_cal_update_click();
-                    }
-                    ui.label(RichText::new(&self.dashboard.econ_cal_update_status).size(10.0).color(colors::TEXT_MUTED));
-                });
-
-                // News Update section
-                ui.add_space(6.0);
-                ui.label(RichText::new("News:").size(10.0).color(colors::TEXT_MUTED));
-                ui.horizontal(|ui| {
-                    if Self::themed_button(ui, "Update News").clicked() {
-                        self.handle_news_update_click();
-                    }
-                    ui.label(RichText::new(&self.dashboard.news_update_status).size(10.0).color(colors::TEXT_MUTED));
-                });
-
-                // News Sentiment Analysis section
-                ui.add_space(6.0);
-                ui.label(RichText::new("News Sentiment (Ollama AI):").size(10.0).color(colors::TEXT_MUTED));
-                ui.horizontal(|ui| {
-                    if Self::themed_button(ui, "Analyze News").clicked() {
-                        self.handle_news_analyze_click();
-                    }
-                    if self.dashboard.news_analyze_is_running {
-                        if Self::themed_button(ui, "Stop").clicked() {
-                            // Signal stop by dropping the receiver
-                            self.dashboard.news_analyze_rx = None;
-                            self.dashboard.news_analyze_is_running = false;
-                            self.dashboard.news_analyze_status = "Stopped by user".to_string();
-                        }
-                    }
-                });
-                if !self.dashboard.news_analyze_status.is_empty() {
-                    ui.label(RichText::new(&self.dashboard.news_analyze_status).size(10.0).color(colors::TEXT_MUTED));
-                }
-
-                // News Daily Analysis (Gemini)
-                ui.add_space(6.0);
-                ui.label(RichText::new("News Daily (Gemini Flash):").size(10.0).color(colors::TEXT_MUTED));
-                ui.horizontal(|ui| {
-                    if Self::themed_button(ui, "Analyze Today").clicked() {
-                        self.handle_news_gemini_click();
-                    }
-                });
-                if !self.dashboard.news_gemini_status.is_empty() {
-                    ui.label(RichText::new(&self.dashboard.news_gemini_status).size(10.0).color(colors::TEXT_MUTED));
-                }
-
-                // ML Unified Features Build (Model 4b)
-                ui.add_space(6.0);
-                ui.label(RichText::new("ML Features (Model 4b):").size(10.0).color(colors::TEXT_MUTED));
-                ui.horizontal(|ui| {
-                    if Self::themed_button(ui, "ml_unified_features_4b").clicked() {
-                        self.handle_ml_unified_build_click();
-                    }
-                });
-                if !self.dashboard.ml_unified_status.is_empty() {
-                    ui.label(RichText::new(&self.dashboard.ml_unified_status).size(10.0).color(colors::TEXT_MUTED));
-                }
             });
     }
 
@@ -858,12 +747,12 @@ impl CTraderApp {
 
     fn draw_train_model_content(&mut self, ui: &mut egui::Ui) {
         let titles = [
-            "Model 1 -- Technical Indicators",
-            "Model 2 -- Regime Detection HMM",
-            "Model 3 -- Chart Patterns CNN",
-            "Model 4 -- Economic Calendar",
-            "Model 5 -- Depth of Market",
-            "Model 6 -- Ensemble",
+            "M1 -- Technical Indicators (XGBoost)",
+            "", // M2 removed
+            "Signal -- LightGBM (ATR Target)",
+            "", // M4 removed
+            "", // unused
+            "", // unused
         ];
         for model in MlSubCardType::all() {
             let idx = model as usize;
@@ -896,6 +785,7 @@ impl CTraderApp {
                                 ScrollArea::vertical()
                                     .id_salt(format!("ml_scroll_{}", idx))
                                     .max_height(220.0)
+                                    .stick_to_bottom(true)
                                     .show(ui, |ui| {
                                         ui.label(RichText::new(text).size(10.0)
                                             .color(colors::TEXT_MUTED).font(egui::FontId::monospace(10.0)));
@@ -906,23 +796,38 @@ impl CTraderApp {
             ui.add_space(4.0);
         }
 
-        // Model 4b — Unified (EC + News + Candle Patterns + Cross-Pairs)
+    }
+
+    // ── Backtesting Card Content ────────────────────────────────────────
+
+    fn draw_backtesting_content(&mut self, ui: &mut egui::Ui) {
+        ui.label(RichText::new("Run backtests on trained models (2025-03-01 → present)")
+            .size(10.0).color(colors::TEXT_SECONDARY));
+        ui.add_space(4.0);
+
+        // Signal LightGBM backtest
         egui::Frame::new()
             .fill(colors::BG_SIDEBAR)
             .corner_radius(6.0)
             .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
-                ui.label(RichText::new("Model 4b -- EC + News + Price (XGBoost)").size(12.0).color(colors::TEXT_PRIMARY));
+                ui.label(RichText::new("Signal -- LightGBM (ATR Target)")
+                    .size(12.0).color(colors::TEXT_PRIMARY));
                 ui.add_space(4.0);
-                ui.horizontal_wrapped(|ui| {
-                    if Self::themed_button(ui, "Train Model 4b").clicked() {
-                        self.handle_train_model4b_click();
-                    }
-                    if Self::themed_button(ui, "Status").clicked() {
-                        self.handle_model4b_status_click();
-                    }
-                });
-                if !self.dashboard.model4b_status.is_empty() {
+                let btn_enabled = !self.dashboard.bt_signal_is_running;
+                let btn = if btn_enabled {
+                    Self::themed_button(ui, "Backtest Signal Model")
+                } else {
+                    ui.add_enabled(false, egui::Button::new("Running..."))
+                };
+                if btn.clicked() && btn_enabled {
+                    let (tx, rx) = std::sync::mpsc::channel::<String>();
+                    self.dashboard.bt_signal_is_running = true;
+                    self.dashboard.bt_signal_status = "Starting backtest...\n".to_string();
+                    self.dashboard.bt_signal_rx = Some(rx);
+                    spawn_ml_training_thread(tx, "ml.signal_model.backtest --model signal");
+                }
+                if !self.dashboard.bt_signal_status.is_empty() {
                     ui.add_space(4.0);
                     egui::Frame::new()
                         .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
@@ -930,16 +835,60 @@ impl CTraderApp {
                         .inner_margin(egui::Margin::same(4))
                         .show(ui, |ui| {
                             ScrollArea::vertical()
-                                .id_salt("model4b_scroll")
-                                .max_height(220.0)
+                                .id_salt("bt_signal_scroll")
+                                .max_height(300.0)
+                                .stick_to_bottom(true)
                                 .show(ui, |ui| {
-                                    ui.label(RichText::new(&self.dashboard.model4b_status).size(10.0)
-                                        .color(colors::TEXT_MUTED).font(egui::FontId::monospace(10.0)));
+                                    ui.label(RichText::new(&self.dashboard.bt_signal_status)
+                                        .size(10.0).color(colors::TEXT_MUTED)
+                                        .font(egui::FontId::monospace(10.0)));
                                 });
                         });
                 }
             });
         ui.add_space(4.0);
+
+        // M1 XGBoost backtest
+        egui::Frame::new()
+            .fill(colors::BG_SIDEBAR)
+            .corner_radius(6.0)
+            .inner_margin(egui::Margin::same(10))
+            .show(ui, |ui| {
+                ui.label(RichText::new("M1 -- XGBoost (Fixed Pip Target)")
+                    .size(12.0).color(colors::TEXT_PRIMARY));
+                ui.add_space(4.0);
+                let btn_enabled = !self.dashboard.bt_m1_is_running;
+                let btn = if btn_enabled {
+                    Self::themed_button(ui, "Backtest M1 Model")
+                } else {
+                    ui.add_enabled(false, egui::Button::new("Running..."))
+                };
+                if btn.clicked() && btn_enabled {
+                    let (tx, rx) = std::sync::mpsc::channel::<String>();
+                    self.dashboard.bt_m1_is_running = true;
+                    self.dashboard.bt_m1_status = "Starting backtest...\n".to_string();
+                    self.dashboard.bt_m1_rx = Some(rx);
+                    spawn_ml_training_thread(tx, "ml.signal_model.backtest --model m1");
+                }
+                if !self.dashboard.bt_m1_status.is_empty() {
+                    ui.add_space(4.0);
+                    egui::Frame::new()
+                        .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
+                        .corner_radius(4.0)
+                        .inner_margin(egui::Margin::same(4))
+                        .show(ui, |ui| {
+                            ScrollArea::vertical()
+                                .id_salt("bt_m1_scroll")
+                                .max_height(300.0)
+                                .stick_to_bottom(true)
+                                .show(ui, |ui| {
+                                    ui.label(RichText::new(&self.dashboard.bt_m1_status)
+                                        .size(10.0).color(colors::TEXT_MUTED)
+                                        .font(egui::FontId::monospace(10.0)));
+                                });
+                        });
+                }
+            });
     }
 
     // ── Start / Pause Card Content ───────────────────────────────────────
@@ -1020,136 +969,6 @@ impl CTraderApp {
         }
     }
 
-    // ── Real-Time Data Card Content ──────────────────────────────────────
-
-    fn draw_realtime_data_content(&mut self, ui: &mut egui::Ui) {
-        // DoM Section
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Price DoM:").size(10.0).color(colors::TEXT_SECONDARY));
-            let btn_label = if self.dashboard.dom_capture_active { "Pause Capture" } else { "Start Capture" };
-            if Self::themed_button(ui, btn_label).clicked() {
-                self.handle_dom_capture_click();
-            }
-            ui.label(RichText::new(&self.dashboard.dom_capture_status).size(10.0).color(colors::TEXT_SECONDARY));
-        });
-
-        ui.add_space(8.0);
-
-        // EC Calendar Section
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("EC Calendar:").size(10.0).color(colors::TEXT_SECONDARY));
-            let ec_btn_label = if self.dashboard.ec_capture_active { "Stop Capture" } else { "Start Capture" };
-            if Self::themed_button(ui, ec_btn_label).clicked() {
-                self.handle_ec_capture_click();
-            }
-            if !self.dashboard.ec_status.is_empty() {
-                ui.label(RichText::new(&self.dashboard.ec_status).size(10.0).color(colors::TEXT_SECONDARY));
-            } else {
-                ui.label(RichText::new("Stopped").size(10.0).color(colors::TEXT_SECONDARY));
-            }
-        });
-
-        egui::Frame::new()
-            .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::same(4))
-            .show(ui, |ui| {
-                if !self.dashboard.ec_today_lines.is_empty() {
-                    let text = self.dashboard.ec_today_lines.join("\n");
-                    ScrollArea::vertical()
-                        .id_salt("ec_scroll")
-                        .max_height(180.0)
-                        .show(ui, |ui| {
-                            ui.label(RichText::new(&text).size(11.0).color(colors::TEXT_SECONDARY));
-                        });
-                } else {
-                    ui.label(RichText::new("Waiting for econcal proxy...").size(11.0).color(colors::TEXT_SECONDARY));
-                }
-            });
-
-        ui.add_space(8.0);
-
-        // News Section
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("News:").size(10.0).color(colors::TEXT_SECONDARY));
-            let news_btn_label = if self.dashboard.news_capture_active { "Stop News Capture" } else { "Start News Capture" };
-            if Self::themed_button(ui, news_btn_label).clicked() {
-                self.handle_news_capture_click();
-            }
-            if !self.dashboard.news_status.is_empty() {
-                ui.label(RichText::new(&self.dashboard.news_status).size(10.0).color(colors::TEXT_SECONDARY));
-            } else {
-                ui.label(RichText::new("Stopped").size(10.0).color(colors::TEXT_SECONDARY));
-            }
-        });
-
-        egui::Frame::new()
-            .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::same(4))
-            .show(ui, |ui| {
-                if !self.dashboard.news_today_lines.is_empty() {
-                    let text = self.dashboard.news_today_lines.join("\n");
-                    ScrollArea::vertical()
-                        .id_salt("news_scroll")
-                        .max_height(180.0)
-                        .show(ui, |ui| {
-                            ui.label(RichText::new(&text).size(11.0).color(colors::TEXT_SECONDARY));
-                        });
-                } else {
-                    ui.label(RichText::new("Waiting for news capture...").size(11.0).color(colors::TEXT_SECONDARY));
-                }
-            });
-
-        ui.add_space(8.0);
-
-        // Pattern Detection Section
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Pattern Detection:").size(10.0).color(colors::TEXT_SECONDARY));
-        });
-
-        egui::Frame::new()
-            .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::same(4))
-            .show(ui, |ui| {
-                if !self.dashboard.pattern_lines.is_empty() {
-                    let text = self.dashboard.pattern_lines.join("\n");
-                    ScrollArea::vertical()
-                        .id_salt("pattern_scroll")
-                        .max_height(160.0)
-                        .show(ui, |ui| {
-                            ui.label(RichText::new(&text).size(10.0)
-                                .color(colors::TEXT_SECONDARY)
-                                .font(egui::FontId::monospace(10.0)));
-                        });
-                } else {
-                    ui.label(RichText::new("Waiting for pattern data...").size(11.0).color(colors::TEXT_SECONDARY));
-                }
-            });
-
-        // Claude Analysis Section
-        if !self.dashboard.claude_analysis.is_empty() {
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Claude Analysis:").size(10.0).color(colors::TEXT_SECONDARY));
-            });
-            egui::Frame::new()
-                .fill(Color32::from_rgba_premultiplied(0, 40, 0, 50))
-                .corner_radius(4.0)
-                .inner_margin(egui::Margin::same(4))
-                .show(ui, |ui| {
-                    ScrollArea::vertical()
-                        .id_salt("claude_analysis_scroll")
-                        .max_height(120.0)
-                        .show(ui, |ui| {
-                            ui.label(RichText::new(&self.dashboard.claude_analysis).size(10.0)
-                                .color(colors::TEXT_PRIMARY)
-                                .font(egui::FontId::monospace(10.0)));
-                        });
-                });
-        }
-    }
 
     // ── Event Handlers ───────────────────────────────────────────────────
 
@@ -1262,6 +1081,83 @@ impl CTraderApp {
         }
     }
 
+    fn handle_clear_all_data(&mut self) {
+        if self.dashboard.clear_data_is_running {
+            self.dashboard.clear_data_status = "Already clearing...".to_string();
+            return;
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        self.dashboard.clear_data_is_running = true;
+        self.dashboard.clear_data_status = "Clearing data...".to_string();
+        self.dashboard.clear_data_rx = Some(rx);
+
+        let db_clone = self.shared_db.clone();
+
+        std::thread::spawn(move || {
+            // 1. Clear DB tables (keep schema)
+            let _ = tx.send("Clearing database tables...".to_string());
+            {
+                let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
+                match duckdb::Connection::open(crate::DB_PATH) {
+                    Ok(db) => {
+                        let tables = [
+                            "eurusd_m1",
+                            "gbpusd_m1", "usdjpy_m1", "usdchf_m1",
+                            "audusd_m1", "eurjpy_m1", "xauusd_m1",
+                            "eurusd_ticks_merged",
+                            "eurusd_tick_features_m1",
+                            "ml_predictions_live",
+                        ];
+                        for table in &tables {
+                            let _ = tx.send(format!("  Clearing {}...", table));
+                            match db.execute(&format!("DELETE FROM {}", table), []) {
+                                Ok(n) => { let _ = tx.send(format!("  Cleared {} ({} rows)", table, n)); }
+                                Err(_) => { let _ = tx.send(format!("  {} — not found, skipped", table)); }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(format!("DB error: {}", e));
+                        let _ = tx.send("__DONE__".to_string());
+                        return;
+                    }
+                }
+            }
+
+            // 2. Delete all trained model files
+            let _ = tx.send("Deleting trained models...".to_string());
+            let model_dir = std::path::Path::new("ml/trained");
+            if model_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(model_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_file() {
+                            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                            if std::fs::remove_file(&path).is_ok() {
+                                let _ = tx.send(format!("  Deleted: {}", name));
+                            }
+                        }
+                    }
+                }
+            }
+
+            let _ = tx.send(String::new());
+            let _ = tx.send("All tables cleared. All models deleted.".to_string());
+            let _ = tx.send("Re-download from 2023-01-01, then retrain.".to_string());
+            let _ = tx.send("__DONE__".to_string());
+        });
+
+        // Reset UI state
+        self.dashboard.download_message = None;
+        self.dashboard.update_history_message = None;
+        self.dashboard.m1_info = None;
+        self.dashboard.tick_info = None;
+        for (_, v) in self.dashboard.cross_pair_status.iter_mut() {
+            *v = "--".to_string();
+        }
+    }
+
     fn handle_cross_pair_click(&mut self, symbol: &str) {
         let symbol_id = match self.symbol_map.name_to_id.get(symbol) {
             Some(&id) => id,
@@ -1293,247 +1189,6 @@ impl CTraderApp {
         });
     }
 
-    fn handle_econ_cal_click(&mut self) {
-        if self.dashboard.econ_cal_is_running {
-            self.dashboard.econ_cal_status = "Already running...".to_string();
-            return;
-        }
-        let (tx, rx) = std::sync::mpsc::channel::<String>();
-        self.dashboard.econ_cal_is_running = true;
-        self.dashboard.econ_cal_status = "Starting...".to_string();
-        self.dashboard.econ_cal_rx = Some(rx);
-        spawn_python_thread(tx, "ml.model4_news.scrape_econcal");
-    }
-
-    fn handle_econ_cal_update_click(&mut self) {
-        if self.dashboard.econ_cal_update_is_running {
-            self.dashboard.econ_cal_update_status = "Already running...".to_string();
-            return;
-        }
-        let (tx, rx) = std::sync::mpsc::channel::<String>();
-        self.dashboard.econ_cal_update_is_running = true;
-        self.dashboard.econ_cal_update_status = "Updating...".to_string();
-        self.dashboard.econ_cal_update_rx = Some(rx);
-        spawn_python_thread(tx, "ml.model4_news.update_econcal");
-    }
-
-    fn handle_dom_capture_click(&mut self) {
-        let action = if self.dashboard.dom_capture_active {
-            DataAction::DomCaptureStop
-        } else {
-            DataAction::DomCaptureStart
-        };
-        let req = DataRequest {
-            symbol: "EURUSD".to_string(), symbol_id: 0,
-            kind: DataKind::M1Candles, action, force_rebuild: false,
-        };
-        if let Err(e) = self.data_req_tx.try_send(req) {
-            self.dashboard.dom_capture_status = format!("Send error: {}", e);
-        } else {
-            self.dashboard.dom_capture_active = !self.dashboard.dom_capture_active;
-            self.dashboard.dom_capture_status = if self.dashboard.dom_capture_active {
-                "Starting...".to_string()
-            } else {
-                "Stopping...".to_string()
-            };
-        }
-    }
-
-    fn handle_ec_capture_click(&mut self) {
-        let action = if self.dashboard.ec_capture_active {
-            DataAction::EcCaptureStop
-        } else {
-            DataAction::EcCaptureStart
-        };
-        let req = DataRequest {
-            symbol: "EURUSD".to_string(), symbol_id: 0,
-            kind: DataKind::M1Candles, action, force_rebuild: false,
-        };
-        if let Err(e) = self.data_req_tx.try_send(req) {
-            self.dashboard.ec_status = format!("Send error: {}", e);
-        } else {
-            self.dashboard.ec_capture_active = !self.dashboard.ec_capture_active;
-            self.dashboard.ec_status = if self.dashboard.ec_capture_active {
-                "Starting...".to_string()
-            } else {
-                "Stopping...".to_string()
-            };
-        }
-    }
-
-    fn handle_news_capture_click(&mut self) {
-        let action = if self.dashboard.news_capture_active {
-            DataAction::NewsCaptureStop
-        } else {
-            DataAction::NewsCaptureStart
-        };
-        let req = DataRequest {
-            symbol: "EURUSD".to_string(), symbol_id: 0,
-            kind: DataKind::M1Candles, action, force_rebuild: false,
-        };
-        if let Err(e) = self.data_req_tx.try_send(req) {
-            self.dashboard.news_status = format!("Send error: {}", e);
-        } else {
-            self.dashboard.news_capture_active = !self.dashboard.news_capture_active;
-            self.dashboard.news_status = if self.dashboard.news_capture_active {
-                "Starting...".to_string()
-            } else {
-                "Stopping...".to_string()
-            };
-        }
-    }
-
-    fn handle_news_db_click(&mut self) {
-        let _lock = self.shared_db.lock().unwrap_or_else(|e| e.into_inner());
-        let status = match duckdb::Connection::open(crate::DB_PATH) {
-            Ok(db) => {
-                let today_count: i64 = db.query_row(
-                    "SELECT COUNT(*) FROM news_today", [], |r| r.get(0)
-                ).unwrap_or(0);
-                let hist_count: i64 = db.query_row(
-                    "SELECT COUNT(*) FROM news_historical", [], |r| r.get(0)
-                ).unwrap_or(0);
-                format!("Today: {} | Historical: {}", today_count, hist_count)
-            }
-            Err(e) => format!("DB error: {}", e),
-        };
-        self.dashboard.news_status = status;
-    }
-
-    fn handle_news_update_click(&mut self) {
-        if self.dashboard.news_update_is_running {
-            self.dashboard.news_update_status = "Already running...".to_string();
-            return;
-        }
-        let (tx, rx) = std::sync::mpsc::channel::<String>();
-        self.dashboard.news_update_is_running = true;
-        self.dashboard.news_update_status = "Fetching news...".to_string();
-        self.dashboard.news_update_rx = Some(rx);
-
-        let db_clone = self.shared_db.clone();
-        std::thread::spawn(move || {
-            // Check DB for latest stored article
-            let latest = {
-                let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
-                duckdb::Connection::open(crate::DB_PATH).ok()
-                    .and_then(|db| crate::news_realtime::get_latest_news_timestamp(&db))
-            };
-
-            if let Some(ref ts) = latest {
-                let _ = tx.send(format!("Latest in DB: {} — fetching newer...", ts));
-            } else {
-                let _ = tx.send("No existing news — full fetch...".to_string());
-            }
-
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build();
-            let db_clone2 = db_clone.clone();
-            let result = match rt {
-                Ok(rt) => rt.block_on(async {
-                    match crate::news_realtime::fetch_news_since(
-                        100, 500, latest.as_deref(), Some(&tx)
-                    ).await {
-                        Ok(rows) => {
-                            let count = rows.len();
-                            let _ = tx.send(format!("Writing {} new articles to DB...", count));
-                            {
-                                let _lock = db_clone2.lock().unwrap_or_else(|e| e.into_inner());
-                                match duckdb::Connection::open(crate::DB_PATH) {
-                                    Ok(db) => {
-                                        let _ = crate::news_realtime::write_news_to_db(&db, &rows);
-                                        format!("Done: {} new articles stored", count)
-                                    }
-                                    Err(e) => format!("DB error: {}", e),
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            if latest.is_some() && e.contains("No articles") {
-                                "Already up to date".to_string()
-                            } else {
-                                format!("Fetch error: {}", e)
-                            }
-                        }
-                    }
-                }),
-                Err(e) => format!("Runtime error: {}", e),
-            };
-            let _ = tx.send(result);
-            let _ = tx.send("__DONE__".to_string());
-        });
-    }
-
-    fn handle_news_analyze_click(&mut self) {
-        if self.dashboard.news_analyze_is_running {
-            self.dashboard.news_analyze_status = "Already running...".to_string();
-            return;
-        }
-
-        // Check pending count first
-        let pending_info = {
-            let _lock = self.shared_db.lock().unwrap_or_else(|e| e.into_inner());
-            match duckdb::Connection::open(crate::DB_PATH) {
-                Ok(db) => {
-                    let _ = crate::news_sentiment::ensure_table(&db);
-                    crate::news_sentiment::count_pending(&db).ok()
-                }
-                Err(_) => None,
-            }
-        };
-
-        if let Some((total, analyzed)) = pending_info {
-            let pending = total - analyzed;
-            if pending == 0 {
-                self.dashboard.news_analyze_status = format!(
-                    "All {} articles already analyzed.", total
-                );
-                return;
-            }
-            self.dashboard.news_analyze_status = format!(
-                "Starting: {} pending of {} total...", pending, total
-            );
-        }
-
-        let (tx, rx) = std::sync::mpsc::channel::<String>();
-        self.dashboard.news_analyze_is_running = true;
-        self.dashboard.news_analyze_rx = Some(rx);
-        let db_clone = self.shared_db.clone();
-
-        std::thread::spawn(move || {
-            let result = match crate::news_sentiment::analyze_batch_sync(
-                &db_clone, &tx, 50_000
-            ) {
-                Ok(n) => format!("Done: {} articles analyzed", n),
-                Err(e) => format!("Error: {}", e),
-            };
-            let _ = tx.send(result);
-            let _ = tx.send("__DONE__".to_string());
-        });
-    }
-
-    fn handle_news_gemini_click(&mut self) {
-        if self.dashboard.news_gemini_is_running {
-            self.dashboard.news_gemini_status = "Already running...".to_string();
-            return;
-        }
-
-        self.dashboard.news_gemini_status = "Starting Gemini analysis...".to_string();
-        let (tx, rx) = std::sync::mpsc::channel::<String>();
-        self.dashboard.news_gemini_is_running = true;
-        self.dashboard.news_gemini_rx = Some(rx);
-        let db_clone = self.shared_db.clone();
-
-        std::thread::spawn(move || {
-            let result = match crate::news_gemini::analyze_today_news(&db_clone, Some(&tx)) {
-                Ok(n) => format!("Done: {} articles analyzed with Gemini", n),
-                Err(e) => format!("Error: {}", e),
-            };
-            let _ = tx.send(result);
-            let _ = tx.send("__DONE__".to_string());
-        });
-    }
-
     fn trigger_ai_decision(&mut self, model: &str) {
         let model = model.to_string();
 
@@ -1541,12 +1196,8 @@ impl CTraderApp {
         let (news_lines, ec_lines, model_preds) = {
             let _lock = self.shared_db.lock().unwrap_or_else(|e| e.into_inner());
             let db = duckdb::Connection::open(crate::DB_PATH).ok();
-            let news = db.as_ref()
-                .map(|d| crate::news_gemini::read_for_claude(d))
-                .unwrap_or_default();
-            let ec = db.as_ref()
-                .map(|d| crate::ec_realtime::read_ec_today(d))
-                .unwrap_or_default();
+            let news: Vec<String> = Vec::new();
+            let ec: Vec<String> = Vec::new();
             let models = db.and_then(|d| {
                 d.query_row(
                     "SELECT data FROM ml_predictions_live LIMIT 1",
@@ -1591,285 +1242,6 @@ impl CTraderApp {
         self.ai_pending.push((model, rx));
     }
 
-    fn handle_train_model4b_click(&mut self) {
-        if self.dashboard.model4b_is_running {
-            self.dashboard.model4b_status = "Already running...".to_string();
-            return;
-        }
-
-        // Check if feature table exists
-        let has_features = {
-            let _lock = self.shared_db.lock().unwrap_or_else(|e| e.into_inner());
-            duckdb::Connection::open(crate::DB_PATH).ok()
-                .and_then(|db| db.query_row(
-                    "SELECT COUNT(*) FROM ml_unified_features", [], |r| r.get::<_, i64>(0)
-                ).ok())
-                .unwrap_or(0) > 0
-        };
-
-        if !has_features {
-            self.dashboard.model4b_status = "No feature table found. Click 'ml_unified_features_4b' in Database tab first.".to_string();
-            return;
-        }
-
-        let (tx, rx) = std::sync::mpsc::channel::<String>();
-        self.dashboard.model4b_is_running = true;
-        self.dashboard.model4b_status = "Starting training...".to_string();
-        self.dashboard.model4b_rx = Some(rx);
-
-        std::thread::spawn(move || {
-            let result = std::process::Command::new("C:/Windows/py.exe")
-                .args(["-3.12", "-u", "ml/train_unified.py"])
-                .current_dir("D:/RustProjects/ctrader_rust")
-                .env("PYTHONIOENCODING", "utf-8")
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn();
-
-            match result {
-                Err(e) => {
-                    let _ = tx.send(format!("Failed to start Python: {}", e));
-                    let _ = tx.send("__DONE__".to_string());
-                }
-                Ok(mut child) => {
-                    use std::io::BufRead;
-
-                    // Read stderr on separate thread
-                    let stderr_tx = tx.clone();
-                    let stderr_handle = child.stderr.take().map(|stderr| {
-                        std::thread::spawn(move || {
-                            let reader = std::io::BufReader::new(stderr);
-                            for line in reader.lines().flatten() {
-                                if !line.trim().is_empty() {
-                                    let _ = stderr_tx.send(format!("ERR: {}", line));
-                                }
-                            }
-                        })
-                    });
-
-                    // Read stdout
-                    if let Some(stdout) = child.stdout.take() {
-                        let reader = std::io::BufReader::new(stdout);
-                        for line in reader.lines() {
-                            match line {
-                                Ok(l) => { let _ = tx.send(l); }
-                                Err(_) => break,
-                            }
-                        }
-                    }
-
-                    if let Some(handle) = stderr_handle {
-                        let _ = handle.join();
-                    }
-
-                    let status = child.wait().unwrap_or_else(|_| std::process::ExitStatus::default());
-                    let code = status.code().unwrap_or(-1);
-                    if code != 0 {
-                        let _ = tx.send(format!("Training exited with code: {}", code));
-                    }
-                    let _ = tx.send("__DONE__".to_string());
-                }
-            }
-        });
-    }
-
-    fn handle_model4b_status_click(&mut self) {
-        // Read metrics from saved file
-        let metrics_path = "ml/trained/unified_metrics.json";
-        match std::fs::read_to_string(metrics_path) {
-            Ok(contents) => {
-                if let Ok(metrics) = serde_json::from_str::<serde_json::Value>(&contents) {
-                    let acc = metrics.get("accuracy").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let baseline = metrics.get("baseline").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let train_rows = metrics.get("train_rows").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let test_rows = metrics.get("test_rows").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let features = metrics.get("features").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let best_iter = metrics.get("best_iteration").and_then(|v| v.as_i64()).unwrap_or(0);
-
-                    let mut text = format!(
-                        "Model 4b — EC + News + Price (XGBoost)\n\
-                         ────────────────────────────────────────\n\
-                         Accuracy:       {:.1}%\n\
-                         Baseline:       {:.1}%\n\
-                         Edge:           +{:.1}%\n\
-                         Train rows:     {}\n\
-                         Test rows:      {}\n\
-                         Features:       {}\n\
-                         Best iteration: {}\n",
-                        acc * 100.0, baseline * 100.0, (acc - baseline) * 100.0,
-                        train_rows, test_rows, features, best_iter
-                    );
-
-                    if let Some(top) = metrics.get("top_features").and_then(|v| v.as_object()) {
-                        text.push_str("\nTop Features:\n");
-                        let mut sorted: Vec<_> = top.iter().collect();
-                        sorted.sort_by(|a, b| b.1.as_f64().unwrap_or(0.0)
-                            .partial_cmp(&a.1.as_f64().unwrap_or(0.0)).unwrap());
-                        for (name, val) in sorted.iter().take(15) {
-                            text.push_str(&format!("  {:<28} {:.4}\n", name, val.as_f64().unwrap_or(0.0)));
-                        }
-                    }
-
-                    self.dashboard.model4b_status = text;
-                } else {
-                    self.dashboard.model4b_status = "Error parsing metrics JSON".to_string();
-                }
-            }
-            Err(_) => {
-                self.dashboard.model4b_status = "Model 4b not yet trained.\nClick 'Train Model 4b' to start.".to_string();
-            }
-        }
-    }
-
-    fn handle_ml_unified_build_click(&mut self) {
-        if self.dashboard.ml_unified_is_running {
-            self.dashboard.ml_unified_status = "Already running...".to_string();
-            return;
-        }
-        let (tx, rx) = std::sync::mpsc::channel::<String>();
-        self.dashboard.ml_unified_is_running = true;
-        self.dashboard.ml_unified_status = "Building features...".to_string();
-        self.dashboard.ml_unified_rx = Some(rx);
-        let db_clone = self.shared_db.clone();
-
-        std::thread::spawn(move || {
-            let start = std::time::Instant::now();
-
-            let result = (|| -> Result<String, String> {
-                // Step 1: Build M5 candles
-                let _ = tx.send("Step 1/4: Building M5 candles from M1...".to_string());
-                {
-                    let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
-                    let db = duckdb::Connection::open(crate::DB_PATH)
-                        .map_err(|e| format!("DB open: {}", e))?;
-                    db.execute_batch("
-                        DROP TABLE IF EXISTS eurusd_m5;
-                        CREATE TABLE eurusd_m5 AS
-                        SELECT
-                            (timestamp // 300) * 300 AS timestamp,
-                            FIRST(open ORDER BY timestamp) AS open,
-                            MAX(high) AS high,
-                            MIN(low) AS low,
-                            LAST(close ORDER BY timestamp) AS close,
-                            SUM(volume) AS volume,
-                            COUNT(*) AS m1_count
-                        FROM eurusd_m1
-                        WHERE timestamp >= 1739923200
-                        GROUP BY (timestamp // 300) * 300
-                        HAVING COUNT(*) >= 3
-                        ORDER BY timestamp;
-                    ").map_err(|e| format!("M5 build: {}", e))?;
-                    let m5_count: i64 = db.query_row("SELECT COUNT(*) FROM eurusd_m5", [], |r| r.get(0)).unwrap_or(0);
-                    let _ = tx.send(format!("Step 1/4: {} M5 candles built", m5_count));
-                }
-
-                // Step 2: Build cross-pair M5
-                let _ = tx.send("Step 2/4: Building cross-pair M5...".to_string());
-                {
-                    let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
-                    let db = duckdb::Connection::open(crate::DB_PATH)
-                        .map_err(|e| format!("DB open: {}", e))?;
-                    db.execute_batch("
-                        DROP TABLE IF EXISTS cross_m5;
-                        CREATE TABLE cross_m5 AS
-                        WITH pairs AS (
-                            SELECT (timestamp // 300) * 300 AS ts, 'gbpusd' AS pair, LAST(close ORDER BY timestamp) AS close FROM gbpusd_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
-                            UNION ALL SELECT (timestamp // 300) * 300, 'usdjpy', LAST(close ORDER BY timestamp) FROM usdjpy_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
-                            UNION ALL SELECT (timestamp // 300) * 300, 'usdchf', LAST(close ORDER BY timestamp) FROM usdchf_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
-                            UNION ALL SELECT (timestamp // 300) * 300, 'eurjpy', LAST(close ORDER BY timestamp) FROM eurjpy_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
-                            UNION ALL SELECT (timestamp // 300) * 300, 'audusd', LAST(close ORDER BY timestamp) FROM audusd_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
-                            UNION ALL SELECT (timestamp // 300) * 300, 'xauusd', LAST(close ORDER BY timestamp) FROM xauusd_m1 WHERE timestamp >= 1739923200 GROUP BY (timestamp // 300) * 300
-                        )
-                        SELECT ts as timestamp,
-                            MAX(CASE WHEN pair='gbpusd' THEN close END) AS gbpusd_close,
-                            MAX(CASE WHEN pair='usdjpy' THEN close END) AS usdjpy_close,
-                            MAX(CASE WHEN pair='usdchf' THEN close END) AS usdchf_close,
-                            MAX(CASE WHEN pair='eurjpy' THEN close END) AS eurjpy_close,
-                            MAX(CASE WHEN pair='audusd' THEN close END) AS audusd_close,
-                            MAX(CASE WHEN pair='xauusd' THEN close END) AS xauusd_close
-                        FROM pairs GROUP BY ts ORDER BY ts;
-                    ").map_err(|e| format!("Cross M5 build: {}", e))?;
-                    let _ = tx.send("Step 2/4: Cross-pair M5 done".to_string());
-                }
-
-                // Step 3: Prepare EC and News timestamps
-                let _ = tx.send("Step 3/4: Preparing EC calendar and News timestamps...".to_string());
-                {
-                    let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
-                    let db = duckdb::Connection::open(crate::DB_PATH)
-                        .map_err(|e| format!("DB open: {}", e))?;
-                    db.execute_batch("
-                        DROP TABLE IF EXISTS ec_events_ts;
-                        CREATE TABLE ec_events_ts AS
-                        SELECT
-                            CAST(EPOCH(timestamp_utc) AS BIGINT) AS event_ts,
-                            event_name, currency, volatility,
-                            COALESCE(actual, 0) AS actual,
-                            COALESCE(forecast, 0) AS forecast,
-                            COALESCE(surprise, 0) AS surprise,
-                            COALESCE(beats_forecast, 0) AS beats_forecast
-                        FROM eurusd_economic_calendar
-                        WHERE CAST(EPOCH(timestamp_utc) AS BIGINT) >= 1739923200
-                        ORDER BY event_ts;
-
-                        DROP TABLE IF EXISTS news_ts;
-                        CREATE TABLE news_ts AS
-                        SELECT
-                            CAST(EPOCH(STRPTIME(published_utc, '%Y-%m-%dT%H:%M:%S')) AS BIGINT) AS pub_ts,
-                            COALESCE(eur_sentiment, 0) AS eur_sentiment,
-                            COALESCE(usd_sentiment, 0) AS usd_sentiment,
-                            COALESCE(eurusd_impact, 0) AS eurusd_impact,
-                            COALESCE(volatility_expected, 0) AS vol_expected,
-                            COALESCE(relevance, 0) AS relevance,
-                            COALESCE(category, 'other') AS category
-                        FROM news_sentiment
-                        WHERE published_utc IS NOT NULL AND eurusd_impact IS NOT NULL
-                        ORDER BY pub_ts;
-                    ").map_err(|e| format!("EC/News prep: {}", e))?;
-                    let _ = tx.send("Step 3/4: EC and News timestamps ready".to_string());
-                }
-
-                // Step 4: Build unified feature table
-                let _ = tx.send("Step 4/4: Building unified feature table (this may take a minute)...".to_string());
-                {
-                    let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
-                    let db = duckdb::Connection::open(crate::DB_PATH)
-                        .map_err(|e| format!("DB open: {}", e))?;
-
-                    // Read and execute the SQL file
-                    let sql = std::fs::read_to_string("build_features.sql")
-                        .map_err(|e| format!("Read build_features.sql: {}", e))?;
-                    db.execute_batch(&sql)
-                        .map_err(|e| format!("Build features: {}", e))?;
-
-                    let row_count: i64 = db.query_row(
-                        "SELECT COUNT(*) FROM ml_unified_features", [], |r| r.get(0)
-                    ).unwrap_or(0);
-                    let col_count: i64 = db.query_row(
-                        "SELECT COUNT(*) FROM information_schema.columns WHERE table_name='ml_unified_features'",
-                        [], |r| r.get(0)
-                    ).unwrap_or(0);
-
-                    // Export CSV
-                    let _ = db.execute_batch(
-                        "COPY ml_unified_features TO 'ml/ml_unified_features.csv' (HEADER, DELIMITER ',');"
-                    );
-
-                    let elapsed = start.elapsed().as_secs();
-                    Ok(format!("Done: {} rows x {} cols | CSV exported | {}s",
-                        row_count, col_count, elapsed))
-                }
-            })();
-
-            let msg = match result {
-                Ok(s) => s,
-                Err(e) => format!("Error: {}", e),
-            };
-            let _ = tx.send(msg);
-            let _ = tx.send("__DONE__".to_string());
-        });
-    }
-
     fn handle_ml_btn(&mut self, model: MlSubCardType, btn_type: MlBtnType) {
         match btn_type {
             MlBtnType::Status => {
@@ -1891,9 +1263,9 @@ impl CTraderApp {
                 }
                 let module = match model {
                     MlSubCardType::Model1 => Some("ml.model1_technical.train"),
-                    MlSubCardType::Model2 => Some("ml.model2_regime.train"),
-                    MlSubCardType::Model3 => Some("ml.model3_cnn.train"),
-                    MlSubCardType::Model4 => Some("ml.model4_econcal.train"),
+                    MlSubCardType::Model2 => None,
+                    MlSubCardType::Model3 => Some("ml.signal_model.train"),
+                    MlSubCardType::Model4 => None,
                     _ => None,
                 };
                 if let Some(module_path) = module {
@@ -1921,8 +1293,30 @@ impl eframe::App for CTraderApp {
         let mut has_data = false;
         has_data |= self.poll_price_updates();
         has_data |= self.poll_data_responses();
-        self.poll_ml_training();
-        self.poll_econ_cal();
+        has_data |= self.poll_ml_training();
+        self.poll_ai_decisions();
+        // Force faster repaint while any ML training is active
+        if self.ml_train.states.iter().any(|s| s.is_training)
+            || self.dashboard.bt_signal_is_running
+            || self.dashboard.bt_m1_is_running
+        {
+            has_data = true;
+        }
+        poll_background_thread(
+            &mut self.dashboard.clear_data_is_running,
+            &mut self.dashboard.clear_data_status,
+            &mut self.dashboard.clear_data_rx,
+        );
+        poll_background_thread(
+            &mut self.dashboard.bt_signal_is_running,
+            &mut self.dashboard.bt_signal_status,
+            &mut self.dashboard.bt_signal_rx,
+        );
+        poll_background_thread(
+            &mut self.dashboard.bt_m1_is_running,
+            &mut self.dashboard.bt_m1_status,
+            &mut self.dashboard.bt_m1_rx,
+        );
         self.refresh_ec_countdown();
 
         // Draw UI
@@ -1954,19 +1348,20 @@ fn poll_background_thread(
     rx_opt: &mut Option<std::sync::mpsc::Receiver<String>>,
 ) {
     if !*is_running { return; }
-    let mut messages: Vec<String> = Vec::new();
     let mut done = false;
     if let Some(rx) = rx_opt.as_ref() {
         loop {
             match rx.try_recv() {
                 Ok(line) if line == "__DONE__" => { done = true; break; }
-                Ok(line) => messages.push(line),
+                Ok(line) => {
+                    if !status.is_empty() {
+                        status.push('\n');
+                    }
+                    status.push_str(&line);
+                }
                 Err(_) => break,
             }
         }
-    }
-    if let Some(last) = messages.into_iter().last() {
-        *status = last;
     }
     if done {
         *is_running = false;
@@ -2116,10 +1511,16 @@ fn spawn_python_subprocess(
 ) {
     let module_path = module_path.to_string();
     std::thread::spawn(move || {
+        // Split module_path on whitespace to support extra args
+        // e.g. "ml.signal_model.backtest --model signal"
+        let parts: Vec<&str> = module_path.split_whitespace().collect();
+        let mut args = vec!["-3.12", "-u", "-m"];
+        args.extend_from_slice(&parts);
         let result = std::process::Command::new("C:/Windows/py.exe")
-            .args(["-3.12", "-u", "-m", &module_path])
+            .args(&args)
             .current_dir("D:/RustProjects/ctrader_rust")
             .env("PYTHONIOENCODING", "utf-8")
+            .env("PYTHONUNBUFFERED", "1")
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn();
@@ -2228,7 +1629,7 @@ fn process_data_response(
                     }
                 }
                 DataKind::TickDataAsk if workflow == TickWorkflowStep::CheckingAsk => {
-                    ds.download_message = Some("Bid and ask ticks in DB. Merging in process...".into());
+                    ds.download_message = Some("Bid and ask ticks in DB. Merging (ASOF JOIN on all ticks — this takes 5-10 min, app is not frozen)...".into());
                     ds.tick_workflow = TickWorkflowStep::Merging;
                     if let Some(&sid) = symbol_map.name_to_id.get(&symbol) {
                         let _ = req_tx.try_send(DataRequest { symbol, symbol_id: sid, kind: DataKind::TickData, action: DataAction::MergeBidAsk, force_rebuild: false });
@@ -2359,7 +1760,7 @@ fn process_data_response(
                     }
                 }
                 DataKind::TickDataAsk if workflow == TickWorkflowStep::DownloadingAsk => {
-                    ds.download_message = Some(format!("Ask ticks downloaded ({} rows). Merging bid + ask...", total_rows));
+                    ds.download_message = Some(format!("Ask ticks downloaded ({} rows). Merging bid + ask (5-10 min, not frozen)...", total_rows));
                     ds.tick_workflow = TickWorkflowStep::Merging;
                     ds.is_downloading = true;
                     if let Some(&sid) = symbol_map.name_to_id.get(&symbol) {
@@ -2435,12 +1836,12 @@ fn process_data_response(
 
 fn read_ml_model_status(model: MlSubCardType) -> String {
     let (metrics_path, model_path, model_name) = match model {
-        MlSubCardType::Model1 => ("ml/trained/model1_metrics.json", "ml/trained/model1_technical.json", "Model 1  Technical Indicators (XGBoost)"),
-        MlSubCardType::Model2 => return read_model2_status(),
-        MlSubCardType::Model3 => return read_model3_status(),
-        MlSubCardType::Model4 => ("ml/trained/model4_metrics.json", "ml/trained/model4_long.json", "Model 4  Economic Calendar (XGBoost)"),
-        MlSubCardType::Model5 => return "Model 5 (Order Flow XGBoost) --not yet trained.".to_string(),
-        MlSubCardType::Model6 => return "Model 6 (Ensemble XGBoost) --not yet trained.".to_string(),
+        MlSubCardType::Model1 => ("ml/trained/model1_metrics.json", "ml/trained/model1_technical.json", "M1  Technical Indicators (XGBoost)"),
+        MlSubCardType::Model2 => return String::new(),
+        MlSubCardType::Model3 => return read_signal_model_status(),
+        MlSubCardType::Model4 => return String::new(),
+        MlSubCardType::Model5 => return String::new(),
+        MlSubCardType::Model6 => return String::new(),
     };
 
     let raw = match std::fs::read_to_string(metrics_path) {
@@ -2507,119 +1908,48 @@ fn read_ml_model_status(model: MlSubCardType) -> String {
     lines.join("\n")
 }
 
-fn read_model2_status() -> String {
-    let metrics_path = "ml/trained/model2_metrics.json";
-    let model_path   = "ml/trained/model2_regime.pkl";
+fn read_signal_model_status() -> String {
+    let metrics_path = "ml/trained/signal_metrics.json";
+    let model_path   = "ml/trained/signal_long.txt";
 
     let raw = match std::fs::read_to_string(metrics_path) {
         Ok(s)  => s,
-        Err(_) => return "Model 2 (Regime HMM) --not yet trained.\nPress 'Update Training' to train.".to_string(),
+        Err(_) => return "Signal Model (LightGBM) --not yet trained.\nPress 'Update Training' to train.".to_string(),
     };
     let v: serde_json::Value = match serde_json::from_str(&raw) {
         Ok(v) => v,
-        Err(e) => return format!("Could not parse model2_metrics.json: {}", e),
+        Err(e) => return format!("Could not parse signal_metrics.json: {}", e),
     };
 
-    let n_states  = v["n_states"].as_u64().unwrap_or(0);
-    let n_feat    = v["n_features"].as_u64().unwrap_or(0);
-    let n_bars    = v["train_bars"].as_u64().unwrap_or(0);
-    let stride    = v["stride"].as_u64().unwrap_or(1);
-    let ll        = v["log_likelihood"].as_f64().unwrap_or(0.0);
-    let aic       = v["aic"].as_f64().unwrap_or(0.0);
-    let bic       = v["bic"].as_f64().unwrap_or(0.0);
-    let n_params  = v["n_params"].as_u64().unwrap_or(0);
-    let n_restart = v["n_restarts"].as_u64().unwrap_or(0);
-
-    let range_start = v["train_range"][0].as_str().unwrap_or("?");
-    let range_end   = v["train_range"][1].as_str().unwrap_or("?");
-    let start_short = &range_start[..10.min(range_start.len())];
-    let end_short   = &range_end[..10.min(range_end.len())];
+    let model_type  = v["model_type"].as_str().unwrap_or("LightGBM");
+    let target      = v["target"].as_str().unwrap_or("?");
+    let train_range = v["train_range"].as_str().unwrap_or("?");
 
     let mut lines = Vec::new();
-    lines.push("Model 2  Regime Detection (GaussianHMM)".to_string());
-    lines.push("--------------------------------------".to_string());
-    lines.push(format!("States: {}  |  Features: {}  |  Restarts: {}", n_states, n_feat, n_restart));
-    lines.push(format!("Train obs : {} (every {}nd bar)", n_bars, stride));
-    lines.push(format!("Train range: {} -> {}", start_short, end_short));
-    lines.push(String::new());
-    lines.push("--- Fit quality ---".to_string());
-    lines.push(format!("Log-likelihood: {:.2}", ll));
-    lines.push(format!("AIC    : {:.2}", aic));
-    lines.push(format!("BIC    : {:.2}", bic));
-    lines.push(format!("Params : {}", n_params));
-
-    if let Some(stats) = v["state_stats"].as_array() {
-        lines.push(String::new());
-        lines.push("--- Regime states ---".to_string());
-        for s in stats {
-            let label    = s["label"].as_str().unwrap_or("?");
-            let pct      = s["pct_bars"].as_f64().unwrap_or(0.0);
-            let avg_dur  = s["avg_duration_bars"].as_f64().unwrap_or(0.0);
-            let ret_pips = s["mean_return_pips"].as_f64().unwrap_or(0.0);
-            let vol      = s["mean_vol_20"].as_f64().unwrap_or(0.0);
-            lines.push(format!("  {:<16}: {:5.1}%  dur={:.0}m  ret={:+.4}p  vol={:.6}", label, pct, avg_dur, ret_pips, vol));
-        }
-    }
-
-    if let Ok(meta) = std::fs::metadata(model_path) {
-        if let Ok(modified) = meta.modified() {
-            let datetime = chrono::DateTime::<chrono::Local>::from(modified);
-            lines.push(String::new());
-            lines.push(format!("Last trained: {}", datetime.format("%Y-%m-%d %H:%M")));
-        }
-    }
-
-    lines.join("\n")
-}
-
-fn read_model3_status() -> String {
-    let metrics_path = "ml/trained/model3_metrics.json";
-    let model_path   = "ml/trained/model3_cnn_long.pt";
-
-    let raw = match std::fs::read_to_string(metrics_path) {
-        Ok(s)  => s,
-        Err(_) => return "Model 3 (Chart Patterns CNN) --not yet trained.\nPress 'Update Training' to train.".to_string(),
-    };
-    let v: serde_json::Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(e) => return format!("Could not parse model3_metrics.json: {}", e),
-    };
-
-    let cfg         = &v["config"];
-    let window_size = cfg["window_size"].as_u64().unwrap_or(60);
-    let target_p    = cfg["target_pips"].as_u64().unwrap_or(0);
-    let stop_p      = cfg["stop_pips"].as_u64().unwrap_or(0);
-    let horizon     = cfg["horizon"].as_u64().unwrap_or(0);
-    let n_folds     = cfg["n_folds"].as_u64().unwrap_or(0);
-
-    let mut lines = Vec::new();
-    lines.push("Model 3  Chart Patterns (1D CNN)".to_string());
-    lines.push("--------------------------------".to_string());
-    lines.push(format!("Window: {} bars  |  Label: +{}p / -{}p / {}m", window_size, target_p, stop_p, horizon));
-    lines.push(format!("Walk-fwd folds: {}", n_folds));
+    lines.push("Signal Model (LightGBM with ATR Target)".to_string());
+    lines.push("---------------------------------------".to_string());
+    lines.push(format!("Type: {}", model_type));
+    lines.push(format!("Target: {}", target));
+    lines.push(format!("Train range: {}", train_range));
 
     for direction in &["long", "short"] {
         let dir_v = &v[direction];
         if dir_v.is_null() { continue; }
-        let avg     = &dir_v["avg_metrics"];
-        let roc_auc = avg["roc_auc"].as_f64().unwrap_or(0.0);
-        let acc     = avg["accuracy"].as_f64().unwrap_or(0.0);
-        let prec    = avg["precision"].as_f64().unwrap_or(0.0);
-        let ll      = avg["log_loss"].as_f64().unwrap_or(0.0);
+        let mean_auc = dir_v["mean_auc"].as_f64().unwrap_or(0.0);
+        let mean_acc = dir_v["mean_accuracy"].as_f64().unwrap_or(0.0);
         lines.push(String::new());
-        lines.push(format!("--- {} model (avg walk-forward) ---", direction.to_uppercase()));
-        lines.push(format!("ROC-AUC  : {:.4}", roc_auc));
-        lines.push(format!("Accuracy : {:.4}", acc));
-        lines.push(format!("Precision: {:.4}", prec));
-        lines.push(format!("Log-loss : {:.4}", ll));
-        if let Some(folds_arr) = dir_v["fold_metrics"].as_array() {
-            lines.push("Per-fold:".to_string());
-            for fold in folds_arr {
+        lines.push(format!("--- {} (walk-forward avg) ---", direction.to_uppercase()));
+        lines.push(format!("  Mean AUC:      {:.4}", mean_auc));
+        lines.push(format!("  Mean Accuracy: {:.4}", mean_acc));
+
+        if let Some(folds) = dir_v["folds"].as_array() {
+            lines.push("  Per-fold:".to_string());
+            for fold in folds {
                 let year = fold["test_year"].as_u64().unwrap_or(0);
-                let auc  = fold["roc_auc"].as_f64().unwrap_or(0.0);
-                let p    = fold["precision"].as_f64().unwrap_or(0.0);
-                let sigs = fold["signals"].as_u64().unwrap_or(0);
-                lines.push(format!("  {}: AUC={:.3}  Prec={:.3}  Signals={}", year, auc, p, sigs));
+                let auc  = fold["auc"].as_f64().unwrap_or(0.0);
+                let acc  = fold["accuracy"].as_f64().unwrap_or(0.0);
+                let prec = fold["precision"].as_f64().unwrap_or(0.0);
+                lines.push(format!("    {}: AUC={:.3}  ACC={:.3}  PREC={:.3}", year, auc, acc, prec));
             }
         }
     }
@@ -2654,48 +1984,27 @@ fn read_ml_model_features(model: MlSubCardType) -> String {
             "Ichimoku Cloud     5\n  dist_cloud_top, dist_cloud_bot\n  cloud_thickness, above_cloud\n  tenkan_vs_kijun\n\n",
             "Fibonacci          5\n  dist 23.6 / 38.2 / 50.0 / 61.8\n  fib_position (0=low, 1=high)\n\n",
             "Cross-Pair        38\n  GBPUSD/USDJPY/USDCHF/AUDUSD/EURJPY/XAUUSD\n  return_1m/5m/60m, RSI14, vs_EMA21, mom10\n  corr_20 (rolling correlation vs EURUSD)\n  usd_strength_5m, risk_sentiment_5m\n  eur_divergence_5m\n\n",
-            "Market Regime      2\n  regime_state (Model 2 HMM 0-3)\n  regime_prob_max (confidence)"
         ).to_string(),
-        MlSubCardType::Model2 => concat!(
-            "8 features  (unsupervised --no labels)\n\n",
-            "log_return          bar log-return\nrealized_vol_20     20-bar rolling std of log-returns\n",
-            "realized_vol_5      5-bar rolling std (fast vol)\natr_ratio           ATR(14) / close\n",
-            "hl_range            (high - low) / close\nspread_mean_pips    mean bid-ask spread in bar\n",
-            "return_abs_20       20-bar mean of |log_return|\nvol_ratio           realized_vol_5 / realized_vol_20\n\n",
-            "Model: GaussianHMM  covariance=full\nStates: 4  (Trending Up / Down / Ranging / Volatile)\n",
-            "Data: all 24h bars from 2013  (no session filter)\nStride: every 3rd bar -> ~1.6M observations\n",
-            "Restarts: 5  (best log-likelihood selected)"
-        ).to_string(),
+        MlSubCardType::Model2 => String::new(),
         MlSubCardType::Model3 => concat!(
-            "Input: 60-bar OHLCV window (1 hour of M1 data)\n",
-            "Channels: 5  (Open, High, Low, Close, Volume)\n",
-            "Normalised per window (OHLC relative to entry close\n",
-            "and window range; Volume by window mean)\n",
-            "\n",
-            "Architecture: 1D CNN  (~58K parameters)\n",
-            "  Conv1d(5\u{2192}32) + BN + ReLU + MaxPool(2)\n",
-            "  Conv1d(32\u{2192}64) + BN + ReLU + MaxPool(2)\n",
-            "  Conv1d(64\u{2192}128) + BN + ReLU + MaxPool(2)\n",
-            "  AdaptiveAvgPool1d(1)  [global avg pool]\n",
-            "  Linear(128\u{2192}64) + ReLU + Dropout(0.3)\n",
-            "  Linear(64\u{2192}1) \u{2192} sigmoid probability\n",
-            "\n",
-            "Labels: same as Model 1\n  +15p target / -10p stop / 120m horizon\n  Long + Short models trained separately\n\n",
-            "Session filter: London (08-12) + NY (13-17) UTC\nWalk-forward: 4 yearly expanding folds\n",
-            "Optimizer: Adam  lr=1e-3  ReduceLROnPlateau\nLoss: BCEWithLogitsLoss (pos_weight balanced)\n",
-            "Early stopping: patience=15 epochs\nFine-tune: 10 extra epochs on full data after CV"
+            "Signal Model (LightGBM) -- Primary Trading Signal\n\n",
+            "Features: M1 technical (~86) + regime (3)\n",
+            "  = ~89 features -> top 60 selected by gain\n\n",
+            "Target: ATR-based first-touch\n",
+            "  WIN:  price moves > 1.5 ATR in direction\n",
+            "  LOSS: price hits 1.0 ATR stop first\n",
+            "  Horizon: 120 bars (2 hours)\n",
+            "  Answers: 'will price hit 2R before 1R?'\n\n",
+            "LightGBM params:\n",
+            "  num_leaves=31, max_depth=5, lr=0.05\n",
+            "  n_estimators=800, subsample=0.8\n",
+            "  early_stopping=50 rounds\n\n",
+            "Session filter: 07:00-21:00 UTC\n",
+            "Walk-forward: 3yr train / 1yr test\n",
+            "Long + Short models trained separately"
         ).to_string(),
-        MlSubCardType::Model4 => concat!(
-            "~70 computed -> top 50 selected by XGBoost gain\n\n",
-            "Last Event (per vol/currency)   24\n  surprise_norm, abs_surprise, beats, hours_ago\n  x 3 vol tiers (>=1, >=2, >=3)\n  x 2 currencies (EUR, USD)\n\n",
-            "Rolling Event Counts            24\n  count by vol tier x currency: 1h/4h/24h/1w\n  EUR vol>=1/2/3 + USD vol>=1/2/3\n\n",
-            "Surprise Differential           12\n  EUR avg surprise: 1h/4h/24h/1w\n  USD avg surprise: 1h/4h/24h/1w\n  net (EUR-USD): 1h/4h/24h/1w\n\n",
-            "Named Event Flags                8\n  is_nfp_day, is_fomc_day, is_ecb_day, is_cpi_day\n  hours_since_nfp/fomc/ecb/cpi\n\n",
-            "High-Vol Proximity               3\n  bars_since_last_high_vol (capped 1440)\n  high_vol_in_last_1h (binary)\n  high_vol_in_last_4h (binary)\n\n",
-            "Labels: same as Model 1\n  +15p target / -10p stop / 120m horizon\n  Long + Short models, CUDA RTX 3070\n",
-            "  Session filter: London + NY only\n  Walk-forward: 4 yearly expanding folds"
-        ).to_string(),
-        MlSubCardType::Model5 => "Model 5 (Order Flow) - features not yet defined.".to_string(),
-        MlSubCardType::Model6 => "Model 6 (Ensemble) - features not yet defined.".to_string(),
+        MlSubCardType::Model4 => String::new(),
+        MlSubCardType::Model5 => String::new(),
+        MlSubCardType::Model6 => String::new(),
     }
 }

@@ -1,13 +1,19 @@
 """
-Real-time prediction script for all ML models.
-Runs continuously (every 60s) writing predictions to DuckDB table
-`ml_predictions_live`, which the Rust app reads for the Claude prompt.
+Real-time prediction script — 3-Layer Architecture
+====================================================
+Layer 1: FILTERS  — When NOT to trade
+    - Session filter: only trade London/NY hours (07:00-21:00 UTC)
+    - Spread filter: skip when spread > 1.5x session average
+
+Layer 2: SIGNAL   — Two models blended
+    - M1 XGBoost (technical indicators, fixed pip targets) — 40% weight
+    - Signal LightGBM (ATR-based targets) — 60% weight
+
+Layer 3: SIZING   — Confidence -> position size suggestion
 
 Usage:
-    py -3.12 ml/predict_all.py              # run once, print JSON to stdout
+    py -3.12 ml/predict_all.py              # run once, print JSON
     py -3.12 ml/predict_all.py --loop 60    # run every 60s, write to DB
-
-Output table: ml_predictions_live (single row, overwritten each cycle)
 """
 
 import sys
@@ -24,6 +30,10 @@ DB_PATH = "ctrader.duckdb"
 MODEL_DIR = "ml/trained"
 M1_BARS_NEEDED = 250  # enough for 200-bar indicators + warmup
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  DATA LOADING
+# ═══════════════════════════════════════════════════════════════════════════
 
 def load_m1_data():
     """Load last N M1 bars from DuckDB."""
@@ -65,6 +75,84 @@ def load_tick_spread(df):
     return df
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  LAYER 1: FILTERS
+# ═══════════════════════════════════════════════════════════════════════════
+
+def check_session_filter(current_time):
+    """
+    Session filter: only trade during London + NY hours.
+    Tradeable: 07:00-21:00 UTC (covers London open through NY close).
+    """
+    hour = current_time.hour
+    is_tradeable = 7 <= hour < 21
+    session = "Off-hours"
+    if 7 <= hour < 12:
+        session = "London"
+    elif 12 <= hour < 13:
+        session = "London (pre-NY)"
+    elif 13 <= hour < 16:
+        session = "London/NY Overlap"
+    elif 16 <= hour < 21:
+        session = "New York"
+
+    return {
+        "trade_allowed": is_tradeable,
+        "session": session,
+        "reason": None if is_tradeable else f"Outside trading hours ({session})",
+    }
+
+
+def check_spread_filter(df, session_avg_multiplier=1.5):
+    """
+    Spread filter: don't trade when current spread > 1.5x session average.
+    Uses the last 60 bars (1 hour) as the session average baseline.
+    """
+    spread = df["spread_mean_pips"]
+    current_spread = spread.iloc[-1]
+
+    # Session average: last 60 bars
+    session_avg = spread.iloc[-60:].mean() if len(spread) >= 60 else spread.mean()
+    threshold = session_avg * session_avg_multiplier
+
+    is_ok = current_spread <= threshold
+    return {
+        "trade_allowed": is_ok,
+        "current_spread": round(float(current_spread), 2),
+        "session_avg_spread": round(float(session_avg), 2),
+        "threshold": round(float(threshold), 2),
+        "reason": None if is_ok else f"Spread {current_spread:.1f} > {threshold:.1f} (1.5x avg)",
+    }
+
+
+def run_filters(df):
+    """Run all Layer 1 filters. Returns combined filter result."""
+    current_time = pd.Timestamp.utcnow()
+
+    session = check_session_filter(current_time)
+    spread = check_spread_filter(df)
+
+    all_pass = session["trade_allowed"] and spread["trade_allowed"]
+
+    reasons = []
+    if not session["trade_allowed"]:
+        reasons.append(session["reason"])
+    if not spread["trade_allowed"]:
+        reasons.append(spread["reason"])
+
+    return {
+        "trade_allowed": all_pass,
+        "block_reasons": reasons if reasons else None,
+        "session": session.get("session", "Unknown"),
+        "spread_ok": spread["trade_allowed"],
+        "current_spread": spread.get("current_spread"),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LAYER 2: SIGNAL (M1 XGBoost + LightGBM Signal)
+# ═══════════════════════════════════════════════════════════════════════════
+
 def predict_model1(df):
     """Model 1: Technical Indicators (XGBoost)."""
     try:
@@ -93,173 +181,115 @@ def predict_model1(df):
         return None, None
 
 
-def predict_model2(df):
-    """Model 2: Regime Detection (HMM)."""
+def predict_signal(df):
+    """Signal Model: LightGBM with ATR-based targets."""
     try:
-        if "ml/model2_regime" not in sys.path:
-            sys.path.insert(0, "ml/model2_regime")
+        import lightgbm as lgb
+        from pathlib import Path
+
+        long_path = Path(MODEL_DIR) / "signal_long.txt"
+        short_path = Path(MODEL_DIR) / "signal_short.txt"
+        long_feat_path = Path(MODEL_DIR) / "signal_long_features.txt"
+        short_feat_path = Path(MODEL_DIR) / "signal_short_features.txt"
+
+        if not long_path.exists() or not short_path.exists():
+            return None, None
+
+        model_long = lgb.Booster(model_file=str(long_path))
+        model_short = lgb.Booster(model_file=str(short_path))
+        feat_long = long_feat_path.read_text().strip().split("\n")
+        feat_short = short_feat_path.read_text().strip().split("\n")
+
+        if "ml/model1_technical" not in sys.path:
+            sys.path.insert(0, "ml/model1_technical")
         from features import compute_features
-        from train import load_model
 
         features = compute_features(df)
         if features.empty:
             return None, None
-
-        model, scaler, state_map = load_model(MODEL_DIR)
-        X = scaler.transform(features.iloc[[-1]])
-        state = int(model.predict(X)[0])
-        regime_name = state_map.get(state, f"Unknown({state})")
-
-        return regime_name, state
-    except Exception as e:
-        print(f"Model2 error: {e}", file=sys.stderr)
-        return None, None
-
-
-def predict_model3(df):
-    """Model 3: CNN Chart Pattern (PyTorch)."""
-    try:
-        import torch
-        if "ml/model3_cnn" not in sys.path:
-            sys.path.insert(0, "ml/model3_cnn")
-        from train import load_model
-
-        WINDOW = 60
-        if len(df) < WINDOW:
-            return None, None
-
-        last_w = df.iloc[-WINDOW:]
-        o = last_w["open"].values.astype(np.float32)
-        h = last_w["high"].values.astype(np.float32)
-        l = last_w["low"].values.astype(np.float32)
-        c = last_w["close"].values.astype(np.float32)
-        v = last_w["volume"].values.astype(np.float32)
-
-        X = np.stack([o, h, l, c, v])
-
-        entry_close = c[-1]
-        win_range = h.max() - l.min() + 1e-8
-        for ch in range(4):
-            X[ch] = (X[ch] - entry_close) / win_range
-        vol_mean = X[4].mean() + 1e-8
-        X[4] = X[4] / vol_mean
-
-        X_tensor = torch.from_numpy(X).unsqueeze(0).float()
-
-        model_long = load_model(MODEL_DIR, "long")
-        model_short = load_model(MODEL_DIR, "short")
-
-        with torch.no_grad():
-            prob_long = float(torch.sigmoid(model_long(X_tensor)).item())
-            prob_short = float(torch.sigmoid(model_short(X_tensor)).item())
-
-        return prob_long, prob_short
-    except Exception as e:
-        print(f"Model3 error: {e}", file=sys.stderr)
-        return None, None
-
-
-def predict_model4(df):
-    """Model 4: Economic Calendar (XGBoost)."""
-    try:
-        if "ml/model4_econcal" not in sys.path:
-            sys.path.insert(0, "ml/model4_econcal")
-        from features import compute_ec_features
-        from train import load_model
-
-        import duckdb
-        con = duckdb.connect(DB_PATH, read_only=True)
-
-        try:
-            df_ec = con.execute("""
-                SELECT timestamp_utc, currency, volatility, event_name,
-                       actual, forecast, previous
-                FROM eurusd_ec_historical
-                ORDER BY timestamp_utc
-            """).fetchdf()
-        except Exception:
-            con.close()
-            return None, None
-
-        con.close()
-
-        if df_ec.empty:
-            return None, None
-
-        df_ec["timestamp_utc"] = pd.to_datetime(df_ec["timestamp_utc"])
-        df_ec["surprise"] = df_ec["actual"] - df_ec["forecast"]
-        max_val = df_ec["surprise"].abs().quantile(0.99)
-        df_ec["surprise_norm"] = (df_ec["surprise"] / (max_val + 1e-10)).clip(-1, 1)
-
-        features = compute_ec_features(df.index, df_ec)
-        if features.empty:
-            return None, None
-
-        model_long, feat_long = load_model(MODEL_DIR, "long")
-        model_short, feat_short = load_model(MODEL_DIR, "short")
 
         row = features.iloc[[-1]]
         X_long = row.reindex(columns=feat_long, fill_value=0.0)
         X_short = row.reindex(columns=feat_short, fill_value=0.0)
 
-        prob_long = float(model_long.predict_proba(X_long)[:, 1][0])
-        prob_short = float(model_short.predict_proba(X_short)[:, 1][0])
+        prob_long = float(model_long.predict(X_long)[0])
+        prob_short = float(model_short.predict(X_short)[0])
 
         return prob_long, prob_short
     except Exception as e:
-        print(f"Model4 error: {e}", file=sys.stderr)
+        print(f"Signal model error: {e}", file=sys.stderr)
         return None, None
 
 
-def predict_unified(df):
-    """Unified model (XGBoost on combined features)."""
-    try:
-        import xgboost as xgb
-        from pathlib import Path
+# ═══════════════════════════════════════════════════════════════════════════
+#  LAYER 3: SIZING
+# ═══════════════════════════════════════════════════════════════════════════
 
-        model_path = Path(MODEL_DIR) / "unified_xgb.json"
-        if not model_path.exists():
-            return None
+def compute_sizing(signal_long, signal_short, m1_long, m1_short):
+    """
+    Compute position sizing suggestion based on signal confidence.
+    Returns a sizing multiplier (0.5 = half size, 1.0 = full, 1.5 = 1.5x).
+    """
+    if signal_long is None and m1_long is None:
+        return 0.0, "neutral"
 
-        feat_imp_path = Path(MODEL_DIR) / "unified_feature_importance.csv"
-        if feat_imp_path.exists():
-            fi = pd.read_csv(feat_imp_path)
-            feature_names = fi["feature"].tolist()
-        else:
-            return None
+    # Combine signal model with M1 model (signal model gets 60% weight)
+    def combine(sig, m1):
+        if sig is not None and m1 is not None:
+            return sig * 0.6 + m1 * 0.4
+        return sig if sig is not None else m1
 
-        model = xgb.XGBClassifier()
-        model.load_model(str(model_path))
+    combined_long = combine(signal_long, m1_long)
+    combined_short = combine(signal_short, m1_short)
 
-        if "ml/model1_technical" not in sys.path:
-            sys.path.insert(0, "ml/model1_technical")
-        from features import compute_features
-        features = compute_features(df)
-        if features.empty:
-            return None
+    if combined_long is None or combined_short is None:
+        return 0.0, "neutral"
 
-        row = features.iloc[[-1]]
-        X = row.reindex(columns=feature_names, fill_value=0.0)
+    # Direction
+    if combined_long > combined_short and combined_long > 0.5:
+        direction = "LONG"
+        confidence = combined_long
+    elif combined_short > combined_long and combined_short > 0.5:
+        direction = "SHORT"
+        confidence = combined_short
+    else:
+        return 0.5, "neutral"
 
-        prob = float(model.predict_proba(X)[:, 1][0])
-        return prob
-    except Exception as e:
-        print(f"Unified error: {e}", file=sys.stderr)
-        return None
+    # Size multiplier based on confidence
+    if confidence >= 0.65:
+        size_mult = 1.5
+    elif confidence >= 0.55:
+        size_mult = 1.0
+    elif confidence >= 0.50:
+        size_mult = 0.75
+    else:
+        size_mult = 0.5
 
+    return size_mult, direction
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  MAIN PREDICTION LOOP
+# ═══════════════════════════════════════════════════════════════════════════
 
 def run_predictions():
-    """Run all models once, return result dict."""
+    """Run all layers once, return result dict."""
     result = {
+        # Layer 1: Filters
+        "trade_allowed": True,
+        "block_reasons": None,
+        "session": None,
+        "spread_ok": True,
+        "current_spread": None,
+        # Layer 2: Signal
         "model1_long": None,
         "model1_short": None,
-        "model2_regime": None,
-        "model2_regime_id": None,
-        "model3_long": None,
-        "model3_short": None,
-        "model4_long": None,
-        "model4_short": None,
-        "unified_prob": None,
+        "signal_long": None,
+        "signal_short": None,
+        # Layer 3: Sizing
+        "direction": "neutral",
+        "size_multiplier": 0.0,
+        # Meta
         "timestamp": pd.Timestamp.utcnow().isoformat(),
         "error": None,
     }
@@ -268,24 +298,33 @@ def run_predictions():
         df = load_m1_data()
         df = load_tick_spread(df)
 
-        m1_long, m1_short = predict_model1(df)
-        result["model1_long"] = m1_long
-        result["model1_short"] = m1_short
+        # Layer 1: Filters
+        filters = run_filters(df)
+        result.update({
+            "trade_allowed": filters["trade_allowed"],
+            "block_reasons": filters["block_reasons"],
+            "session": filters["session"],
+            "spread_ok": filters["spread_ok"],
+            "current_spread": filters["current_spread"],
+        })
 
-        regime, regime_id = predict_model2(df)
-        result["model2_regime"] = regime
-        result["model2_regime_id"] = regime_id
+        # Layer 2: Signal (only if filters pass)
+        if filters["trade_allowed"]:
+            m1_long, m1_short = predict_model1(df)
+            result["model1_long"] = m1_long
+            result["model1_short"] = m1_short
 
-        m3_long, m3_short = predict_model3(df)
-        result["model3_long"] = m3_long
-        result["model3_short"] = m3_short
+            sig_long, sig_short = predict_signal(df)
+            result["signal_long"] = sig_long
+            result["signal_short"] = sig_short
 
-        m4_long, m4_short = predict_model4(df)
-        result["model4_long"] = m4_long
-        result["model4_short"] = m4_short
-
-        unified = predict_unified(df)
-        result["unified_prob"] = unified
+            # Layer 3: Sizing
+            size_mult, direction = compute_sizing(sig_long, sig_short, m1_long, m1_short)
+            result["size_multiplier"] = size_mult
+            result["direction"] = direction
+        else:
+            result["direction"] = "BLOCKED"
+            result["size_multiplier"] = 0.0
 
     except Exception as e:
         result["error"] = str(e)
@@ -304,7 +343,6 @@ def write_to_db(result):
 
 
 def main():
-    # Parse args
     loop_mode = False
     interval = 60
 
@@ -318,13 +356,17 @@ def main():
                 pass
 
     if not loop_mode:
-        # Single run: print JSON to stdout
         result = run_predictions()
-        print(json.dumps(result))
+        print(json.dumps(result, indent=2))
         return
 
-    # Loop mode: run predictions every N seconds, write to DB
-    print(f"ML Predictions: starting loop mode (every {interval}s)")
+    print(f"ML Stack v2: Filters -> Signal -> Sizing")
+    print(f"  Loop interval: {interval}s")
+    print(f"  Layer 1: Session + Spread filters")
+    print(f"  Layer 2: M1-XGBoost + LightGBM Signal")
+    print(f"  Layer 3: Confidence-based sizing")
+    print()
+
     cycle = 0
     while True:
         cycle += 1
@@ -334,11 +376,22 @@ def main():
             write_to_db(result)
             elapsed = time.time() - t0
 
-            # Summary for console
-            m1_str = f"long={result['model1_long']:.0%}" if result["model1_long"] else "N/A"
-            regime = result["model2_regime"] or "N/A"
-            m3_str = f"long={result['model3_long']:.0%}" if result["model3_long"] else "N/A"
-            print(f"ML #{cycle}: M1={m1_str} Regime={regime} CNN={m3_str} ({elapsed:.1f}s)")
+            allowed = "+" if result["trade_allowed"] else "x"
+            session = result.get("session", "?")
+            direction = result.get("direction", "?")
+            size = result.get("size_multiplier", 0)
+
+            if result["trade_allowed"]:
+                m1 = result.get("model1_long")
+                sig = result.get("signal_long")
+                m1_str = f"M1={m1:.0%}" if m1 else "M1=N/A"
+                sig_str = f"Sig={sig:.0%}" if sig else "Sig=N/A"
+                print(f"ML #{cycle}: {allowed} {session} | "
+                      f"{m1_str} {sig_str} -> {direction} x{size:.1f} ({elapsed:.1f}s)")
+            else:
+                reasons = result.get("block_reasons", [])
+                reason_str = "; ".join(reasons) if reasons else "Unknown"
+                print(f"ML #{cycle}: {allowed} BLOCKED: {reason_str} ({elapsed:.1f}s)")
 
         except Exception as e:
             print(f"ML #{cycle}: error: {e}", file=sys.stderr)
@@ -347,7 +400,6 @@ def main():
             except Exception:
                 pass
 
-        # Sleep until next cycle
         elapsed = time.time() - t0
         sleep_time = max(1, interval - elapsed)
         time.sleep(sleep_time)

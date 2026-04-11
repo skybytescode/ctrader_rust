@@ -25,10 +25,6 @@ pub mod ai;
 pub mod ui;
 pub mod db;
 pub mod data_retrieval;
-pub mod ec_realtime;
-pub mod news_realtime;
-pub mod news_sentiment;
-pub mod news_gemini;
 pub mod pattern_engine;
 pub mod decision_engine;
 
@@ -50,26 +46,8 @@ pub enum PriceUpdate {
     ConnectionStatus(String),
     /// Symbol name → cTrader symbol_id mapping (sent once after auth)
     SymbolMapping(std::collections::HashMap<String, i64>),
-    /// DoM capture status update
+    /// DoM capture status update (stub — DoM removed)
     DomCaptureStatus(String),
-    /// EC Calendar today's events for UI display
-    EcTodayEvents(Vec<String>),
-    /// EC Calendar raw event data for client-side countdown
-    EcTodayRaw(Vec<(String, String, i32, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>)>),
-    /// EC Calendar status message
-    EcStatus(String),
-    /// EC Calendar capture status (for the button)
-    EcCaptureActive(bool),
-    /// News today's articles for UI display
-    NewsTodayLines(Vec<String>),
-    /// News status message
-    NewsStatus(String),
-    /// News capture status (for the button)
-    NewsCaptureActive(bool),
-    /// Pattern engine status lines for UI display
-    PatternStatus(Vec<String>),
-    /// Claude pattern analysis result
-    ClaudeAnalysis(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -81,68 +59,6 @@ enum AuthState {
     Subscribed,
 }
 
-/// Spawn the econcal Node.js proxy server as a background process.
-/// Streams its stdout/stderr to our stdout so startup status is visible.
-/// If Node.js is not found or port 6000 is already in use, logs and continues.
-fn start_econcal_server() {
-    std::thread::spawn(|| {
-        let econcal_dir = "D:/RustProjects/ctrader_rust/econcal";
-
-        // Skip if something is already listening on port 6000
-        if std::net::TcpStream::connect("127.0.0.1:6000").is_ok() {
-            println!("[econcal] Port 6000 already in use — skipping launch.");
-            return;
-        }
-
-        println!("[econcal] Starting proxy server (node econcal.js)...");
-
-        // Install dependencies if node_modules is missing
-        if !std::path::Path::new(econcal_dir).join("node_modules").exists() {
-            println!("[econcal] node_modules not found, running npm install...");
-            match std::process::Command::new("npm")
-                .args(["install", "--prefer-offline"])
-                .current_dir(econcal_dir)
-                .status()
-            {
-                Ok(s) if s.success() => println!("[econcal] npm install done."),
-                Ok(s) => println!("[econcal] npm install exited: {}", s),
-                Err(e) => println!("[econcal] npm install failed: {}", e),
-            }
-        }
-
-        let result = std::process::Command::new("node")
-            .arg("econcal.js")
-            .current_dir(econcal_dir)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn();
-
-        match result {
-            Err(e) => {
-                println!("[econcal] Failed to start: {} (is Node.js installed?)", e);
-            }
-            Ok(mut child) => {
-                use std::io::BufRead;
-                // Stream stdout
-                if let Some(stdout) = child.stdout.take() {
-                    let reader = std::io::BufReader::new(stdout);
-                    for line in reader.lines().flatten() {
-                        println!("[econcal] {}", line);
-                    }
-                }
-                // Capture stderr
-                if let Some(stderr) = child.stderr.take() {
-                    let reader = std::io::BufReader::new(stderr);
-                    for line in reader.lines().flatten() {
-                        println!("[econcal] ERR: {}", line);
-                    }
-                }
-                let _ = child.wait();
-                println!("[econcal] Server process exited.");
-            }
-        }
-    });
-}
 
 /// Start ML prediction loop in the background.
 /// Runs `py -3.12 ml/predict_all.py --loop 60` which computes model predictions
@@ -192,11 +108,8 @@ fn main() {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
 
-    // Start the econcal FXStreet proxy server in the background
-    start_econcal_server();
-
-    // Start ML prediction loop in the background (every 60s)
-    start_ml_predictions();
+    // ML prediction loop disabled — enable after models are trained
+    // start_ml_predictions();
 
     // Create channel for price updates (network -> UI)
     let (tx, rx) = mpsc::channel::<PriceUpdate>(100);
@@ -497,22 +410,6 @@ async fn run_session(
     // EURUSD symbol_id for DoM subscription (resolved after symbol list)
     let mut dom_eurusd_id: Option<i64> = None;
 
-    // ── EC Calendar smart scheduling state ─────────────────────────────
-    let mut ec_today_date: Option<String> = None;
-    // Scheduled fetch times (UTC timestamps in seconds) for today's events.
-    // For each event: event_time+0, +60, +120, +300 seconds.
-    let mut ec_scheduled_fetches: Vec<i64> = Vec::new();
-    let mut ec_schedule_loaded = false;
-    // Force initial schedule fetch 10 seconds after auth
-    let mut ec_next_schedule_fetch: Option<tokio::time::Instant> = None;
-    let mut ec_last_fetch_ts: i64 = 0; // last UTC timestamp we fetched at
-    let mut ec_capturing = false; // toggled by UI button
-
-    // ── News capture state ───────────────────────────────────────────────
-    let mut news_capturing = false;
-    let mut news_next_fetch: Option<tokio::time::Instant> = None;
-    let mut news_today_date: Option<String> = None;
-
     // ── Pattern detection engine ─────────────────────────────────────────
     let mut pattern_engine = pattern_engine::PatternEngine::new();
     let mut pattern_last_update = tokio::time::Instant::now();
@@ -612,11 +509,6 @@ async fn run_session(
                                 send_message(&mut tls_stream, openapi::ProtoOaPayloadType::ProtoOaSubscribeSpotsReq as u32, subscribe).await?;
                                 println!("Subscribe sent. ID map has {} symbols", symbol_id_to_name.len());
                                 _auth_state = AuthState::Subscribed;
-
-                                // Schedule first EC calendar fetch in 10 seconds
-                                ec_next_schedule_fetch = Some(
-                                    tokio::time::Instant::now() + Duration::from_secs(10)
-                                );
 
                                 // Send reverse mapping (name -> id) to Bevy for data retrieval
                                 let reverse_map: std::collections::HashMap<String, i64> = symbol_id_to_name
@@ -741,69 +633,7 @@ async fn run_session(
                                     }
                                 }
 
-                                // Send pattern status to UI every 5 seconds
-                                if pattern_last_update.elapsed().as_secs() >= 5 {
-                                    pattern_last_update = tokio::time::Instant::now();
-                                    let status = pattern_engine.status_display();
-                                    let _ = tx.send(PriceUpdate::PatternStatus(status)).await;
-                                }
 
-                                // DeepSeek R1 decision engine — runs every 2 minutes (no score gate)
-                                if !claude_busy.load(std::sync::atomic::Ordering::Relaxed)
-                                    && claude_last_call.elapsed().as_secs() >= 120
-                                {
-                                    claude_busy.store(true, std::sync::atomic::Ordering::Relaxed);
-                                    claude_last_call = tokio::time::Instant::now();
-
-                                    // Read news, EC, and ML predictions for the prompt
-                                    let (news_lines, ec_lines, model_predictions) = {
-                                        let _lock = shared_db.lock().unwrap_or_else(|e| e.into_inner());
-                                        let db = duckdb::Connection::open("ctrader.duckdb").ok();
-                                        let news = db.as_ref()
-                                            .map(|d| news_gemini::read_for_claude(d))
-                                            .unwrap_or_default();
-                                        let ec = db.as_ref()
-                                            .map(|d| ec_realtime::read_ec_today(d))
-                                            .unwrap_or_default();
-                                        let models = db.and_then(|d| {
-                                            d.query_row(
-                                                "SELECT data FROM ml_predictions_live LIMIT 1",
-                                                [],
-                                                |row| row.get::<_, String>(0),
-                                            ).ok()
-                                        })
-                                        .map(|json_str| format_model_predictions(&json_str))
-                                        .unwrap_or_else(|| "  Models not available".to_string());
-                                        (news, ec, models)
-                                    };
-
-                                    let prompt = pattern_engine.build_claude_prompt(&news_lines, &ec_lines, &model_predictions);
-                                    let tx_ds = tx.clone();
-                                    let busy_flag = claude_busy.clone();
-
-                                    // Run DeepSeek R1 on a blocking thread (takes 5-15s)
-                                    tokio::task::spawn_blocking(move || {
-                                        let _ = tx_ds.blocking_send(PriceUpdate::ClaudeAnalysis(
-                                            "Asking DeepSeek R1...".to_string()
-                                        ));
-
-                                        match decision_engine::call_decision(&prompt) {
-                                            Ok(decision) => {
-                                                let ts = chrono::Local::now().format("%H:%M:%S").to_string();
-                                                let display = format!("[{}] {}", ts, decision.display_summary());
-                                                println!("DeepSeek decision:\n{}", display);
-                                                let _ = tx_ds.blocking_send(PriceUpdate::ClaudeAnalysis(display));
-                                            }
-                                            Err(e) => {
-                                                println!("DeepSeek error: {}", e);
-                                                let _ = tx_ds.blocking_send(PriceUpdate::ClaudeAnalysis(
-                                                    format!("DeepSeek error: {}", e)
-                                                ));
-                                            }
-                                        }
-                                        busy_flag.store(false, std::sync::atomic::Ordering::Relaxed);
-                                    });
-                                }
                             }
 
                             // Look up the symbol name from our mapping
@@ -871,8 +701,6 @@ async fn run_session(
                                 if bar_count > 0 {
                                     println!("Pattern: loaded {} historical {} bars", bar_count,
                                         match pe_period_min { 5=>"M5", 15=>"M15", _=>"?" });
-                                    let status = pattern_engine.status_display();
-                                    let _ = tx.send(PriceUpdate::PatternStatus(status)).await;
                                 }
                             }
 
@@ -1254,53 +1082,8 @@ async fn run_session(
                         }
                         continue;
                     }
-                    DataAction::EcCaptureStart => {
-                        if !ec_capturing {
-                            ec_capturing = true;
-                            // Trigger initial fetch in 2s
-                            ec_next_schedule_fetch = Some(
-                                tokio::time::Instant::now() + Duration::from_secs(2)
-                            );
-                            ec_schedule_loaded = false;
-                            ec_today_date = None; // force day-change detection
-                            println!("EC: capture started by user");
-                            let _ = tx.send(PriceUpdate::EcCaptureActive(true)).await;
-                            let _ = tx.send(PriceUpdate::EcStatus("Starting...".to_string())).await;
-                        }
-                        continue;
-                    }
-                    DataAction::EcCaptureStop => {
-                        if ec_capturing {
-                            ec_capturing = false;
-                            ec_scheduled_fetches.clear();
-                            ec_schedule_loaded = false;
-                            println!("EC: capture stopped by user");
-                            let _ = tx.send(PriceUpdate::EcCaptureActive(false)).await;
-                            let _ = tx.send(PriceUpdate::EcStatus("Stopped".to_string())).await;
-                        }
-                        continue;
-                    }
-                    DataAction::NewsCaptureStart => {
-                        if !news_capturing {
-                            news_capturing = true;
-                            news_next_fetch = Some(
-                                tokio::time::Instant::now() + Duration::from_secs(2)
-                            );
-                            news_today_date = None;
-                            println!("News: capture started by user");
-                            let _ = tx.send(PriceUpdate::NewsCaptureActive(true)).await;
-                            let _ = tx.send(PriceUpdate::NewsStatus("Starting...".to_string())).await;
-                        }
-                        continue;
-                    }
-                    DataAction::NewsCaptureStop => {
-                        if news_capturing {
-                            news_capturing = false;
-                            news_next_fetch = None;
-                            println!("News: capture stopped by user");
-                            let _ = tx.send(PriceUpdate::NewsCaptureActive(false)).await;
-                            let _ = tx.send(PriceUpdate::NewsStatus("Stopped".to_string())).await;
-                        }
+                    DataAction::EcCaptureStart | DataAction::EcCaptureStop
+                    | DataAction::NewsCaptureStart | DataAction::NewsCaptureStop => {
                         continue;
                     }
                     DataAction::DomCaptureStop => {
@@ -1396,191 +1179,6 @@ async fn run_session(
             }
         }
 
-        // ── EC Calendar smart scheduling ─────────────────────────────────
-        if _auth_state == AuthState::Subscribed && ec_capturing {
-            let now_utc = chrono::Utc::now();
-            let now_ts = now_utc.timestamp();
-            let today_str = now_utc.format("%Y%m%d").to_string();
-
-            // Detect day change → reset schedule
-            if ec_today_date.as_deref() != Some(&today_str) {
-                println!("EC: new day ({}), resetting schedule", today_str);
-                ec_today_date = Some(today_str.clone());
-                ec_scheduled_fetches.clear();
-                ec_schedule_loaded = false;
-                ec_next_schedule_fetch = Some(
-                    tokio::time::Instant::now() + Duration::from_secs(5)
-                );
-            }
-
-            // Check if it's time for the schedule fetch (day start)
-            let should_fetch_schedule = match ec_next_schedule_fetch {
-                Some(t) if tokio::time::Instant::now() >= t => {
-                    ec_next_schedule_fetch = None;
-                    true
-                }
-                _ => false,
-            };
-
-            // Check if any scheduled event fetch is due
-            let should_fetch_event = !ec_scheduled_fetches.is_empty()
-                && now_ts >= ec_scheduled_fetches[0]
-                && now_ts != ec_last_fetch_ts;
-
-            if should_fetch_schedule || should_fetch_event {
-                // Remove past scheduled fetches
-                while !ec_scheduled_fetches.is_empty() && ec_scheduled_fetches[0] <= now_ts {
-                    ec_scheduled_fetches.remove(0);
-                }
-                ec_last_fetch_ts = now_ts;
-
-                // For the schedule fetch, do it inline (awaited) so we can build the schedule
-                // For event fetches, also inline — it's one quick HTTP call
-                match ec_realtime::fetch_events_for_date(&today_str, &today_str).await {
-                    Ok(rows) => {
-                        let count = rows.len();
-
-                        // Build schedule on first fetch of the day
-                        if should_fetch_schedule && !ec_schedule_loaded {
-                            let mut unique_times = std::collections::BTreeSet::new();
-                            for r in &rows {
-                                if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(
-                                    &r.timestamp_utc, "%Y-%m-%dT%H:%M:%S"
-                                ) {
-                                    let event_ts = dt.and_utc().timestamp();
-                                    // First 3 min: every 30s, then final at 5 min
-                                    for offset in [0i64, 30, 60, 90, 120, 150, 180, 300] {
-                                        let t = event_ts + offset;
-                                        if t > now_ts {
-                                            unique_times.insert(t);
-                                        }
-                                    }
-                                }
-                            }
-                            ec_scheduled_fetches = unique_times.into_iter().collect();
-                            ec_schedule_loaded = true;
-                            println!(
-                                "EC: scheduled {} fetches for {} events today",
-                                ec_scheduled_fetches.len(), count
-                            );
-                            if let Some(&next_ts) = ec_scheduled_fetches.first() {
-                                if let Some(dt) = chrono::DateTime::from_timestamp(next_ts, 0) {
-                                    println!("EC: next fetch at {}",
-                                        dt.with_timezone(&chrono::Local).format("%H:%M:%S"));
-                                }
-                            }
-                        }
-
-                        // Write to DB and read raw data (blocking)
-                        let db_clone = shared_db.clone();
-                        let (lines, raw) = tokio::task::spawn_blocking(move || {
-                            let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
-                            match duckdb::Connection::open(DB_PATH) {
-                                Ok(db) => {
-                                    let _ = ec_realtime::write_ec_to_db(&db, &rows);
-                                    let raw = ec_realtime::read_ec_today_raw(&db);
-                                    let lines = ec_realtime::format_ec_lines(&raw);
-                                    (lines, raw)
-                                }
-                                Err(e) => (vec![format!("DB error: {}", e)], Vec::new()),
-                            }
-                        })
-                        .await
-                        .unwrap_or_else(|e| (vec![format!("Task error: {}", e)], Vec::new()));
-
-                        let upcoming = lines.iter().filter(|l| l.contains('>')).count();
-                        let next_fetch = ec_scheduled_fetches.first().and_then(|&t| {
-                            chrono::DateTime::from_timestamp(t, 0).map(|dt|
-                                dt.with_timezone(&chrono::Local).format("%H:%M").to_string()
-                            )
-                        }).unwrap_or_else(|| "done".to_string());
-                        let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
-
-                        let _ = tx.send(PriceUpdate::EcStatus(format!(
-                            "{} events ({} upcoming) | next: {} | updated: {}",
-                            count, upcoming, next_fetch, now_str
-                        ))).await;
-                        let _ = tx.send(PriceUpdate::EcTodayEvents(lines)).await;
-                        if !raw.is_empty() {
-                            let _ = tx.send(PriceUpdate::EcTodayRaw(raw)).await;
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx.send(PriceUpdate::EcStatus(format!("EC error: {}", e))).await;
-                        // Retry in 15s if the proxy isn't ready yet
-                        if !ec_schedule_loaded {
-                            ec_next_schedule_fetch = Some(
-                                tokio::time::Instant::now() + Duration::from_secs(15)
-                            );
-                            println!("EC: fetch failed ({}), retrying in 15s...", e);
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── News periodic fetching ───────────────────────────────────────
-        if _auth_state == AuthState::Subscribed && news_capturing {
-            let now_utc = chrono::Utc::now();
-            let today_str = now_utc.format("%Y%m%d").to_string();
-
-            // Detect day change → force immediate fetch
-            if news_today_date.as_deref() != Some(&today_str) {
-                println!("News: new day ({}), resetting", today_str);
-                news_today_date = Some(today_str.clone());
-                news_next_fetch = Some(
-                    tokio::time::Instant::now() + Duration::from_secs(3)
-                );
-            }
-
-            let should_fetch = match news_next_fetch {
-                Some(t) if tokio::time::Instant::now() >= t => true,
-                _ => false,
-            };
-
-            if should_fetch {
-                // Schedule next fetch in 2 minutes
-                news_next_fetch = Some(
-                    tokio::time::Instant::now() + Duration::from_secs(120)
-                );
-
-                match news_realtime::fetch_news(50, 1, None).await {
-                    Ok(rows) => {
-                        let total = rows.len();
-
-                        let db_clone = shared_db.clone();
-                        let lines = tokio::task::spawn_blocking(move || {
-                            let _lock = db_clone.lock().unwrap_or_else(|e| e.into_inner());
-                            match duckdb::Connection::open(DB_PATH) {
-                                Ok(db) => {
-                                    let _ = news_realtime::write_news_to_db(&db, &rows);
-                                    let today_rows = news_realtime::read_news_today(&db);
-                                    news_realtime::format_news_lines(&today_rows)
-                                }
-                                Err(e) => vec![format!("DB error: {}", e)],
-                            }
-                        })
-                        .await
-                        .unwrap_or_else(|e| vec![format!("Task error: {}", e)]);
-
-                        let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
-                        let _ = tx.send(PriceUpdate::NewsStatus(format!(
-                            "{} articles | next: 2m | updated: {}",
-                            total, now_str
-                        ))).await;
-                        let _ = tx.send(PriceUpdate::NewsTodayLines(lines)).await;
-                    }
-                    Err(e) => {
-                        let _ = tx.send(PriceUpdate::NewsStatus(format!("News error: {}", e))).await;
-                        // Retry sooner if proxy isn't ready
-                        news_next_fetch = Some(
-                            tokio::time::Instant::now() + Duration::from_secs(15)
-                        );
-                        println!("News: fetch failed ({}), retrying in 15s...", e);
-                    }
-                }
-            }
-        }
     }
 
     Ok(())
@@ -1663,9 +1261,9 @@ async fn handle_data_request(
         }
         DataAction::RetrieveFull => {
             println!("Starting full retrieval: {} {:?}", request.symbol, request.kind);
-            // Fetch ALL available history (from Jan 1, 2010)
+            // Fetch history from Jan 1, 2023
             let now_ms = chrono::Utc::now().timestamp_millis();
-            let from_ms = 1_262_304_000_000_i64; // 2010-01-01 00:00:00 UTC in ms
+            let from_ms = 1_672_531_200_000_i64; // 2023-01-01 00:00:00 UTC in ms
 
             // Create temp CSV file with header for accumulating data
             let csv_suffix = match request.kind {
@@ -2030,7 +1628,8 @@ async fn check_db_status(
     }
 }
 
-/// Format ML model predictions JSON into human-readable lines for Claude prompt.
+/// Format ML predictions JSON into human-readable lines for Claude prompt.
+/// New 3-layer architecture: Filters → Signal → Sizing.
 fn format_model_predictions(json_str: &str) -> String {
     let v: serde_json::Value = match serde_json::from_str(json_str) {
         Ok(v) => v,
@@ -2039,43 +1638,48 @@ fn format_model_predictions(json_str: &str) -> String {
 
     let mut lines = Vec::new();
 
-    // Model 1: Technical Indicators
-    if let (Some(long), Some(short)) = (v["model1_long"].as_f64(), v["model1_short"].as_f64()) {
-        let dir = if long > short { "LONG" } else if short > long { "SHORT" } else { "NEUTRAL" };
-        lines.push(format!("  M1-Technical: long={:.0}% short={:.0}% → {}", long * 100.0, short * 100.0, dir));
+    // Layer 1: Filters
+    let trade_allowed = v["trade_allowed"].as_bool().unwrap_or(false);
+    let session = v["session"].as_str().unwrap_or("Unknown");
+
+    if trade_allowed {
+        lines.push(format!("  FILTERS: ✓ PASS | Session: {}", session));
     } else {
-        lines.push("  M1-Technical: not available".to_string());
+        lines.push(format!("  FILTERS: ✗ BLOCKED | Session: {}", session));
+        if let Some(reasons) = v["block_reasons"].as_array() {
+            for r in reasons {
+                if let Some(s) = r.as_str() {
+                    lines.push(format!("    → {}", s));
+                }
+            }
+        }
     }
 
-    // Model 2: Regime
-    if let Some(regime) = v["model2_regime"].as_str() {
-        lines.push(format!("  M2-Regime: {}", regime));
-    } else {
-        lines.push("  M2-Regime: not available".to_string());
+    // Spread info
+    if let Some(spread) = v["current_spread"].as_f64() {
+        let spread_ok = v["spread_ok"].as_bool().unwrap_or(true);
+        let icon = if spread_ok { "✓" } else { "✗" };
+        lines.push(format!("  Spread: {} {:.1} pips", icon, spread));
     }
 
-    // Model 3: CNN Pattern
-    if let (Some(long), Some(short)) = (v["model3_long"].as_f64(), v["model3_short"].as_f64()) {
-        let dir = if long > short { "LONG" } else if short > long { "SHORT" } else { "NEUTRAL" };
-        lines.push(format!("  M3-CNN: long={:.0}% short={:.0}% → {}", long * 100.0, short * 100.0, dir));
-    } else {
-        lines.push("  M3-CNN: not available".to_string());
-    }
+    // Layer 2: Signal (only shown if filters pass)
+    if trade_allowed {
+        // M1 Technical
+        if let (Some(long), Some(short)) = (v["model1_long"].as_f64(), v["model1_short"].as_f64()) {
+            let dir = if long > short { "LONG" } else if short > long { "SHORT" } else { "NEUTRAL" };
+            lines.push(format!("  M1-Technical: long={:.0}% short={:.0}% → {}", long * 100.0, short * 100.0, dir));
+        }
 
-    // Model 4: EC Calendar
-    if let (Some(long), Some(short)) = (v["model4_long"].as_f64(), v["model4_short"].as_f64()) {
-        let dir = if long > short { "LONG" } else if short > long { "SHORT" } else { "NEUTRAL" };
-        lines.push(format!("  M4-EconCal: long={:.0}% short={:.0}% → {}", long * 100.0, short * 100.0, dir));
-    } else {
-        lines.push("  M4-EconCal: not available".to_string());
-    }
+        // Signal Model (LightGBM)
+        if let (Some(long), Some(short)) = (v["signal_long"].as_f64(), v["signal_short"].as_f64()) {
+            let dir = if long > short { "LONG" } else if short > long { "SHORT" } else { "NEUTRAL" };
+            lines.push(format!("  Signal-LGB: long={:.0}% short={:.0}% → {}", long * 100.0, short * 100.0, dir));
+        }
 
-    // Unified model
-    if let Some(prob) = v["unified_prob"].as_f64() {
-        let dir = if prob > 0.55 { "BULLISH" } else if prob < 0.45 { "BEARISH" } else { "NEUTRAL" };
-        lines.push(format!("  M4b-Unified: up={:.0}% → {}", prob * 100.0, dir));
-    } else {
-        lines.push("  M4b-Unified: not available".to_string());
+        // Layer 3: Sizing
+        let direction = v["direction"].as_str().unwrap_or("neutral");
+        let size_mult = v["size_multiplier"].as_f64().unwrap_or(0.0);
+        lines.push(format!("  DECISION: {} | Size: {:.1}×", direction.to_uppercase(), size_mult));
     }
 
     // Error

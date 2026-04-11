@@ -8,282 +8,28 @@
 
 use candlestick_rs::{CandleStick, CandleStream};
 
-// ── DoM real-time analytics ───────────────────────────────────────────────────
+// ── DoM removed — stubs kept for compilation ────────────────────────────────
 
-/// A price level cluster in the DoM — a group of nearby orders.
-#[derive(Debug, Clone)]
-pub struct DomCluster {
-    pub center_price: f64,      // volume-weighted center of the cluster
-    pub total_size: i64,        // sum of all order sizes in cluster
-    pub level_count: u32,       // number of individual levels in cluster
-    pub price_min: f64,         // lowest price in cluster
-    pub price_max: f64,         // highest price in cluster
-}
-
-/// A gap between adjacent clusters — empty zone in the book.
-#[derive(Debug, Clone)]
-pub struct DomGap {
-    pub price_from: f64,        // lower edge of gap
-    pub price_to: f64,          // upper edge of gap
-    pub gap_pips: f64,          // gap width in pips
-}
-
-/// Live Depth of Market analytics for trading decisions.
-/// Focused on price level structure (clusters, gaps, density) rather than
-/// volume imbalance (OBI), since retail cTrader DoM has mirrored volumes.
-#[derive(Debug, Clone)]
+/// Stub — DoM functionality removed (retail cTrader DoM has mirrored volumes).
+#[derive(Debug, Clone, Default)]
 pub struct DomSnapshot {
-    // ── Current state ──
-    pub bid_levels: u32,
-    pub ask_levels: u32,
-    pub best_bid: f64,          // highest bid price (below market)
-    pub best_ask: f64,          // lowest ask price (above market)
-    pub book_spread_pips: f64,  // DoM book depth range (not trading spread)
     pub active: bool,
-
-    // ── Level count tracking ──
-    level_history: Vec<u32>,           // last 60 total level counts
-    pub levels_trend: i32,             // level count change (negative = thinning)
-    pub levels_dropping: bool,         // levels dropped >20% from average
-
-    // ── Price level clusters ──
-    pub bid_clusters: Vec<DomCluster>, // clusters on bid side (sorted by price desc)
-    pub ask_clusters: Vec<DomCluster>, // clusters on ask side (sorted by price asc)
-
-    // ── Gaps (empty zones) ──
-    pub bid_gaps: Vec<DomGap>,         // gaps on bid side (sorted by size desc)
-    pub ask_gaps: Vec<DomGap>,         // gaps on ask side (sorted by size desc)
-
-    // ── Density (how tightly packed levels are near current price) ──
-    pub bid_density_near: f64,         // levels per pip in closest 10 pips on bid side
-    pub ask_density_near: f64,         // levels per pip in closest 10 pips on ask side
-    pub density_imbalance: f64,        // bid_density - ask_density (positive = more bid support)
-
-    // ── Churn tracking (event rate) ──
-    churn_history: Vec<u32>,           // events per update cycle (last 60)
-    pub churn_rate: f64,               // average events per cycle
-    pub churn_spike: bool,             // current churn > 2x average
-
-    update_count: u64,
+    pub density_imbalance: f64,
+    pub levels_dropping: bool,
+    pub ask_gaps: Vec<DomGap>,
+    pub bid_gaps: Vec<DomGap>,
 }
 
-impl Default for DomSnapshot {
-    fn default() -> Self {
-        Self {
-            bid_levels: 0, ask_levels: 0,
-            best_bid: 0.0, best_ask: 0.0,
-            book_spread_pips: 0.0, active: false,
-            level_history: Vec::with_capacity(62),
-            levels_trend: 0, levels_dropping: false,
-            bid_clusters: Vec::new(), ask_clusters: Vec::new(),
-            bid_gaps: Vec::new(), ask_gaps: Vec::new(),
-            bid_density_near: 0.0, ask_density_near: 0.0, density_imbalance: 0.0,
-            churn_history: Vec::with_capacity(62),
-            churn_rate: 0.0, churn_spike: false,
-            update_count: 0,
-        }
-    }
-}
+#[derive(Debug, Clone)]
+pub struct DomCluster;
+#[derive(Debug, Clone)]
+pub struct DomGap { pub gap_pips: f64 }
 
 impl DomSnapshot {
-    /// Update with new book state. Call on every DoM event (~31/sec).
-    pub fn update(&mut self, _total_bid_vol: f64, _total_ask_vol: f64,
-                   bid_levels: u32, ask_levels: u32,
-                   best_bid: f64, best_ask: f64,
-                   book: &std::collections::HashMap<u64, (u8, i32, i64)>) {
-        self.bid_levels = bid_levels;
-        self.ask_levels = ask_levels;
-        self.best_bid = best_bid;
-        self.best_ask = best_ask;
-        self.book_spread_pips = if best_ask > best_bid && best_bid > 0.0 {
-            (best_ask - best_bid) * 10000.0
-        } else {
-            0.0
-        };
-        self.active = true;
-        self.update_count += 1;
-
-        // ── Level count tracking ──
-        let total_levels = bid_levels + ask_levels;
-        self.level_history.push(total_levels);
-        if self.level_history.len() > 60 { self.level_history.remove(0); }
-        if self.level_history.len() >= 10 {
-            let avg = self.level_history.iter().sum::<u32>() as f64 / self.level_history.len() as f64;
-            self.levels_trend = total_levels as i32 - avg as i32;
-            self.levels_dropping = (total_levels as f64) < avg * 0.8;
-        }
-
-        // ── Cluster & gap & density analysis (every 30th update, ~1/sec) ──
-        if self.update_count % 30 == 0 && book.len() > 4 {
-            self.analyze_clusters(book);
-        }
-    }
-
-    /// Find clusters of nearby price levels, gaps between them, and density near price.
-    fn analyze_clusters(&mut self, book: &std::collections::HashMap<u64, (u8, i32, i64)>) {
-        // Separate and sort by price
-        let mut bids: Vec<(f64, i64)> = Vec::new(); // (price, size) sorted desc
-        let mut asks: Vec<(f64, i64)> = Vec::new(); // (price, size) sorted asc
-        for &(side, price, size) in book.values() {
-            let p = price as f64 / 100_000.0;
-            if side == 0 { bids.push((p, size)); }
-            else { asks.push((p, size)); }
-        }
-        bids.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        asks.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Cluster detection: group levels within 3 pips of each other
-        const CLUSTER_GAP_PIPS: f64 = 3.0;
-        self.bid_clusters = Self::find_clusters(&bids, CLUSTER_GAP_PIPS);
-        self.ask_clusters = Self::find_clusters(&asks, CLUSTER_GAP_PIPS);
-
-        // Gap detection: find spaces between clusters > 5 pips
-        const MIN_GAP_PIPS: f64 = 5.0;
-        self.bid_gaps = Self::find_gaps(&self.bid_clusters, MIN_GAP_PIPS, true);
-        self.ask_gaps = Self::find_gaps(&self.ask_clusters, MIN_GAP_PIPS, false);
-
-        // Density near market: count levels within 10 pips of best bid/ask
-        if self.best_bid > 0.0 {
-            let near_count = bids.iter()
-                .filter(|(p, _)| (self.best_bid - p) * 10000.0 < 10.0)
-                .count() as f64;
-            self.bid_density_near = near_count / 10.0; // levels per pip
-        }
-        if self.best_ask > 0.0 {
-            let near_count = asks.iter()
-                .filter(|(p, _)| (p - self.best_ask) * 10000.0 < 10.0)
-                .count() as f64;
-            self.ask_density_near = near_count / 10.0;
-        }
-        self.density_imbalance = self.bid_density_near - self.ask_density_near;
-    }
-
-    /// Group sorted price levels into clusters. Levels within `gap_pips` of each other form a cluster.
-    fn find_clusters(levels: &[(f64, i64)], gap_pips: f64) -> Vec<DomCluster> {
-        if levels.is_empty() { return Vec::new(); }
-        let mut clusters: Vec<DomCluster> = Vec::new();
-        let mut cur_prices: Vec<(f64, i64)> = vec![levels[0]];
-
-        for &(price, size) in &levels[1..] {
-            let last_price = cur_prices.last().unwrap().0;
-            if (last_price - price).abs() * 10000.0 <= gap_pips {
-                cur_prices.push((price, size));
-            } else {
-                clusters.push(Self::make_cluster(&cur_prices));
-                cur_prices = vec![(price, size)];
-            }
-        }
-        clusters.push(Self::make_cluster(&cur_prices));
-        clusters
-    }
-
-    fn make_cluster(levels: &[(f64, i64)]) -> DomCluster {
-        let total_size: i64 = levels.iter().map(|(_, s)| s).sum();
-        let weighted_price: f64 = levels.iter()
-            .map(|(p, s)| p * (*s as f64))
-            .sum::<f64>() / total_size.max(1) as f64;
-        let prices: Vec<f64> = levels.iter().map(|(p, _)| *p).collect();
-        DomCluster {
-            center_price: weighted_price,
-            total_size,
-            level_count: levels.len() as u32,
-            price_min: prices.iter().cloned().fold(f64::MAX, f64::min),
-            price_max: prices.iter().cloned().fold(f64::MIN, f64::max),
-        }
-    }
-
-    /// Find gaps between clusters larger than min_gap_pips.
-    fn find_gaps(clusters: &[DomCluster], min_gap_pips: f64, descending: bool) -> Vec<DomGap> {
-        if clusters.len() < 2 { return Vec::new(); }
-        let mut gaps: Vec<DomGap> = Vec::new();
-        for i in 0..clusters.len() - 1 {
-            let (from, to) = if descending {
-                // Bids sorted desc: gap between low of cluster[i] and high of cluster[i+1]
-                (clusters[i + 1].price_max, clusters[i].price_min)
-            } else {
-                // Asks sorted asc: gap between high of cluster[i] and low of cluster[i+1]
-                (clusters[i].price_max, clusters[i + 1].price_min)
-            };
-            let gap_pips = (to - from) * 10000.0;
-            if gap_pips > min_gap_pips {
-                gaps.push(DomGap { price_from: from, price_to: to, gap_pips });
-            }
-        }
-        gaps.sort_by(|a, b| b.gap_pips.partial_cmp(&a.gap_pips).unwrap_or(std::cmp::Ordering::Equal));
-        gaps.truncate(3);
-        gaps
-    }
-
-    /// Format for Claude prompt (raw data, no interpretation).
-    pub fn to_prompt_section(&self) -> String {
-        if !self.active {
-            return "DOM:\n  Not active".to_string();
-        }
-
-        let mut lines = Vec::new();
-        lines.push("DOM (price level structure):".to_string());
-        lines.push(format!("  Levels: {}bid / {}ask (trend={:+}{})",
-            self.bid_levels, self.ask_levels, self.levels_trend,
-            if self.levels_dropping { " THINNING" } else { "" }));
-        lines.push(format!("  Density near price: bid={:.1}/pip ask={:.1}/pip imbalance={:+.1}",
-            self.bid_density_near, self.ask_density_near, self.density_imbalance));
-
-        // Clusters
-        if !self.bid_clusters.is_empty() {
-            let cl: Vec<String> = self.bid_clusters.iter().take(5)
-                .map(|c| format!("{:.5}({}lvl)", c.center_price, c.level_count))
-                .collect();
-            lines.push(format!("  Bid clusters: {}", cl.join(", ")));
-        }
-        if !self.ask_clusters.is_empty() {
-            let cl: Vec<String> = self.ask_clusters.iter().take(5)
-                .map(|c| format!("{:.5}({}lvl)", c.center_price, c.level_count))
-                .collect();
-            lines.push(format!("  Ask clusters: {}", cl.join(", ")));
-        }
-
-        // Gaps
-        if !self.bid_gaps.is_empty() {
-            let g: Vec<String> = self.bid_gaps.iter()
-                .map(|g| format!("{:.5}-{:.5}({:.0}p)", g.price_from, g.price_to, g.gap_pips))
-                .collect();
-            lines.push(format!("  Bid gaps: {}", g.join(", ")));
-        }
-        if !self.ask_gaps.is_empty() {
-            let g: Vec<String> = self.ask_gaps.iter()
-                .map(|g| format!("{:.5}-{:.5}({:.0}p)", g.price_from, g.price_to, g.gap_pips))
-                .collect();
-            lines.push(format!("  Ask gaps: {}", g.join(", ")));
-        }
-
-        lines.join("\n")
-    }
-
-    /// For display in UI.
-    pub fn status_line(&self) -> String {
-        if !self.active {
-            return "DoM: not active".to_string();
-        }
-        let lvl_status = if self.levels_dropping { "THIN" }
-            else if self.levels_trend > 5 { "thick" }
-            else { "ok" };
-        let density_dir = if self.density_imbalance > 0.3 { "bid+" }
-            else if self.density_imbalance < -0.3 { "ask+" }
-            else { "even" };
-        let bid_gaps_count = self.bid_gaps.len();
-        let ask_gaps_count = self.ask_gaps.len();
-        let largest_gap = self.bid_gaps.iter().chain(self.ask_gaps.iter())
-            .map(|g| g.gap_pips)
-            .fold(0.0f64, f64::max);
-        let mut extra = Vec::new();
-        if self.levels_dropping { extra.push("LEVELS-DROP"); }
-        if self.churn_spike { extra.push("CHURN-SPIKE"); }
-        if largest_gap > 15.0 { extra.push("BIG-GAP"); }
-        let extra_str = if extra.is_empty() { String::new() } else { format!(" | {}", extra.join(" ")) };
-        format!("DoM: {}b/{}a({}) density={} gaps={}b/{}a max={:.0}p{}",
-            self.bid_levels, self.ask_levels, lvl_status,
-            density_dir, bid_gaps_count, ask_gaps_count, largest_gap, extra_str)
-    }
+    pub fn update(&mut self, _: f64, _: f64, _: u32, _: u32, _: f64, _: f64,
+                  _: &std::collections::HashMap<u64, (u8, i32, i64)>) {}
+    pub fn to_prompt_section(&self) -> String { String::new() }
+    pub fn status_line(&self) -> String { String::new() }
 }
 
 // ── OHLCV candle for candlestick-rs ──────────────────────────────────────────
@@ -1434,38 +1180,6 @@ impl PatternEngine {
             score += 1; // London/NY overlap
         }
 
-        // ── DOM PRICE LEVEL STRUCTURE (−2 to +2) ─────────────────────
-        // Retail DoM has mirrored volumes (OBI always 0), so we analyze:
-        //   - Level density near price (more levels = more support)
-        //   - Gaps in the book (price can move fast through gaps)
-        //   - Level count changes (thinning = volatility incoming)
-        if self.dom.active {
-            // Density imbalance: more bid levels near price = support, ask = resistance
-            let pattern_dir = if bull_signals > bear_signals { 1i32 }
-                else if bear_signals > bull_signals { -1 }
-                else { 0 };
-
-            if self.dom.density_imbalance > 0.3 && pattern_dir > 0 {
-                score += 1; // more bid density confirms bullish
-            } else if self.dom.density_imbalance < -0.3 && pattern_dir < 0 {
-                score += 1; // more ask density confirms bearish
-            } else if self.dom.density_imbalance > 0.3 && pattern_dir < 0 {
-                score -= 1; // bid density contradicts bearish
-            } else if self.dom.density_imbalance < -0.3 && pattern_dir > 0 {
-                score -= 1; // ask density contradicts bullish
-            }
-
-            // Levels thinning = low liquidity, risky
-            if self.dom.levels_dropping { score -= 1; }
-
-            // Large gaps on the side we're trading toward = price could accelerate
-            if pattern_dir > 0 && !self.dom.ask_gaps.is_empty() {
-                if self.dom.ask_gaps[0].gap_pips > 10.0 { score += 1; } // gap above = room to run up
-            } else if pattern_dir < 0 && !self.dom.bid_gaps.is_empty() {
-                if self.dom.bid_gaps[0].gap_pips > 10.0 { score += 1; } // gap below = room to run down
-            }
-        }
-
         // ── SWING / FIBONACCI / CHART PATTERN (−2 to +4) ────────────
         // Swing structure: trend direction from higher-highs/higher-lows
         // Fibonacci: pullback depth classification
@@ -1602,8 +1316,6 @@ impl PatternEngine {
         lines.push(self.m15.status_line());
         lines.push(self.m5.status_line());
 
-        // DoM
-        lines.push(self.dom.status_line());
 
         // Trend context from completed bars
         let (trend_bull, trend_bear) = self.completed_bar_trend();
@@ -1742,7 +1454,7 @@ impl PatternEngine {
             format!("M1 (last {} bars):\n{}", self.m1_recent.len(), m1_bars)
         };
 
-        let dom_section = self.dom.to_prompt_section();
+        let dom_section = String::new();
 
         // News section
         let news_section = if news_lines.is_empty() {

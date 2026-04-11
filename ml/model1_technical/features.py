@@ -587,77 +587,12 @@ def compute_cross_pair_features(main_df: pd.DataFrame, cross_closes: dict) -> pd
     return out
 
 
-# ── Market regime feature (from Model 2 HMM) ─────────────────────────────────
+# ── Market regime feature (removed) ───────────────────────────────────────────
+# M2 regime detection has been dropped from the stack.
+# add_regime_feature() kept as a no-op for backward compatibility.
 
 def add_regime_feature(df_features: pd.DataFrame, main_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Load the trained Model 2 GaussianHMM and predict market regime for each bar.
-
-    Adds two features:
-        regime_state     — integer 0-3 (Viterbi decoded state)
-        regime_prob_max  — posterior probability of the most-likely state
-
-    The HMM is unsupervised (trained without labels) so using it as a feature
-    does not introduce look-ahead bias from future trade outcomes.
-    Falls back gracefully if Model 2 is not available.
-    """
-    model2_path = "ml/trained/model2_regime.pkl"
-    try:
-        import pickle
-        with open(model2_path, "rb") as f:
-            hmm_model = pickle.load(f)
-    except FileNotFoundError:
-        print(f"  Model 2 not found at {model2_path} — skipping regime feature")
-        return df_features
-    except Exception as e:
-        print(f"  Could not load Model 2: {e} — skipping regime feature")
-        return df_features
-
-    # Recompute Model 2's 8 features (same as model2/features.py)
-    close   = main_df["close"]
-    log_ret = np.log(close / close.shift(1))
-    vol20   = log_ret.rolling(20).std()
-    vol5    = log_ret.rolling(5).std()
-    atr14   = ta.atr(main_df["high"], main_df["low"], close, 14)
-    hl_rng  = (main_df["high"] - main_df["low"]) / (close + 1e-10)
-    ret_abs = log_ret.abs().rolling(20).mean()
-    vol_rat = vol5 / (vol20 + 1e-10)
-
-    spread = (
-        df_features["spread_mean_pips"].fillna(0.0)
-        if "spread_mean_pips" in df_features.columns
-        else pd.Series(0.0, index=main_df.index)
-    )
-
-    hmm_feats = pd.DataFrame({
-        "log_return":       log_ret,
-        "realized_vol_20":  vol20,
-        "realized_vol_5":   vol5,
-        "atr_ratio":        atr14 / (close + 1e-10),
-        "hl_range":         hl_rng,
-        "spread_mean_pips": spread,
-        "return_abs_20":    ret_abs,
-        "vol_ratio":        vol_rat,
-    }, index=main_df.index).fillna(0.0)
-
-    X_hmm = hmm_feats.to_numpy(dtype=np.float64)
-
-    try:
-        # Viterbi decoding: best state sequence
-        states = hmm_model.predict(X_hmm)
-        # Posterior state probabilities (T × n_components)
-        _, posteriors = hmm_model.score_samples(X_hmm)
-        prob_max = posteriors.max(axis=1)
-
-        df_features = df_features.copy()
-        df_features["regime_state"]    = states.astype(np.float32)
-        df_features["regime_prob_max"] = prob_max.astype(np.float32)
-        unique_states, counts = np.unique(states, return_counts=True)
-        state_pcts = {int(s): f"{c/len(states)*100:.1f}%" for s, c in zip(unique_states, counts)}
-        print(f"  Regime feature added — state distribution: {state_pcts}")
-    except Exception as e:
-        print(f"  Warning: regime prediction failed: {e}")
-
+    """No-op — regime feature removed from M1."""
     return df_features
 
 

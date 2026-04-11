@@ -1,18 +1,10 @@
-# ML Pipeline — Models 1–3
+# ML Pipeline — 3-Layer Architecture
 # Install with: pip install -r ml/requirements.txt
 
 # Core ML
 xgboost>=2.0
 scikit-learn>=1.4
-
-# Model 2 — Regime Detection (HMM)
-hmmlearn>=0.3
-joblib>=1.3
-
-# Model 3 — 1D CNN Chart Patterns
-# CPU-only : pip install torch --index-url https://download.pytorch.org/whl/cpu
-# CUDA 12  : pip install torch --index-url https://download.pytorch.org/whl/cu121
-torch>=2.0
+lightgbm>=4.0
 
 # Data / Features
 pandas>=2.1
@@ -22,5 +14,8 @@ pandas-ta>=0.3.14b
 # DuckDB connector (same DB used by the Rust app)
 duckdb>=1.0
 
-# Optional: faster Parquet caching of large datasets
+# Optional: faster labeling with numba JIT
+numba>=0.59
+
+# Optional: Parquet caching
 pyarrow>=14.0
