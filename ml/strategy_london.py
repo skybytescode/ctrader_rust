@@ -43,15 +43,6 @@ SL_RANGE_MULT = 1.0
 
 # ── Symbol-specific parameters ──────────────────────────────────────────────
 SYMBOL_CONFIG = {
-    "EURUSD": {
-        "table": "eurusd_m1",
-        "pip_size": 0.0001,         # 1 pip = 0.0001
-        "pip_value": 0.10,          # $0.10 per pip per micro lot (1000 units)
-        "spread_pips": 1.0,         # typical spread
-        "buffer_pips": 2,           # breakout buffer
-        "min_range_pips": 15,       # min Asian range
-        "max_range_pips": 55,       # max Asian range
-    },
     "XAUUSD": {
         "table": "xauusd_m1",
         "pip_size": 0.10,           # 1 pip = $0.10 for gold
@@ -411,8 +402,8 @@ def run_backtest(start_date, initial_balance, trade_size, direction_filter="both
 
 def main():
     parser = argparse.ArgumentParser(description="London Breakout Strategy Backtest")
-    parser.add_argument("--symbol", default="EURUSD", choices=["EURUSD", "XAUUSD"],
-                        help="Symbol to backtest (default: EURUSD)")
+    parser.add_argument("--symbol", default="XAUUSD",
+                        help="Symbol to backtest (default: XAUUSD)")
     parser.add_argument("--direction", default="both", choices=["long", "short", "both"],
                         help="Trade direction (default: both)")
     parser.add_argument("--start", default="2025-03-01",

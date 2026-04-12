@@ -18,25 +18,13 @@ use crate::ui::theme::colors;
 // ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TopCardType { Database, TrainModel, Backtesting, StartPause }
+pub enum TopCardType { Database, Backtesting }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbSubCardType { HistoryBot, UpdateHistory, Status, Dom }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(usize)]
-pub enum MlSubCardType { Model1 = 0, Model2 = 1, Model3 = 2, Model4 = 3, Model5 = 4, Model6 = 5 }
-impl MlSubCardType {
-    pub fn all() -> [MlSubCardType; 1] {
-        [Self::Model1]
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MlBtnType { Status, Train, FeatureCount }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BotTimeframe { M1Candles, TickData, MLFeatures }
+pub enum BotTimeframe { M1Candles, TickData }
 
 pub const CROSS_PAIRS: [&str; 6] = ["GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "EURJPY", "XAUUSD"];
 
@@ -48,27 +36,6 @@ pub enum TickWorkflowStep {
     CheckingBidForUpdate, CheckingAskForUpdate,
     UpdatingBid, UpdatingAsk,
     Merging,
-}
-
-pub struct MlModelState {
-    pub status_text: String,
-    pub is_training: bool,
-    pub last_trained: Option<String>,
-    pub training_rx: Option<std::sync::mpsc::Receiver<String>>,
-}
-impl Default for MlModelState {
-    fn default() -> Self {
-        Self { status_text: String::new(), is_training: false, last_trained: None, training_rx: None }
-    }
-}
-
-pub struct MlTrainState { pub states: [MlModelState; 6] }
-impl Default for MlTrainState {
-    fn default() -> Self { Self { states: std::array::from_fn(|_| MlModelState::default()) } }
-}
-impl MlTrainState {
-    pub fn get(&self, model: MlSubCardType) -> &MlModelState { &self.states[model as usize] }
-    pub fn get_mut(&mut self, model: MlSubCardType) -> &mut MlModelState { &mut self.states[model as usize] }
 }
 
 #[derive(Default)]
@@ -92,46 +59,10 @@ pub struct BotDashboardState {
     pub clear_data_status: String,
     pub clear_data_is_running: bool,
     pub clear_data_rx: Option<std::sync::mpsc::Receiver<String>>,
-    pub econ_cal_status: String,
-    pub econ_cal_is_running: bool,
-    pub econ_cal_rx: Option<std::sync::mpsc::Receiver<String>>,
-    pub econ_cal_update_status: String,
-    pub econ_cal_update_is_running: bool,
-    pub econ_cal_update_rx: Option<std::sync::mpsc::Receiver<String>>,
-    pub ec_capture_active: bool,
-    pub ec_today_lines: Vec<String>,
-    pub ec_today_raw: Vec<(String, String, i32, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
-    pub ec_status: String,
-    // News capture
-    pub news_capture_active: bool,
-    pub news_today_lines: Vec<String>,
-    pub news_status: String,
-    pub news_update_status: String,
-    pub news_update_is_running: bool,
-    pub news_update_rx: Option<std::sync::mpsc::Receiver<String>>,
-    // News sentiment analysis (Ollama)
-    pub news_analyze_status: String,
-    pub news_analyze_is_running: bool,
-    pub news_analyze_rx: Option<std::sync::mpsc::Receiver<String>>,
-    // News daily analysis (Gemini)
-    pub news_gemini_status: String,
-    pub news_gemini_is_running: bool,
-    pub news_gemini_rx: Option<std::sync::mpsc::Receiver<String>>,
-    // Backtesting (9 slots: m1 x3, mr x3, london x3)
-    pub bt_status: [String; 9],
-    pub bt_is_running: [bool; 9],
-    pub bt_rx: [Option<std::sync::mpsc::Receiver<String>>; 9],
-    // Pattern engine display
-    pub pattern_lines: Vec<String>,
-    // AI analysis display (used by auto-timer DeepSeek)
-    pub claude_analysis: String,
-    // Manual AI decision buttons
-    pub ai_deepseek_status: String,
-    pub ai_deepseek_busy: bool,
-    pub ai_claude_status: String,
-    pub ai_claude_busy: bool,
-    pub ai_qwen_status: String,
-    pub ai_qwen_busy: bool,
+    // Backtesting (3 slots: london long/short/both)
+    pub bt_status: [String; 3],
+    pub bt_is_running: [bool; 3],
+    pub bt_rx: [Option<std::sync::mpsc::Receiver<String>>; 3],
 }
 
 // ============================================================================
@@ -144,17 +75,12 @@ pub struct CTraderApp {
     pub ui_state: UiState,
     pub symbol_map: SymbolIdMap,
     pub dashboard: BotDashboardState,
-    pub ml_train: MlTrainState,
     // Channels
     pub price_rx: mpsc::Receiver<PriceUpdate>,
     pub data_req_tx: mpsc::Sender<DataRequest>,
     pub data_resp_rx: mpsc::Receiver<DataResponse>,
     // Shared DB
     pub shared_db: crate::SharedDb,
-    // AI decision pending results: (model_name, receiver)
-    ai_pending: Vec<(String, std::sync::mpsc::Receiver<String>)>,
-    // Timers
-    ec_countdown_last: Instant,
     theme_applied: bool,
 }
 
@@ -170,13 +96,10 @@ impl CTraderApp {
             ui_state: UiState::default(),
             symbol_map: SymbolIdMap::default(),
             dashboard: BotDashboardState::default(),
-            ml_train: MlTrainState::default(),
             price_rx,
             data_req_tx,
             data_resp_rx,
             shared_db,
-            ai_pending: Vec::new(),
-            ec_countdown_last: Instant::now(),
             theme_applied: false,
         }
     }
@@ -224,72 +147,6 @@ impl CTraderApp {
         received
     }
 
-    fn poll_ml_training(&mut self) -> bool {
-        let mut received = false;
-        for i in 0..6 {
-            if !self.ml_train.states[i].is_training { continue; }
-            let mut lines: Vec<String> = Vec::new();
-            let mut done = false;
-            if let Some(ref rx) = self.ml_train.states[i].training_rx {
-                loop {
-                    match rx.try_recv() {
-                        Ok(line) if line == "__DONE__" => { done = true; received = true; break; }
-                        Ok(line) => { lines.push(line); received = true; }
-                        Err(_) => break,
-                    }
-                }
-            }
-            if !lines.is_empty() {
-                self.ml_train.states[i].status_text.push('\n');
-                self.ml_train.states[i].status_text.push_str(&lines.join("\n"));
-                let count = self.ml_train.states[i].status_text.lines().count();
-                if count > 60 {
-                    let new_text = self.ml_train.states[i].status_text
-                        .lines().skip(count - 60).collect::<Vec<_>>().join("\n");
-                    self.ml_train.states[i].status_text = new_text;
-                }
-            }
-            if done {
-                let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-                self.ml_train.states[i].last_trained = Some(ts.clone());
-                self.ml_train.states[i].status_text.push_str(&format!("\n\nLast trained: {}", ts));
-                self.ml_train.states[i].is_training = false;
-                self.ml_train.states[i].training_rx = None;
-            }
-        }
-        received
-    }
-
-    fn poll_ai_decisions(&mut self) {
-        // Poll AI decision results
-        self.ai_pending.retain_mut(|(model, rx)| {
-            match rx.try_recv() {
-                Ok(result) => {
-                    let ts = chrono::Local::now().format("%H:%M:%S").to_string();
-                    let display = format!("[{}] {}", ts, result);
-                    match model.as_str() {
-                        "deepseek" => { self.dashboard.ai_deepseek_status = display; self.dashboard.ai_deepseek_busy = false; }
-                        "claude" => { self.dashboard.ai_claude_status = display; self.dashboard.ai_claude_busy = false; }
-                        "qwen" => { self.dashboard.ai_qwen_status = display; self.dashboard.ai_qwen_busy = false; }
-                        _ => {}
-                    }
-                    false // remove from pending
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => true, // keep waiting
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    match model.as_str() {
-                        "deepseek" => { self.dashboard.ai_deepseek_status = "Disconnected".to_string(); self.dashboard.ai_deepseek_busy = false; }
-                        "claude" => { self.dashboard.ai_claude_status = "Disconnected".to_string(); self.dashboard.ai_claude_busy = false; }
-                        "qwen" => { self.dashboard.ai_qwen_status = "Disconnected".to_string(); self.dashboard.ai_qwen_busy = false; }
-                        _ => {}
-                    }
-                    false
-                }
-            }
-        });
-    }
-
-    fn refresh_ec_countdown(&mut self) {}
 
     // ── UI Drawing ───────────────────────────────────────────────────────
 
@@ -514,8 +371,7 @@ impl CTraderApp {
                             ui.add_space(gap);
                             ui.vertical(|ui| {
                                 ui.set_width(side_w);
-                                let others = [TopCardType::Database, TopCardType::TrainModel,
-                                              TopCardType::Backtesting, TopCardType::StartPause];
+                                let others = [TopCardType::Database, TopCardType::Backtesting];
                                 for ct in others {
                                     if ct != exp {
                                         self.draw_card(ui, ct, &symbol, false);
@@ -525,9 +381,8 @@ impl CTraderApp {
                             });
                         });
                     } else {
-                        // Default 2x2 grid
+                        // Default: Database | Backtesting side by side
                         let half = ((total_width - gap) / 2.0).max(50.0);
-                        // Row 1: Database | Train Model
                         ui.horizontal_top(|ui| {
                             ui.vertical(|ui| {
                                 ui.set_width(half);
@@ -536,20 +391,7 @@ impl CTraderApp {
                             ui.add_space(gap);
                             ui.vertical(|ui| {
                                 ui.set_width(half);
-                                self.draw_card(ui, TopCardType::TrainModel, &symbol, false);
-                            });
-                        });
-                        ui.add_space(gap);
-                        // Row 2: Backtesting | Start/Pause
-                        ui.horizontal_top(|ui| {
-                            ui.vertical(|ui| {
-                                ui.set_width(half);
                                 self.draw_card(ui, TopCardType::Backtesting, &symbol, false);
-                            });
-                            ui.add_space(gap);
-                            ui.vertical(|ui| {
-                                ui.set_width(half);
-                                self.draw_card(ui, TopCardType::StartPause, &symbol, false);
                             });
                         });
                     }
@@ -561,9 +403,7 @@ impl CTraderApp {
     fn draw_card(&mut self, ui: &mut egui::Ui, card_type: TopCardType, symbol: &str, _is_expanded: bool) {
         let title = match card_type {
             TopCardType::Database => "Database",
-            TopCardType::TrainModel => "Train Model",
             TopCardType::Backtesting => "Backtesting",
-            TopCardType::StartPause => "Start / Pause",
         };
         let expanded = self.dashboard.expanded_top;
         let is_this_expanded = expanded == Some(card_type);
@@ -572,7 +412,7 @@ impl CTraderApp {
         // Always show content for Database, TrainModel;
         // others only when expanded
         let always_show = matches!(card_type,
-            TopCardType::Database | TopCardType::TrainModel | TopCardType::Backtesting);
+            TopCardType::Database | TopCardType::Backtesting);
         let show_content = always_show || is_this_expanded;
 
         Self::card_frame().show(ui, |ui| {
@@ -599,9 +439,7 @@ impl CTraderApp {
                 ui.add_space(6.0);
                 match card_type {
                     TopCardType::Database => self.draw_database_content(ui, symbol),
-                    TopCardType::TrainModel => self.draw_train_model_content(ui, symbol),
                     TopCardType::Backtesting => self.draw_backtesting_content(ui, symbol),
-                    TopCardType::StartPause => self.draw_start_pause_content(ui),
                 }
             }
         });
@@ -624,6 +462,18 @@ impl CTraderApp {
     // ── Database Card Content ────────────────────────────────────────────
 
     fn draw_database_content(&mut self, ui: &mut egui::Ui, symbol: &str) {
+        if symbol != "EURUSD" {
+            // Non-EURUSD symbols: show simple DB status
+            ui.label(RichText::new(format!("{} — Data loaded from cross-pair table ({}_m1)",
+                symbol, symbol.to_lowercase()))
+                .size(11.0).color(colors::TEXT_MUTED));
+            ui.add_space(4.0);
+            ui.label(RichText::new("Data is managed via the EURUSD dashboard.\nSwitch to EURUSD to download or update data.")
+                .size(10.0).color(colors::TEXT_SECONDARY));
+            return;
+        }
+
+        // EURUSD: full database management
         // Status info bar inside card
         self.draw_status_bar(ui);
 
@@ -740,68 +590,6 @@ impl CTraderApp {
             });
     }
 
-    // ── Train Model Card Content ─────────────────────────────────────────
-
-    fn draw_train_model_content(&mut self, ui: &mut egui::Ui, symbol: &str) {
-        if symbol != "EURUSD" {
-            ui.label(RichText::new(format!("{} — No ML models trained yet.", symbol))
-                .size(11.0).color(colors::TEXT_MUTED));
-            ui.label(RichText::new("Use Backtesting tab for rule-based strategies.")
-                .size(10.0).color(colors::TEXT_SECONDARY));
-            return;
-        }
-        let titles = [
-            "M1 -- Technical Indicators (XGBoost)",
-            "", // unused
-            "", // unused
-            "", // unused
-            "", // unused
-            "", // unused
-        ];
-        for model in MlSubCardType::all() {
-            let idx = model as usize;
-            egui::Frame::new()
-                .fill(colors::BG_SIDEBAR)
-                .corner_radius(6.0)
-                .inner_margin(egui::Margin::same(10))
-                .show(ui, |ui| {
-                    ui.label(RichText::new(titles[idx]).size(12.0).color(colors::TEXT_PRIMARY));
-                    ui.add_space(4.0);
-                    ui.horizontal_wrapped(|ui| {
-                        if Self::themed_button(ui, "Status").clicked() {
-                            self.handle_ml_btn(model, MlBtnType::Status);
-                        }
-                        if Self::themed_button(ui, "Update Training").clicked() {
-                            self.handle_ml_btn(model, MlBtnType::Train);
-                        }
-                        if Self::themed_button(ui, "Feature Count").clicked() {
-                            self.handle_ml_btn(model, MlBtnType::FeatureCount);
-                        }
-                    });
-                    let text = &self.ml_train.states[idx].status_text;
-                    if !text.is_empty() {
-                        ui.add_space(4.0);
-                        egui::Frame::new()
-                            .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
-                            .corner_radius(4.0)
-                            .inner_margin(egui::Margin::same(4))
-                            .show(ui, |ui| {
-                                ScrollArea::vertical()
-                                    .id_salt(format!("ml_scroll_{}", idx))
-                                    .max_height(220.0)
-                                    .stick_to_bottom(true)
-                                    .show(ui, |ui| {
-                                        ui.label(RichText::new(text).size(10.0)
-                                            .color(colors::TEXT_MUTED).font(egui::FontId::monospace(10.0)));
-                                    });
-                            });
-                    }
-                });
-            ui.add_space(4.0);
-        }
-
-    }
-
     // ── Backtesting Card Content ────────────────────────────────────────
 
     fn draw_backtesting_content(&mut self, ui: &mut egui::Ui, symbol: &str) {
@@ -809,26 +597,12 @@ impl CTraderApp {
             .size(10.0).color(colors::TEXT_SECONDARY));
         ui.add_space(4.0);
 
-        // Strategy configs per symbol
-        let configs: Vec<(usize, String, String, &str)> = match symbol {
-            "EURUSD" => vec![
-                (0, "M1 XGBoost — LONG".into(),       "ml.backtest".into(),         "long"),
-                (1, "M1 XGBoost — SHORT".into(),      "ml.backtest".into(),         "short"),
-                (2, "M1 XGBoost — BOTH".into(),       "ml.backtest".into(),         "both"),
-                (3, "Mean Reversion — LONG".into(),    "ml.strategy_mr".into(),      "long"),
-                (4, "Mean Reversion — SHORT".into(),   "ml.strategy_mr".into(),      "short"),
-                (5, "Mean Reversion — BOTH".into(),    "ml.strategy_mr".into(),      "both"),
-                (6, "London Breakout — LONG".into(),   "ml.strategy_london".into(),  "long"),
-                (7, "London Breakout — SHORT".into(),  "ml.strategy_london".into(),  "short"),
-                (8, "London Breakout — BOTH".into(),   "ml.strategy_london".into(),  "both"),
-            ],
-            "XAUUSD" => vec![
-                (0, "London Breakout — LONG".into(),   "ml.strategy_london".into(),  "long"),
-                (1, "London Breakout — SHORT".into(),  "ml.strategy_london".into(),  "short"),
-                (2, "London Breakout — BOTH".into(),   "ml.strategy_london".into(),  "both"),
-            ],
-            _ => vec![],
-        };
+        // Strategy configs
+        let configs: Vec<(usize, String, String, &str)> = vec![
+            (0, "London Breakout — LONG".into(),   "ml.strategy_london".into(),  "long"),
+            (1, "London Breakout — SHORT".into(),  "ml.strategy_london".into(),  "short"),
+            (2, "London Breakout — BOTH".into(),   "ml.strategy_london".into(),  "both"),
+        ];
 
         for (idx, title, module, direction) in &configs {
             let idx = *idx;
@@ -876,85 +650,6 @@ impl CTraderApp {
         }
     }
 
-    // ── Start / Pause Card Content ───────────────────────────────────────
-
-    fn draw_start_pause_content(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("AI Trading Decisions:").size(11.0).color(colors::TEXT_SECONDARY));
-        ui.add_space(4.0);
-
-        // DeepSeek R1 button
-        ui.horizontal(|ui| {
-            let btn = if self.dashboard.ai_deepseek_busy {
-                ui.add_enabled(false, egui::Button::new("DeepSeek R1"))
-            } else {
-                Self::themed_button(ui, "DeepSeek R1")
-            };
-            if btn.clicked() && !self.dashboard.ai_deepseek_busy {
-                self.trigger_ai_decision("deepseek");
-            }
-            if !self.dashboard.ai_deepseek_status.is_empty() {
-                ui.label(RichText::new(&self.dashboard.ai_deepseek_status).size(9.0).color(colors::TEXT_MUTED));
-            }
-        });
-
-        // Claude CLI button
-        ui.horizontal(|ui| {
-            let btn = if self.dashboard.ai_claude_busy {
-                ui.add_enabled(false, egui::Button::new("Claude"))
-            } else {
-                Self::themed_button(ui, "Claude")
-            };
-            if btn.clicked() && !self.dashboard.ai_claude_busy {
-                self.trigger_ai_decision("claude");
-            }
-            if !self.dashboard.ai_claude_status.is_empty() {
-                ui.label(RichText::new(&self.dashboard.ai_claude_status).size(9.0).color(colors::TEXT_MUTED));
-            }
-        });
-
-        // Qwen 2.5 button
-        ui.horizontal(|ui| {
-            let btn = if self.dashboard.ai_qwen_busy {
-                ui.add_enabled(false, egui::Button::new("Qwen 2.5"))
-            } else {
-                Self::themed_button(ui, "Qwen 2.5")
-            };
-            if btn.clicked() && !self.dashboard.ai_qwen_busy {
-                self.trigger_ai_decision("qwen");
-            }
-            if !self.dashboard.ai_qwen_status.is_empty() {
-                ui.label(RichText::new(&self.dashboard.ai_qwen_status).size(9.0).color(colors::TEXT_MUTED));
-            }
-        });
-
-        // Results display
-        for (label, status) in [
-            ("DeepSeek", &self.dashboard.ai_deepseek_status),
-            ("Claude", &self.dashboard.ai_claude_status),
-            ("Qwen", &self.dashboard.ai_qwen_status),
-        ] {
-            if status.contains('\n') {
-                ui.add_space(4.0);
-                egui::Frame::new()
-                    .fill(Color32::from_rgba_premultiplied(0, 40, 0, 50))
-                    .corner_radius(4.0)
-                    .inner_margin(egui::Margin::same(4))
-                    .show(ui, |ui| {
-                        ui.label(RichText::new(format!("[{}]", label)).size(9.0).color(colors::TEXT_SECONDARY));
-                        ScrollArea::vertical()
-                            .id_salt(format!("ai_{}_scroll", label))
-                            .max_height(100.0)
-                            .show(ui, |ui| {
-                                ui.label(RichText::new(status).size(9.0)
-                                    .color(colors::TEXT_PRIMARY)
-                                    .font(egui::FontId::monospace(9.0)));
-                            });
-                    });
-            }
-        }
-    }
-
-
     // ── Event Handlers ───────────────────────────────────────────────────
 
     fn handle_timeframe_click(&mut self, symbol: &str, parent_card: DbSubCardType, timeframe: BotTimeframe) {
@@ -970,32 +665,6 @@ impl CTraderApp {
                 return;
             }
         };
-
-        // ML Features
-        if timeframe == BotTimeframe::MLFeatures {
-            let force = parent_card == DbSubCardType::UpdateHistory;
-            let req = DataRequest {
-                symbol: symbol.to_string(), symbol_id,
-                kind: DataKind::M1Candles,
-                action: DataAction::BuildMLFeatures,
-                force_rebuild: force,
-            };
-            if let Err(e) = self.data_req_tx.try_send(req) {
-                let msg = format!("Failed: {}", e);
-                if force { self.dashboard.update_history_message = Some(msg); }
-                else { self.dashboard.download_message = Some(msg); }
-            } else {
-                let msg = if force {
-                    self.dashboard.is_update_mode = true;
-                    format!("Updating ML features for {}...", symbol)
-                } else {
-                    format!("Checking ML features table for {}...", symbol)
-                };
-                if force { self.dashboard.update_history_message = Some(msg); }
-                else { self.dashboard.download_message = Some(msg); }
-            }
-            return;
-        }
 
         if self.dashboard.is_downloading {
             let msg = "Download already in progress...".to_string();
@@ -1174,94 +843,6 @@ impl CTraderApp {
         });
     }
 
-    fn trigger_ai_decision(&mut self, model: &str) {
-        let model = model.to_string();
-
-        // Read all data for the prompt
-        let (news_lines, ec_lines, model_preds) = {
-            let _lock = self.shared_db.lock().unwrap_or_else(|e| e.into_inner());
-            let db = duckdb::Connection::open(crate::DB_PATH).ok();
-            let news: Vec<String> = Vec::new();
-            let ec: Vec<String> = Vec::new();
-            let models = db.and_then(|d| {
-                d.query_row(
-                    "SELECT data FROM ml_predictions_live LIMIT 1",
-                    [],
-                    |row| row.get::<_, String>(0),
-                ).ok()
-            })
-            .map(|json_str| crate::format_model_predictions(&json_str))
-            .unwrap_or_else(|| "  Models not available".to_string());
-            (news, ec, models)
-        };
-
-        let pattern_status = self.dashboard.pattern_lines.join("\n");
-        let prompt = build_decisive_prompt(&pattern_status, &news_lines, &ec_lines, &model_preds);
-
-        // Set busy state
-        match model.as_str() {
-            "deepseek" => { self.dashboard.ai_deepseek_busy = true; self.dashboard.ai_deepseek_status = "Asking DeepSeek R1...".to_string(); }
-            "claude" => { self.dashboard.ai_claude_busy = true; self.dashboard.ai_claude_status = "Asking Claude...".to_string(); }
-            "qwen" => { self.dashboard.ai_qwen_busy = true; self.dashboard.ai_qwen_status = "Asking Qwen 2.5...".to_string(); }
-            _ => {}
-        }
-
-        let (tx, rx) = std::sync::mpsc::channel::<String>();
-
-        let model_clone = model.clone();
-        std::thread::spawn(move || {
-            let result = match model_clone.as_str() {
-                "deepseek" => call_ollama_decision(&prompt, "deepseek-r1:8b-llama-distill-q4_K_M"),
-                "claude" => {
-                    match crate::pattern_engine::call_claude_pattern_analysis(&prompt) {
-                        Ok(resp) => resp.display_summary(),
-                        Err(e) => format!("Error: {}", e),
-                    }
-                }
-                "qwen" => call_ollama_decision(&prompt, "qwen2.5:3b-instruct-q5_K_M"),
-                _ => "Unknown model".to_string(),
-            };
-            let _ = tx.send(result);
-        });
-
-        self.ai_pending.push((model, rx));
-    }
-
-    fn handle_ml_btn(&mut self, model: MlSubCardType, btn_type: MlBtnType) {
-        match btn_type {
-            MlBtnType::Status => {
-                let last = self.ml_train.get(model).last_trained.clone();
-                let mut text = read_ml_model_status(model);
-                if let Some(ts) = last {
-                    text.push_str(&format!("\n\nLast trained: {}", ts));
-                }
-                self.ml_train.get_mut(model).status_text = text;
-            }
-            MlBtnType::FeatureCount => {
-                self.ml_train.get_mut(model).status_text = read_ml_model_features(model);
-            }
-            MlBtnType::Train => {
-                let ms = self.ml_train.get_mut(model);
-                if ms.is_training {
-                    ms.status_text = "Training already in progress...".to_string();
-                    return;
-                }
-                let module = match model {
-                    MlSubCardType::Model1 => Some("ml.model1_technical.train"),
-                    _ => None,
-                };
-                if let Some(module_path) = module {
-                    let (tx, rx) = std::sync::mpsc::channel::<String>();
-                    ms.is_training = true;
-                    ms.status_text = "Starting training...\n".to_string();
-                    ms.training_rx = Some(rx);
-                    spawn_ml_training_thread(tx, module_path);
-                } else {
-                    ms.status_text = "Training script not yet implemented for this model.".to_string();
-                }
-            }
-        }
-    }
 }
 
 impl eframe::App for CTraderApp {
@@ -1275,12 +856,8 @@ impl eframe::App for CTraderApp {
         let mut has_data = false;
         has_data |= self.poll_price_updates();
         has_data |= self.poll_data_responses();
-        has_data |= self.poll_ml_training();
-        self.poll_ai_decisions();
-        // Force faster repaint while any ML training is active
-        if self.ml_train.states.iter().any(|s| s.is_training)
-            || self.dashboard.bt_is_running.iter().any(|r| *r)
-        {
+        // Force faster repaint while backtesting is active
+        if self.dashboard.bt_is_running.iter().any(|r| *r) {
             has_data = true;
         }
         poll_background_thread(
@@ -1288,14 +865,13 @@ impl eframe::App for CTraderApp {
             &mut self.dashboard.clear_data_status,
             &mut self.dashboard.clear_data_rx,
         );
-        for i in 0..9 {
+        for i in 0..3 {
             poll_background_thread(
                 &mut self.dashboard.bt_is_running[i],
                 &mut self.dashboard.bt_status[i],
                 &mut self.dashboard.bt_rx[i],
             );
         }
-        self.refresh_ec_countdown();
 
         // Draw UI
         self.draw_top_panel(ctx);
@@ -1344,139 +920,6 @@ fn poll_background_thread(
     if done {
         *is_running = false;
         *rx_opt = None;
-    }
-}
-
-/// Build a decisive trading prompt from current state.
-fn build_decisive_prompt(
-    pattern_status: &str,
-    news_lines: &[String],
-    ec_lines: &[String],
-    model_preds: &str,
-) -> String {
-    let news_section = if news_lines.is_empty() {
-        "NEWS TODAY:\n  No news data".to_string()
-    } else {
-        format!("NEWS TODAY ({} articles):\n{}", news_lines.len(),
-            news_lines.iter().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n"))
-    };
-
-    let ec_section = if ec_lines.is_empty() {
-        "ECONOMIC CALENDAR:\n  No events".to_string()
-    } else {
-        format!("ECONOMIC CALENDAR:\n{}",
-            ec_lines.iter().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n"))
-    };
-
-    let now = chrono::Utc::now();
-    let time_str = now.format("%H:%M UTC").to_string();
-
-    format!(
-r#"You are an expert EUR/USD forex trader making real-time trading decisions.
-
-CRITICAL RULES:
-- You MUST choose enter_long or enter_short if ANY valid setup exists. Only say "wait" if there is genuinely NO pattern and NO directional bias.
-- Be DECISIVE. Traders lose money by waiting too long. If the data shows a direction, commit to it.
-- A strong trend with a pullback is an ENTRY opportunity, not a reason to wait.
-- News-driven moves can extend — do NOT dismiss them due to session quality.
-
-Time: {time_str}
-
-PATTERN DETECTION (real-time):
-{pattern_status}
-
-{news_section}
-
-{ec_section}
-
-ML MODELS:
-{model_preds}
-
-Based on ALL data above, output ONLY valid JSON:
-
-{{
-  "m15_bias": "<bullish/bearish/neutral>",
-  "m15_pattern": "<what you see>",
-  "m5_bias": "<bullish/bearish/neutral>",
-  "m5_pattern": "<what you see>",
-  "dominant_bias": "<bullish/bearish/neutral>",
-  "dominant_bias_confidence": <0.0-1.0>,
-  "news_driven": <true/false>,
-  "news_impact": "<which news matters or none>",
-  "session_quality": "<good/moderate/poor>",
-  "recommended_action": "<enter_long/enter_short/wait>",
-  "entry_timeframe": "<M15/M5/none>",
-  "entry_condition": "<specific reason for your decision>",
-  "key_resistance": <price or 0>,
-  "key_support": <price or 0>,
-  "target_pips": <number or 0>,
-  "stop_pips": <number or 0>,
-  "invalidation": "<what cancels this>"
-}}"#)
-}
-
-/// Call Ollama with a prompt and return formatted text result.
-fn call_ollama_decision(prompt: &str, model: &str) -> String {
-    #[derive(serde::Serialize)]
-    struct Req { model: String, prompt: String, stream: bool, keep_alive: String }
-    #[derive(serde::Deserialize)]
-    struct Resp { #[serde(default)] response: String }
-
-    let client = reqwest::blocking::Client::new();
-    let req = Req {
-        model: model.to_string(),
-        prompt: prompt.to_string(),
-        stream: false,
-        keep_alive: "30m".to_string(),
-    };
-
-    let resp = match client
-        .post("http://localhost:11434/api/generate")
-        .json(&req)
-        .timeout(std::time::Duration::from_secs(120))
-        .send()
-    {
-        Ok(r) => r,
-        Err(e) => return format!("Error: {}", e),
-    };
-
-    if !resp.status().is_success() {
-        return format!("Error: HTTP {}", resp.status());
-    }
-
-    let ollama: Resp = match resp.json() {
-        Ok(r) => r,
-        Err(e) => return format!("Error: parse {}", e),
-    };
-
-    let text = ollama.response.trim();
-
-    // DeepSeek R1: strip <think>...</think> block
-    let text = if let Some(end) = text.find("</think>") {
-        text[end + 8..].trim()
-    } else {
-        text
-    };
-
-    // Try to parse as TradingDecision for nice display
-    let json_clean = if text.contains("```") {
-        text.lines().filter(|l| !l.trim().starts_with("```")).collect::<Vec<_>>().join("\n")
-    } else {
-        text.to_string()
-    };
-
-    let json_str = if let Some(start) = json_clean.find('{') {
-        if let Some(end) = json_clean.rfind('}') {
-            &json_clean[start..=end]
-        } else { &json_clean }
-    } else { &json_clean };
-
-    match serde_json::from_str::<crate::decision_engine::TradingDecision>(json_str) {
-        Ok(d) => d.display_summary(),
-        Err(_) => {
-            // Return raw text if can't parse JSON (truncated)
-            if text.len() > 500 { format!("{}...", &text[..500]) } else { text.to_string() }
-        }
     }
 }
 
@@ -1812,96 +1255,3 @@ fn process_data_response(
 // ML Model status/feature helpers
 // ============================================================================
 
-fn read_ml_model_status(model: MlSubCardType) -> String {
-    let (metrics_path, model_path, model_name) = match model {
-        MlSubCardType::Model1 => ("ml/trained/model1_metrics.json", "ml/trained/model1_technical.json", "M1  Technical Indicators (XGBoost)"),
-        _ => return String::new(),
-    };
-
-    let raw = match std::fs::read_to_string(metrics_path) {
-        Ok(s) => s,
-        Err(e) => return format!("Could not read {}: {}", metrics_path, e),
-    };
-    let v: serde_json::Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(e) => return format!("Could not parse metrics JSON: {}", e),
-    };
-
-    let avg = &v["avg_metrics"];
-    let cfg = &v["config"];
-    let folds = v["fold_metrics"].as_array();
-
-    let roc_auc   = avg["roc_auc"].as_f64().unwrap_or(0.0);
-    let accuracy  = avg["accuracy"].as_f64().unwrap_or(0.0);
-    let precision = avg["precision"].as_f64().unwrap_or(0.0);
-    let log_loss  = avg["log_loss"].as_f64().unwrap_or(0.0);
-    let n_feat    = v["n_features_used"].as_u64().unwrap_or(0);
-    let target_p  = cfg["target_pips"].as_u64().unwrap_or(0);
-    let stop_p    = cfg["stop_pips"].as_u64().unwrap_or(0);
-    let horizon   = cfg["horizon_bars"].as_u64().unwrap_or(0);
-    let threshold = cfg["threshold"].as_f64().unwrap_or(0.50);
-    let n_folds   = folds.map(|f| f.len()).unwrap_or(0);
-
-    let test_years: Vec<String> = folds
-        .map(|f| f.iter().filter_map(|m| m["test_year"].as_u64().map(|y| y.to_string())).collect())
-        .unwrap_or_default();
-
-    let mut lines = Vec::new();
-    lines.push(model_name.to_string());
-    lines.push("--------------------------------------".to_string());
-    lines.push(format!("Label: +{}p target / -{}p stop / {}m horizon", target_p, stop_p, horizon));
-    lines.push(format!("Features used  : {}", n_feat));
-    lines.push(format!("Walk-fwd folds : {} (test years: {})", n_folds, test_years.join(", ")));
-    lines.push(String::new());
-    lines.push("--- Avg walk-forward metrics ---".to_string());
-    lines.push(format!("ROC-AUC  : {:.4}", roc_auc));
-    lines.push(format!("Accuracy : {:.4}", accuracy));
-    lines.push(format!("Precision: {:.4}  (at threshold {:.2})", precision, threshold));
-    lines.push(format!("Log-loss : {:.4}", log_loss));
-
-    if let Some(folds_arr) = folds {
-        lines.push(String::new());
-        lines.push("--- Per-fold ---".to_string());
-        for fold in folds_arr {
-            let year = fold["test_year"].as_u64().unwrap_or(0);
-            let auc  = fold["roc_auc"].as_f64().unwrap_or(0.0);
-            let prec = fold["precision"].as_f64().unwrap_or(0.0);
-            let sigs = fold["signals"].as_u64().unwrap_or(0);
-            lines.push(format!("  {}: AUC={:.3}  Prec={:.3}  Signals={}", year, auc, prec, sigs));
-        }
-    }
-
-    if let Ok(meta) = std::fs::metadata(model_path) {
-        if let Ok(modified) = meta.modified() {
-            let datetime = chrono::DateTime::<chrono::Local>::from(modified);
-            lines.push(String::new());
-            lines.push(format!("Last trained: {}", datetime.format("%Y-%m-%d %H:%M")));
-        }
-    }
-
-    lines.join("\n")
-}
-
-fn read_ml_model_features(model: MlSubCardType) -> String {
-    match model {
-        MlSubCardType::Model1 => concat!(
-            "~125 computed -> top 70 selected by XGBoost gain\n\n",
-            "Trend (MA)        10\n  EMA 5/10/21/50/100/200, SMA 20\n  ema5/21, ema21/50, ema50/200 cross\n\n",
-            "Momentum          14\n  RSI 14/5, MACD line/signal/hist\n  Stoch K/D, CCI, WilliamsR\n  ROC 10, Momentum, ADX / +DI / -DI\n\n",
-            "Volatility         7\n  ATR 14 + ratio, BB width/pos\n  StdDev 20, KC width, Squeeze\n\n",
-            "Price / Returns    9\n  return 1/5/15/30/60m\n  hl_range, body, upper/lower wick\n\n",
-            "S/R Levels         7\n  SwingHigh/Low x3 periods, Pivot\n\n",
-            "Ranges / Slopes    8\n  Range + Slope for 5/15/30/60m\n\n",
-            "Candlesticks       8\n  Doji, Hammer, ShootingStar\n  Engulf x2, InsideBar, PinBar x2\n\n",
-            "Time / Session     7\n  Hour sin/cos, DOW sin/cos\n  London, NewYork, Overlap\n\n",
-            "Volume             4\n  VolRatio, OBV x2, MFI 14\n\n",
-            "Consecutive        4\n  BullStreak, BearStreak\n  SinceSwingHigh, SinceSwingLow\n\n",
-            "Tick Features      6\n  TickRatio, SpreadMean/Max/Std\n  WideRatio, SpreadCost%\n\n",
-            "VWAP               3\n  dist_vwap, vwap_slope_5, above_vwap\n\n",
-            "Ichimoku Cloud     5\n  dist_cloud_top, dist_cloud_bot\n  cloud_thickness, above_cloud\n  tenkan_vs_kijun\n\n",
-            "Fibonacci          5\n  dist 23.6 / 38.2 / 50.0 / 61.8\n  fib_position (0=low, 1=high)\n\n",
-            "Cross-Pair        38\n  GBPUSD/USDJPY/USDCHF/AUDUSD/EURJPY/XAUUSD\n  return_1m/5m/60m, RSI14, vs_EMA21, mom10\n  corr_20 (rolling correlation vs EURUSD)\n  usd_strength_5m, risk_sentiment_5m\n  eur_divergence_5m\n\n",
-        ).to_string(),
-        _ => String::new(),
-    }
-}

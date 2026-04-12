@@ -81,21 +81,11 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         let mut instruments = HashMap::new();
-        instruments.insert("EURUSD".to_string(), InstrumentData::new("EURUSD", 5, false));
+        instruments.insert("XAUUSD".to_string(), InstrumentData::new("XAUUSD", 2, false));
         Self {
             instruments,
             connection_status: "Init".to_string(),
         }
-    }
-}
-
-impl AppState {
-    pub fn eurusd(&self) -> Option<&InstrumentData> {
-        self.instruments.get("EURUSD")
-    }
-
-    pub fn eurusd_mut(&mut self) -> Option<&mut InstrumentData> {
-        self.instruments.get_mut("EURUSD")
     }
 }
 
@@ -128,7 +118,7 @@ impl SymbolCategory {
 
     pub fn instruments(&self) -> &'static [&'static str] {
         match self {
-            SymbolCategory::TradingBots => &["EURUSD", "XAUUSD"],
+            SymbolCategory::TradingBots => &["XAUUSD"],
         }
     }
 }
