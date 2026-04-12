@@ -1,19 +1,20 @@
 """
-London Breakout Strategy — EURUSD
-==================================
+London Breakout Strategy — Multi-Symbol
+=========================================
 Trade the breakout of the Asian session range during London open.
+Supports EURUSD and XAUUSD with symbol-specific parameters.
 
 Logic:
     1. Compute Asian range: high/low of 00:00-06:59 UTC
-    2. Wait for London open (07:00-11:00 UTC)
+    2. Wait for London open (07:00-12:00 UTC)
     3. Enter LONG on first close above Asian high + buffer
        Enter SHORT on first close below Asian low - buffer
     4. TP = 1.5x range size, SL = opposite side of range
-    5. Max 1 trade per day, close by 20:00 UTC if still open
+    5. Max 1 trade per day, daily bias filter from previous day
 
 Usage:
-    python -m ml.strategy_london --direction both
-    python -m ml.strategy_london --direction long
+    python -m ml.strategy_london --symbol EURUSD --direction both
+    python -m ml.strategy_london --symbol XAUUSD --direction long
 """
 
 import argparse
@@ -27,50 +28,79 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from ml.model1_technical.features import load_candles
-
 DB_PATH = "Bots_db/Algo_EURUSD.duckdb"
 
-# ── Strategy Parameters ─────────────────────────────────────────────────────
-# Asian session: 00:00-06:59 UTC
+# ── Session Parameters (shared) ────────────────────────────────────────────
 ASIAN_START_HOUR = 0
 ASIAN_END_HOUR = 7  # exclusive
-
-# London entry window: 07:00-12:00 UTC (includes early NY overlap)
 ENTRY_START_HOUR = 7
 ENTRY_END_HOUR = 12
-
-# Close all trades by this hour if still open
 SESSION_CLOSE_HOUR = 20
 
+# TP/SL as multiples of Asian range (shared)
+TP_RANGE_MULT = 1.5
+SL_RANGE_MULT = 1.0
 
-# Breakout buffer: pips above/below Asian range to confirm breakout
-BUFFER_PIPS = 2
+# ── Symbol-specific parameters ──────────────────────────────────────────────
+SYMBOL_CONFIG = {
+    "EURUSD": {
+        "table": "eurusd_m1",
+        "pip_size": 0.0001,         # 1 pip = 0.0001
+        "pip_value": 0.10,          # $0.10 per pip per micro lot (1000 units)
+        "spread_pips": 1.0,         # typical spread
+        "buffer_pips": 2,           # breakout buffer
+        "min_range_pips": 15,       # min Asian range
+        "max_range_pips": 55,       # max Asian range
+    },
+    "XAUUSD": {
+        "table": "xauusd_m1",
+        "pip_size": 0.10,           # 1 pip = $0.10 for gold
+        "pip_value": 0.01,          # $0.01 per pip per micro lot (1 oz)
+        "spread_pips": 15,          # ~$1.50 ECN gold spread
+        "buffer_pips": 20,          # $2.00 buffer
+        "min_range_pips": 80,       # ~$8 min range
+        "max_range_pips": 800,      # ~$80 max range (gold is volatile)
+    },
+}
 
-# TP/SL as multiples of Asian range
-TP_RANGE_MULT = 1.5   # TP = 1.5x Asian range from entry
-SL_RANGE_MULT = 1.0   # SL = opposite side of range
 
-# Minimum Asian range to trade (avoid choppy/tiny days)
-MIN_RANGE_PIPS = 15
-MAX_RANGE_PIPS = 55   # skip abnormally wide ranges (news days)
+def load_symbol_candles(symbol):
+    """Load M1 candles for any symbol from DB."""
+    import duckdb
+    table = SYMBOL_CONFIG[symbol]["table"]
+    con = duckdb.connect(DB_PATH, read_only=True)
+    df = con.execute(
+        f"SELECT timestamp, open, high, low, close, volume "
+        f"FROM {table} ORDER BY timestamp"
+    ).df()
+    con.close()
 
-# Pip constants
-PIP_SIZE = 0.0001
-PIP_VALUE_PER_MICROLOT = 0.10
-SPREAD_PIPS = 1.0
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+    df = df.set_index("timestamp")
+    print(f"Loaded {len(df):,} M1 candles from {table}  "
+          f"({df.index[0]} -> {df.index[-1]})")
+    return df
 
 
-def run_backtest(start_date, initial_balance, trade_size, direction_filter="both"):
+def run_backtest(start_date, initial_balance, trade_size, direction_filter="both",
+                 symbol="EURUSD"):
     t0 = time.time()
     dir_label = direction_filter.upper() if direction_filter != "both" else "LONG+SHORT"
+    cfg = SYMBOL_CONFIG[symbol]
+    pip_size = cfg["pip_size"]
+    pip_value = cfg["pip_value"]
+    spread_pips = cfg["spread_pips"]
+    buffer_pips = cfg["buffer_pips"]
+    min_range_pips = cfg["min_range_pips"]
+    max_range_pips = cfg["max_range_pips"]
+
     print("=" * 60)
-    print(f"London Breakout Strategy [{dir_label}]")
+    print(f"London Breakout — {symbol} [{dir_label}]")
     print("=" * 60)
 
     # Load data
-    print(f"\n[1/1] Loading M1 candles...")
-    df = load_candles(DB_PATH)
+    print(f"\n[1/1] Loading {symbol} M1 candles...")
+    df = load_symbol_candles(symbol)
 
     start_ts = pd.Timestamp(start_date, tz="UTC")
     df_bt = df[df.index >= start_ts]
@@ -83,11 +113,11 @@ def run_backtest(start_date, initial_balance, trade_size, direction_filter="both
     print(f"\nStrategy parameters:")
     print(f"  Asian range:   {ASIAN_START_HOUR:02d}:00-{ASIAN_END_HOUR:02d}:00 UTC")
     print(f"  Entry window:  {ENTRY_START_HOUR:02d}:00-{ENTRY_END_HOUR:02d}:00 UTC")
-    print(f"  Buffer:        {BUFFER_PIPS} pips above/below range")
+    print(f"  Buffer:        {buffer_pips} pips above/below range")
     print(f"  TP:            {TP_RANGE_MULT}x Asian range")
     print(f"  SL:            Opposite side of range ({SL_RANGE_MULT}x)")
-    print(f"  Range filter:  {MIN_RANGE_PIPS}-{MAX_RANGE_PIPS} pips")
-    print(f"  Spread:        {SPREAD_PIPS} pip/trade")
+    print(f"  Range filter:  {min_range_pips}-{max_range_pips} pips")
+    print(f"  Spread:        {spread_pips} pip/trade")
     print(f"  Direction:     {dir_label}")
     print(f"  Period:        {start_date} -> {days[-1] if days else 'N/A'}")
     print(f"  Days:          {len(days)}")
@@ -122,12 +152,12 @@ def run_backtest(start_date, initial_balance, trade_size, direction_filter="both
         asian_high = asian["high"].max()
         asian_low = asian["low"].min()
         asian_range = asian_high - asian_low
-        range_pips = asian_range / PIP_SIZE
+        range_pips = asian_range / pip_size
 
-        if range_pips < MIN_RANGE_PIPS:
+        if range_pips < min_range_pips:
             skipped_reasons["range_too_small"] += 1
             continue
-        if range_pips > MAX_RANGE_PIPS:
+        if range_pips > max_range_pips:
             skipped_reasons["range_too_big"] += 1
             continue
 
@@ -153,7 +183,7 @@ def run_backtest(start_date, initial_balance, trade_size, direction_filter="both
             skipped_reasons["no_breakout"] += 1
             continue
 
-        buffer = BUFFER_PIPS * PIP_SIZE
+        buffer = buffer_pips * pip_size
         breakout_high = asian_high + buffer
         breakout_low = asian_low - buffer
 
@@ -194,8 +224,8 @@ def run_backtest(start_date, initial_balance, trade_size, direction_filter="both
             tp_level = entry_price - tp_dist
             sl_level = entry_price + sl_dist
 
-        tp_pips = tp_dist / PIP_SIZE
-        sl_pips = sl_dist / PIP_SIZE
+        tp_pips = tp_dist / pip_size
+        sl_pips = sl_dist / pip_size
 
         # ── 4. Resolve trade using remaining bars of the day ─────────
         remaining = day_bars[day_bars.index > entry_bar]
@@ -242,10 +272,10 @@ def run_backtest(start_date, initial_balance, trade_size, direction_filter="both
         else:
             pnl_dist = entry_price - exit_price
 
-        pnl_pips = pnl_dist / PIP_SIZE
+        pnl_pips = pnl_dist / pip_size
         microlots = trade_size / 1000.0
-        spread_cost = SPREAD_PIPS * PIP_VALUE_PER_MICROLOT * microlots
-        pnl_usd = pnl_pips * PIP_VALUE_PER_MICROLOT * microlots - spread_cost
+        spread_cost = spread_pips * pip_value * microlots
+        pnl_usd = pnl_pips * pip_value * microlots - spread_cost
 
         balance += pnl_usd
         if balance > peak_balance:
@@ -289,18 +319,19 @@ def run_backtest(start_date, initial_balance, trade_size, direction_filter="both
     pips_won = sum(t["pnl_pips"] for t in trades if t["pnl_pips"] > 0)
     pips_lost = sum(t["pnl_pips"] for t in trades if t["pnl_pips"] < 0)
     pips_net = pips_won + pips_lost
-    total_spread_pips = total_trades * SPREAD_PIPS
+    total_spread_pips = total_trades * spread_pips
     total_pnl = balance - initial_balance
 
     print()
     print("=" * 60)
     print("BACKTEST RESULTS — London Breakout")
     print("=" * 60)
+    print(f"  Symbol:           {symbol}")
     print(f"  Strategy:         Asian range breakout ({ENTRY_START_HOUR:02d}:00-{ENTRY_END_HOUR:02d}:00)")
     print(f"  TP/SL:            {TP_RANGE_MULT}x / {SL_RANGE_MULT}x Asian range")
     print(f"  Direction:        {dir_label}")
     print(f"  Period:           {start_date} -> {days[-1] if days else 'N/A'}")
-    print(f"  Spread cost:      {SPREAD_PIPS} pip/trade")
+    print(f"  Spread cost:      {spread_pips} pip/trade")
     print(f"  Duration:         {elapsed:.1f}s")
     print()
     print(f"  Total days:       {len(days)}")
@@ -380,6 +411,8 @@ def run_backtest(start_date, initial_balance, trade_size, direction_filter="both
 
 def main():
     parser = argparse.ArgumentParser(description="London Breakout Strategy Backtest")
+    parser.add_argument("--symbol", default="EURUSD", choices=["EURUSD", "XAUUSD"],
+                        help="Symbol to backtest (default: EURUSD)")
     parser.add_argument("--direction", default="both", choices=["long", "short", "both"],
                         help="Trade direction (default: both)")
     parser.add_argument("--start", default="2025-03-01",
@@ -390,7 +423,7 @@ def main():
                         help="Trade size in USD (default: 1000)")
     args = parser.parse_args()
 
-    run_backtest(args.start, args.balance, args.size, args.direction)
+    run_backtest(args.start, args.balance, args.size, args.direction, args.symbol)
 
 
 if __name__ == "__main__":

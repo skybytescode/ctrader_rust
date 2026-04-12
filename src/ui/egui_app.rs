@@ -599,8 +599,8 @@ impl CTraderApp {
                 ui.add_space(6.0);
                 match card_type {
                     TopCardType::Database => self.draw_database_content(ui, symbol),
-                    TopCardType::TrainModel => self.draw_train_model_content(ui),
-                    TopCardType::Backtesting => self.draw_backtesting_content(ui),
+                    TopCardType::TrainModel => self.draw_train_model_content(ui, symbol),
+                    TopCardType::Backtesting => self.draw_backtesting_content(ui, symbol),
                     TopCardType::StartPause => self.draw_start_pause_content(ui),
                 }
             }
@@ -742,7 +742,14 @@ impl CTraderApp {
 
     // ── Train Model Card Content ─────────────────────────────────────────
 
-    fn draw_train_model_content(&mut self, ui: &mut egui::Ui) {
+    fn draw_train_model_content(&mut self, ui: &mut egui::Ui, symbol: &str) {
+        if symbol != "EURUSD" {
+            ui.label(RichText::new(format!("{} — No ML models trained yet.", symbol))
+                .size(11.0).color(colors::TEXT_MUTED));
+            ui.label(RichText::new("Use Backtesting tab for rule-based strategies.")
+                .size(10.0).color(colors::TEXT_SECONDARY));
+            return;
+        }
         let titles = [
             "M1 -- Technical Indicators (XGBoost)",
             "", // unused
@@ -797,31 +804,40 @@ impl CTraderApp {
 
     // ── Backtesting Card Content ────────────────────────────────────────
 
-    fn draw_backtesting_content(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("Backtest strategies (2025-03-01 → present, incl. 1p spread)")
+    fn draw_backtesting_content(&mut self, ui: &mut egui::Ui, symbol: &str) {
+        ui.label(RichText::new(format!("{} — Backtest strategies (incl. spread)", symbol))
             .size(10.0).color(colors::TEXT_SECONDARY));
         ui.add_space(4.0);
 
-        // 9 backtest slots: M1 XGBoost + Mean Reversion + London Breakout
-        let configs: [(usize, &str, &str, &str); 9] = [
-            (0, "M1 XGBoost — LONG",           "ml.backtest",         "long"),
-            (1, "M1 XGBoost — SHORT",          "ml.backtest",         "short"),
-            (2, "M1 XGBoost — BOTH",           "ml.backtest",         "both"),
-            (3, "Mean Reversion — LONG",        "ml.strategy_mr",      "long"),
-            (4, "Mean Reversion — SHORT",       "ml.strategy_mr",      "short"),
-            (5, "Mean Reversion — BOTH",        "ml.strategy_mr",      "both"),
-            (6, "London Breakout — LONG",       "ml.strategy_london",  "long"),
-            (7, "London Breakout — SHORT",      "ml.strategy_london",  "short"),
-            (8, "London Breakout — BOTH",       "ml.strategy_london",  "both"),
-        ];
+        // Strategy configs per symbol
+        let configs: Vec<(usize, String, String, &str)> = match symbol {
+            "EURUSD" => vec![
+                (0, "M1 XGBoost — LONG".into(),       "ml.backtest".into(),         "long"),
+                (1, "M1 XGBoost — SHORT".into(),      "ml.backtest".into(),         "short"),
+                (2, "M1 XGBoost — BOTH".into(),       "ml.backtest".into(),         "both"),
+                (3, "Mean Reversion — LONG".into(),    "ml.strategy_mr".into(),      "long"),
+                (4, "Mean Reversion — SHORT".into(),   "ml.strategy_mr".into(),      "short"),
+                (5, "Mean Reversion — BOTH".into(),    "ml.strategy_mr".into(),      "both"),
+                (6, "London Breakout — LONG".into(),   "ml.strategy_london".into(),  "long"),
+                (7, "London Breakout — SHORT".into(),  "ml.strategy_london".into(),  "short"),
+                (8, "London Breakout — BOTH".into(),   "ml.strategy_london".into(),  "both"),
+            ],
+            "XAUUSD" => vec![
+                (0, "London Breakout — LONG".into(),   "ml.strategy_london".into(),  "long"),
+                (1, "London Breakout — SHORT".into(),  "ml.strategy_london".into(),  "short"),
+                (2, "London Breakout — BOTH".into(),   "ml.strategy_london".into(),  "both"),
+            ],
+            _ => vec![],
+        };
 
-        for (idx, title, module, direction) in configs {
+        for (idx, title, module, direction) in &configs {
+            let idx = *idx;
             egui::Frame::new()
                 .fill(colors::BG_SIDEBAR)
                 .corner_radius(6.0)
                 .inner_margin(egui::Margin::same(10))
                 .show(ui, |ui| {
-                    ui.label(RichText::new(title).size(12.0).color(colors::TEXT_PRIMARY));
+                    ui.label(RichText::new(title.as_str()).size(12.0).color(colors::TEXT_PRIMARY));
                     ui.add_space(4.0);
                     let running = self.dashboard.bt_is_running[idx];
                     let btn = if !running {
@@ -834,7 +850,7 @@ impl CTraderApp {
                         self.dashboard.bt_is_running[idx] = true;
                         self.dashboard.bt_status[idx] = "Starting backtest...\n".to_string();
                         self.dashboard.bt_rx[idx] = Some(rx);
-                        let cmd = format!("{} --direction {}", module, direction);
+                        let cmd = format!("{} --direction {} --symbol {}", module, direction, symbol);
                         spawn_ml_training_thread(tx, &cmd);
                     }
                     if !self.dashboard.bt_status[idx].is_empty() {
