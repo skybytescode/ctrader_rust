@@ -233,11 +233,11 @@ async fn run_session(
     let mut symbol_id_to_name: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
 
     // Symbols to subscribe to live spot prices
-    let instruments_to_subscribe: Vec<&str> = vec!["EURUSD"];
-    // All symbols whose IDs we need (cross-pairs for M1 data downloads, ID lookup only)
+    let instruments_to_subscribe: Vec<&str> = vec!["XAUUSD"];
+    // All symbols whose IDs we need
     let instruments_need_id: Vec<&str> = vec![
-        "EURUSD",
-        "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "EURJPY", "XAUUSD",
+        "XAUUSD",
+        "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "EURJPY", "EURUSD",
     ];
 
     let mut last_heartbeat = tokio::time::Instant::now();

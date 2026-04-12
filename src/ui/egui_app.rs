@@ -438,8 +438,14 @@ impl CTraderApp {
             if show_content {
                 ui.add_space(6.0);
                 match card_type {
-                    TopCardType::Database => self.draw_database_content(ui, symbol),
-                    TopCardType::Backtesting => self.draw_backtesting_content(ui, symbol),
+                    TopCardType::Database => {
+                        ui.label(RichText::new(format!("{} data management", symbol))
+                            .size(10.0).color(colors::TEXT_MUTED));
+                    }
+                    TopCardType::Backtesting => {
+                        ui.label(RichText::new(format!("{} strategy backtesting", symbol))
+                            .size(10.0).color(colors::TEXT_MUTED));
+                    }
                 }
             }
         });
@@ -856,22 +862,6 @@ impl eframe::App for CTraderApp {
         let mut has_data = false;
         has_data |= self.poll_price_updates();
         has_data |= self.poll_data_responses();
-        // Force faster repaint while backtesting is active
-        if self.dashboard.bt_is_running.iter().any(|r| *r) {
-            has_data = true;
-        }
-        poll_background_thread(
-            &mut self.dashboard.clear_data_is_running,
-            &mut self.dashboard.clear_data_status,
-            &mut self.dashboard.clear_data_rx,
-        );
-        for i in 0..3 {
-            poll_background_thread(
-                &mut self.dashboard.bt_is_running[i],
-                &mut self.dashboard.bt_status[i],
-                &mut self.dashboard.bt_rx[i],
-            );
-        }
 
         // Draw UI
         self.draw_top_panel(ctx);
