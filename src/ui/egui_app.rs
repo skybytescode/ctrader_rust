@@ -117,10 +117,10 @@ pub struct BotDashboardState {
     pub news_gemini_status: String,
     pub news_gemini_is_running: bool,
     pub news_gemini_rx: Option<std::sync::mpsc::Receiver<String>>,
-    // Backtesting (3 slots: m1_long, m1_short, m1_both)
-    pub bt_status: [String; 3],
-    pub bt_is_running: [bool; 3],
-    pub bt_rx: [Option<std::sync::mpsc::Receiver<String>>; 3],
+    // Backtesting (9 slots: m1 x3, mr x3, london x3)
+    pub bt_status: [String; 9],
+    pub bt_is_running: [bool; 9],
+    pub bt_rx: [Option<std::sync::mpsc::Receiver<String>>; 9],
     // Pattern engine display
     pub pattern_lines: Vec<String>,
     // AI analysis display (used by auto-timer DeepSeek)
@@ -226,7 +226,7 @@ impl CTraderApp {
 
     fn poll_ml_training(&mut self) -> bool {
         let mut received = false;
-        for i in 0..6 {
+        for i in 0..9 {
             if !self.ml_train.states[i].is_training { continue; }
             let mut lines: Vec<String> = Vec::new();
             let mut done = false;
@@ -798,18 +798,24 @@ impl CTraderApp {
     // ── Backtesting Card Content ────────────────────────────────────────
 
     fn draw_backtesting_content(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("M1 XGBoost backtest (2025-03-01 → present, incl. 1p spread)")
+        ui.label(RichText::new("Backtest strategies (2025-03-01 → present, incl. 1p spread)")
             .size(10.0).color(colors::TEXT_SECONDARY));
         ui.add_space(4.0);
 
-        // 3 backtest slots: long, short, both
-        let configs: [(usize, &str, &str); 3] = [
-            (0, "M1 XGBoost — LONG",      "long"),
-            (1, "M1 XGBoost — SHORT",     "short"),
-            (2, "M1 XGBoost — BOTH",      "both"),
+        // 9 backtest slots: M1 XGBoost + Mean Reversion + London Breakout
+        let configs: [(usize, &str, &str, &str); 9] = [
+            (0, "M1 XGBoost — LONG",           "ml.backtest",         "long"),
+            (1, "M1 XGBoost — SHORT",          "ml.backtest",         "short"),
+            (2, "M1 XGBoost — BOTH",           "ml.backtest",         "both"),
+            (3, "Mean Reversion — LONG",        "ml.strategy_mr",      "long"),
+            (4, "Mean Reversion — SHORT",       "ml.strategy_mr",      "short"),
+            (5, "Mean Reversion — BOTH",        "ml.strategy_mr",      "both"),
+            (6, "London Breakout — LONG",       "ml.strategy_london",  "long"),
+            (7, "London Breakout — SHORT",      "ml.strategy_london",  "short"),
+            (8, "London Breakout — BOTH",       "ml.strategy_london",  "both"),
         ];
 
-        for (idx, title, direction) in configs {
+        for (idx, title, module, direction) in configs {
             egui::Frame::new()
                 .fill(colors::BG_SIDEBAR)
                 .corner_radius(6.0)
@@ -828,7 +834,7 @@ impl CTraderApp {
                         self.dashboard.bt_is_running[idx] = true;
                         self.dashboard.bt_status[idx] = "Starting backtest...\n".to_string();
                         self.dashboard.bt_rx[idx] = Some(rx);
-                        let cmd = format!("ml.backtest --direction {}", direction);
+                        let cmd = format!("{} --direction {}", module, direction);
                         spawn_ml_training_thread(tx, &cmd);
                     }
                     if !self.dashboard.bt_status[idx].is_empty() {
@@ -1266,7 +1272,7 @@ impl eframe::App for CTraderApp {
             &mut self.dashboard.clear_data_status,
             &mut self.dashboard.clear_data_rx,
         );
-        for i in 0..3 {
+        for i in 0..9 {
             poll_background_thread(
                 &mut self.dashboard.bt_is_running[i],
                 &mut self.dashboard.bt_status[i],
