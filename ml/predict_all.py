@@ -150,11 +150,11 @@ def run_filters(df):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  LAYER 2: SIGNAL (M1 XGBoost + LightGBM Signal)
+#  LAYER 2: SIGNAL (M1 XGBoost only)
 # ═══════════════════════════════════════════════════════════════════════════
 
 def predict_model1(df):
-    """Model 1: Technical Indicators (XGBoost)."""
+    """Model 1: Technical Indicators (XGBoost) — long and short."""
     try:
         if "ml/model1_technical" not in sys.path:
             sys.path.insert(0, "ml/model1_technical")
@@ -181,77 +181,25 @@ def predict_model1(df):
         return None, None
 
 
-def predict_signal(df):
-    """Signal Model: LightGBM with ATR-based targets."""
-    try:
-        import lightgbm as lgb
-        from pathlib import Path
-
-        long_path = Path(MODEL_DIR) / "signal_long.txt"
-        short_path = Path(MODEL_DIR) / "signal_short.txt"
-        long_feat_path = Path(MODEL_DIR) / "signal_long_features.txt"
-        short_feat_path = Path(MODEL_DIR) / "signal_short_features.txt"
-
-        if not long_path.exists() or not short_path.exists():
-            return None, None
-
-        model_long = lgb.Booster(model_file=str(long_path))
-        model_short = lgb.Booster(model_file=str(short_path))
-        feat_long = long_feat_path.read_text().strip().split("\n")
-        feat_short = short_feat_path.read_text().strip().split("\n")
-
-        if "ml/model1_technical" not in sys.path:
-            sys.path.insert(0, "ml/model1_technical")
-        from features import compute_features
-
-        features = compute_features(df)
-        if features.empty:
-            return None, None
-
-        row = features.iloc[[-1]]
-        X_long = row.reindex(columns=feat_long, fill_value=0.0)
-        X_short = row.reindex(columns=feat_short, fill_value=0.0)
-
-        prob_long = float(model_long.predict(X_long)[0])
-        prob_short = float(model_short.predict(X_short)[0])
-
-        return prob_long, prob_short
-    except Exception as e:
-        print(f"Signal model error: {e}", file=sys.stderr)
-        return None, None
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 #  LAYER 3: SIZING
 # ═══════════════════════════════════════════════════════════════════════════
 
-def compute_sizing(signal_long, signal_short, m1_long, m1_short):
+def compute_sizing(m1_long, m1_short):
     """
-    Compute position sizing suggestion based on signal confidence.
+    Compute position sizing based on M1 model confidence.
     Returns a sizing multiplier (0.5 = half size, 1.0 = full, 1.5 = 1.5x).
     """
-    if signal_long is None and m1_long is None:
-        return 0.0, "neutral"
-
-    # Combine signal model with M1 model (signal model gets 60% weight)
-    def combine(sig, m1):
-        if sig is not None and m1 is not None:
-            return sig * 0.6 + m1 * 0.4
-        return sig if sig is not None else m1
-
-    combined_long = combine(signal_long, m1_long)
-    combined_short = combine(signal_short, m1_short)
-
-    if combined_long is None or combined_short is None:
+    if m1_long is None or m1_short is None:
         return 0.0, "neutral"
 
     # Direction
-    if combined_long > combined_short and combined_long > 0.5:
+    if m1_long > m1_short and m1_long > 0.5:
         direction = "LONG"
-        confidence = combined_long
-    elif combined_short > combined_long and combined_short > 0.5:
+        confidence = m1_long
+    elif m1_short > m1_long and m1_short > 0.5:
         direction = "SHORT"
-        confidence = combined_short
+        confidence = m1_short
     else:
         return 0.5, "neutral"
 
@@ -281,11 +229,9 @@ def run_predictions():
         "session": None,
         "spread_ok": True,
         "current_spread": None,
-        # Layer 2: Signal
+        # Layer 2: Signal (M1 only)
         "model1_long": None,
         "model1_short": None,
-        "signal_long": None,
-        "signal_short": None,
         # Layer 3: Sizing
         "direction": "neutral",
         "size_multiplier": 0.0,
@@ -314,12 +260,8 @@ def run_predictions():
             result["model1_long"] = m1_long
             result["model1_short"] = m1_short
 
-            sig_long, sig_short = predict_signal(df)
-            result["signal_long"] = sig_long
-            result["signal_short"] = sig_short
-
             # Layer 3: Sizing
-            size_mult, direction = compute_sizing(sig_long, sig_short, m1_long, m1_short)
+            size_mult, direction = compute_sizing(m1_long, m1_short)
             result["size_multiplier"] = size_mult
             result["direction"] = direction
         else:
@@ -360,10 +302,10 @@ def main():
         print(json.dumps(result, indent=2))
         return
 
-    print(f"ML Stack v2: Filters -> Signal -> Sizing")
+    print(f"ML Stack v2: Filters -> M1 XGBoost -> Sizing")
     print(f"  Loop interval: {interval}s")
     print(f"  Layer 1: Session + Spread filters")
-    print(f"  Layer 2: M1-XGBoost + LightGBM Signal")
+    print(f"  Layer 2: M1 XGBoost (long + short)")
     print(f"  Layer 3: Confidence-based sizing")
     print()
 
@@ -382,12 +324,12 @@ def main():
             size = result.get("size_multiplier", 0)
 
             if result["trade_allowed"]:
-                m1 = result.get("model1_long")
-                sig = result.get("signal_long")
-                m1_str = f"M1={m1:.0%}" if m1 else "M1=N/A"
-                sig_str = f"Sig={sig:.0%}" if sig else "Sig=N/A"
+                m1_l = result.get("model1_long")
+                m1_s = result.get("model1_short")
+                l_str = f"L={m1_l:.0%}" if m1_l else "L=N/A"
+                s_str = f"S={m1_s:.0%}" if m1_s else "S=N/A"
                 print(f"ML #{cycle}: {allowed} {session} | "
-                      f"{m1_str} {sig_str} -> {direction} x{size:.1f} ({elapsed:.1f}s)")
+                      f"{l_str} {s_str} -> {direction} x{size:.1f} ({elapsed:.1f}s)")
             else:
                 reasons = result.get("block_reasons", [])
                 reason_str = "; ".join(reasons) if reasons else "Unknown"

@@ -27,8 +27,8 @@ pub enum DbSubCardType { HistoryBot, UpdateHistory, Status, Dom }
 #[repr(usize)]
 pub enum MlSubCardType { Model1 = 0, Model2 = 1, Model3 = 2, Model4 = 3, Model5 = 4, Model6 = 5 }
 impl MlSubCardType {
-    pub fn all() -> [MlSubCardType; 2] {
-        [Self::Model1, Self::Model3]
+    pub fn all() -> [MlSubCardType; 1] {
+        [Self::Model1]
     }
 }
 
@@ -117,10 +117,10 @@ pub struct BotDashboardState {
     pub news_gemini_status: String,
     pub news_gemini_is_running: bool,
     pub news_gemini_rx: Option<std::sync::mpsc::Receiver<String>>,
-    // Backtesting (7 slots: signal_long/short, m1_long/short, combined_long/short/both)
-    pub bt_status: [String; 7],
-    pub bt_is_running: [bool; 7],
-    pub bt_rx: [Option<std::sync::mpsc::Receiver<String>>; 7],
+    // Backtesting (3 slots: m1_long, m1_short, m1_both)
+    pub bt_status: [String; 3],
+    pub bt_is_running: [bool; 3],
+    pub bt_rx: [Option<std::sync::mpsc::Receiver<String>>; 3],
     // Pattern engine display
     pub pattern_lines: Vec<String>,
     // AI analysis display (used by auto-timer DeepSeek)
@@ -745,9 +745,9 @@ impl CTraderApp {
     fn draw_train_model_content(&mut self, ui: &mut egui::Ui) {
         let titles = [
             "M1 -- Technical Indicators (XGBoost)",
-            "", // M2 removed
-            "Signal -- LightGBM (ATR Target)",
-            "", // M4 removed
+            "", // unused
+            "", // unused
+            "", // unused
             "", // unused
             "", // unused
         ];
@@ -798,22 +798,18 @@ impl CTraderApp {
     // ── Backtesting Card Content ────────────────────────────────────────
 
     fn draw_backtesting_content(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("Run backtests by model & direction (2025-03-01 → present, incl. spread)")
+        ui.label(RichText::new("M1 XGBoost backtest (2025-03-01 → present, incl. 1p spread)")
             .size(10.0).color(colors::TEXT_SECONDARY));
         ui.add_space(4.0);
 
-        // 7 backtest slots
-        let configs: [(usize, &str, &str, &str); 7] = [
-            (0, "Signal LightGBM — LONG",       "signal",   "long"),
-            (1, "Signal LightGBM — SHORT",      "signal",   "short"),
-            (2, "M1 XGBoost — LONG",            "m1",       "long"),
-            (3, "M1 XGBoost — SHORT",           "m1",       "short"),
-            (4, "COMBINED (Signal+M1) — LONG",  "combined", "long"),
-            (5, "COMBINED (Signal+M1) — SHORT", "combined", "short"),
-            (6, "COMBINED (Signal+M1) — BOTH",  "combined", "both"),
+        // 3 backtest slots: long, short, both
+        let configs: [(usize, &str, &str); 3] = [
+            (0, "M1 XGBoost — LONG",      "long"),
+            (1, "M1 XGBoost — SHORT",     "short"),
+            (2, "M1 XGBoost — BOTH",      "both"),
         ];
 
-        for (idx, title, model, direction) in configs {
+        for (idx, title, direction) in configs {
             egui::Frame::new()
                 .fill(colors::BG_SIDEBAR)
                 .corner_radius(6.0)
@@ -832,10 +828,7 @@ impl CTraderApp {
                         self.dashboard.bt_is_running[idx] = true;
                         self.dashboard.bt_status[idx] = "Starting backtest...\n".to_string();
                         self.dashboard.bt_rx[idx] = Some(rx);
-                        let cmd = format!(
-                            "ml.signal_model.backtest --model {} --direction {}",
-                            model, direction
-                        );
+                        let cmd = format!("ml.backtest --direction {}", direction);
                         spawn_ml_training_thread(tx, &cmd);
                     }
                     if !self.dashboard.bt_status[idx].is_empty() {
@@ -1233,9 +1226,6 @@ impl CTraderApp {
                 }
                 let module = match model {
                     MlSubCardType::Model1 => Some("ml.model1_technical.train"),
-                    MlSubCardType::Model2 => None,
-                    MlSubCardType::Model3 => Some("ml.signal_model.train"),
-                    MlSubCardType::Model4 => None,
                     _ => None,
                 };
                 if let Some(module_path) = module {
@@ -1276,7 +1266,7 @@ impl eframe::App for CTraderApp {
             &mut self.dashboard.clear_data_status,
             &mut self.dashboard.clear_data_rx,
         );
-        for i in 0..7 {
+        for i in 0..3 {
             poll_background_thread(
                 &mut self.dashboard.bt_is_running[i],
                 &mut self.dashboard.bt_status[i],
@@ -1803,11 +1793,7 @@ fn process_data_response(
 fn read_ml_model_status(model: MlSubCardType) -> String {
     let (metrics_path, model_path, model_name) = match model {
         MlSubCardType::Model1 => ("ml/trained/model1_metrics.json", "ml/trained/model1_technical.json", "M1  Technical Indicators (XGBoost)"),
-        MlSubCardType::Model2 => return String::new(),
-        MlSubCardType::Model3 => return read_signal_model_status(),
-        MlSubCardType::Model4 => return String::new(),
-        MlSubCardType::Model5 => return String::new(),
-        MlSubCardType::Model6 => return String::new(),
+        _ => return String::new(),
     };
 
     let raw = match std::fs::read_to_string(metrics_path) {
@@ -1874,63 +1860,6 @@ fn read_ml_model_status(model: MlSubCardType) -> String {
     lines.join("\n")
 }
 
-fn read_signal_model_status() -> String {
-    let metrics_path = "ml/trained/signal_metrics.json";
-    let model_path   = "ml/trained/signal_long.txt";
-
-    let raw = match std::fs::read_to_string(metrics_path) {
-        Ok(s)  => s,
-        Err(_) => return "Signal Model (LightGBM) --not yet trained.\nPress 'Update Training' to train.".to_string(),
-    };
-    let v: serde_json::Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(e) => return format!("Could not parse signal_metrics.json: {}", e),
-    };
-
-    let model_type  = v["model_type"].as_str().unwrap_or("LightGBM");
-    let target      = v["target"].as_str().unwrap_or("?");
-    let train_range = v["train_range"].as_str().unwrap_or("?");
-
-    let mut lines = Vec::new();
-    lines.push("Signal Model (LightGBM with ATR Target)".to_string());
-    lines.push("---------------------------------------".to_string());
-    lines.push(format!("Type: {}", model_type));
-    lines.push(format!("Target: {}", target));
-    lines.push(format!("Train range: {}", train_range));
-
-    for direction in &["long", "short"] {
-        let dir_v = &v[direction];
-        if dir_v.is_null() { continue; }
-        let mean_auc = dir_v["mean_auc"].as_f64().unwrap_or(0.0);
-        let mean_acc = dir_v["mean_accuracy"].as_f64().unwrap_or(0.0);
-        lines.push(String::new());
-        lines.push(format!("--- {} (walk-forward avg) ---", direction.to_uppercase()));
-        lines.push(format!("  Mean AUC:      {:.4}", mean_auc));
-        lines.push(format!("  Mean Accuracy: {:.4}", mean_acc));
-
-        if let Some(folds) = dir_v["folds"].as_array() {
-            lines.push("  Per-fold:".to_string());
-            for fold in folds {
-                let year = fold["test_year"].as_u64().unwrap_or(0);
-                let auc  = fold["auc"].as_f64().unwrap_or(0.0);
-                let acc  = fold["accuracy"].as_f64().unwrap_or(0.0);
-                let prec = fold["precision"].as_f64().unwrap_or(0.0);
-                lines.push(format!("    {}: AUC={:.3}  ACC={:.3}  PREC={:.3}", year, auc, acc, prec));
-            }
-        }
-    }
-
-    if let Ok(meta) = std::fs::metadata(model_path) {
-        if let Ok(modified) = meta.modified() {
-            let datetime = chrono::DateTime::<chrono::Local>::from(modified);
-            lines.push(String::new());
-            lines.push(format!("Last trained: {}", datetime.format("%Y-%m-%d %H:%M")));
-        }
-    }
-
-    lines.join("\n")
-}
-
 fn read_ml_model_features(model: MlSubCardType) -> String {
     match model {
         MlSubCardType::Model1 => concat!(
@@ -1951,26 +1880,6 @@ fn read_ml_model_features(model: MlSubCardType) -> String {
             "Fibonacci          5\n  dist 23.6 / 38.2 / 50.0 / 61.8\n  fib_position (0=low, 1=high)\n\n",
             "Cross-Pair        38\n  GBPUSD/USDJPY/USDCHF/AUDUSD/EURJPY/XAUUSD\n  return_1m/5m/60m, RSI14, vs_EMA21, mom10\n  corr_20 (rolling correlation vs EURUSD)\n  usd_strength_5m, risk_sentiment_5m\n  eur_divergence_5m\n\n",
         ).to_string(),
-        MlSubCardType::Model2 => String::new(),
-        MlSubCardType::Model3 => concat!(
-            "Signal Model (LightGBM) -- Primary Trading Signal\n\n",
-            "Features: M1 technical (~86) + regime (3)\n",
-            "  = ~89 features -> top 60 selected by gain\n\n",
-            "Target: ATR-based first-touch\n",
-            "  WIN:  price moves > 1.5 ATR in direction\n",
-            "  LOSS: price hits 1.0 ATR stop first\n",
-            "  Horizon: 120 bars (2 hours)\n",
-            "  Answers: 'will price hit 2R before 1R?'\n\n",
-            "LightGBM params:\n",
-            "  num_leaves=31, max_depth=5, lr=0.05\n",
-            "  n_estimators=800, subsample=0.8\n",
-            "  early_stopping=50 rounds\n\n",
-            "Session filter: 07:00-21:00 UTC\n",
-            "Walk-forward: 3yr train / 1yr test\n",
-            "Long + Short models trained separately"
-        ).to_string(),
-        MlSubCardType::Model4 => String::new(),
-        MlSubCardType::Model5 => String::new(),
-        MlSubCardType::Model6 => String::new(),
+        _ => String::new(),
     }
 }
