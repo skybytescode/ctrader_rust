@@ -226,7 +226,7 @@ impl CTraderApp {
 
     fn poll_ml_training(&mut self) -> bool {
         let mut received = false;
-        for i in 0..9 {
+        for i in 0..6 {
             if !self.ml_train.states[i].is_training { continue; }
             let mut lines: Vec<String> = Vec::new();
             let mut done = false;
