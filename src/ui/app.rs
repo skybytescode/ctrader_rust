@@ -128,7 +128,7 @@ impl SymbolCategory {
 
     pub fn instruments(&self) -> &'static [&'static str] {
         match self {
-            SymbolCategory::TradingBots => &["EURUSD"],
+            SymbolCategory::TradingBots => &["EURUSD", "XAUUSD"],
         }
     }
 }
