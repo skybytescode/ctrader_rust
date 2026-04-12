@@ -117,13 +117,10 @@ pub struct BotDashboardState {
     pub news_gemini_status: String,
     pub news_gemini_is_running: bool,
     pub news_gemini_rx: Option<std::sync::mpsc::Receiver<String>>,
-    // Backtesting
-    pub bt_signal_status: String,
-    pub bt_signal_is_running: bool,
-    pub bt_signal_rx: Option<std::sync::mpsc::Receiver<String>>,
-    pub bt_m1_status: String,
-    pub bt_m1_is_running: bool,
-    pub bt_m1_rx: Option<std::sync::mpsc::Receiver<String>>,
+    // Backtesting (7 slots: signal_long/short, m1_long/short, combined_long/short/both)
+    pub bt_status: [String; 7],
+    pub bt_is_running: [bool; 7],
+    pub bt_rx: [Option<std::sync::mpsc::Receiver<String>>; 7],
     // Pattern engine display
     pub pattern_lines: Vec<String>,
     // AI analysis display (used by auto-timer DeepSeek)
@@ -801,94 +798,67 @@ impl CTraderApp {
     // ── Backtesting Card Content ────────────────────────────────────────
 
     fn draw_backtesting_content(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("Run backtests on trained models (2025-03-01 → present)")
+        ui.label(RichText::new("Run backtests by model & direction (2025-03-01 → present, incl. spread)")
             .size(10.0).color(colors::TEXT_SECONDARY));
         ui.add_space(4.0);
 
-        // Signal LightGBM backtest
-        egui::Frame::new()
-            .fill(colors::BG_SIDEBAR)
-            .corner_radius(6.0)
-            .inner_margin(egui::Margin::same(10))
-            .show(ui, |ui| {
-                ui.label(RichText::new("Signal -- LightGBM (ATR Target)")
-                    .size(12.0).color(colors::TEXT_PRIMARY));
-                ui.add_space(4.0);
-                let btn_enabled = !self.dashboard.bt_signal_is_running;
-                let btn = if btn_enabled {
-                    Self::themed_button(ui, "Backtest Signal Model")
-                } else {
-                    ui.add_enabled(false, egui::Button::new("Running..."))
-                };
-                if btn.clicked() && btn_enabled {
-                    let (tx, rx) = std::sync::mpsc::channel::<String>();
-                    self.dashboard.bt_signal_is_running = true;
-                    self.dashboard.bt_signal_status = "Starting backtest...\n".to_string();
-                    self.dashboard.bt_signal_rx = Some(rx);
-                    spawn_ml_training_thread(tx, "ml.signal_model.backtest --model signal");
-                }
-                if !self.dashboard.bt_signal_status.is_empty() {
-                    ui.add_space(4.0);
-                    egui::Frame::new()
-                        .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
-                        .corner_radius(4.0)
-                        .inner_margin(egui::Margin::same(4))
-                        .show(ui, |ui| {
-                            ScrollArea::vertical()
-                                .id_salt("bt_signal_scroll")
-                                .max_height(300.0)
-                                .stick_to_bottom(true)
-                                .show(ui, |ui| {
-                                    ui.label(RichText::new(&self.dashboard.bt_signal_status)
-                                        .size(10.0).color(colors::TEXT_MUTED)
-                                        .font(egui::FontId::monospace(10.0)));
-                                });
-                        });
-                }
-            });
-        ui.add_space(4.0);
+        // 7 backtest slots
+        let configs: [(usize, &str, &str, &str); 7] = [
+            (0, "Signal LightGBM — LONG",       "signal",   "long"),
+            (1, "Signal LightGBM — SHORT",      "signal",   "short"),
+            (2, "M1 XGBoost — LONG",            "m1",       "long"),
+            (3, "M1 XGBoost — SHORT",           "m1",       "short"),
+            (4, "COMBINED (Signal+M1) — LONG",  "combined", "long"),
+            (5, "COMBINED (Signal+M1) — SHORT", "combined", "short"),
+            (6, "COMBINED (Signal+M1) — BOTH",  "combined", "both"),
+        ];
 
-        // M1 XGBoost backtest
-        egui::Frame::new()
-            .fill(colors::BG_SIDEBAR)
-            .corner_radius(6.0)
-            .inner_margin(egui::Margin::same(10))
-            .show(ui, |ui| {
-                ui.label(RichText::new("M1 -- XGBoost (Fixed Pip Target)")
-                    .size(12.0).color(colors::TEXT_PRIMARY));
-                ui.add_space(4.0);
-                let btn_enabled = !self.dashboard.bt_m1_is_running;
-                let btn = if btn_enabled {
-                    Self::themed_button(ui, "Backtest M1 Model")
-                } else {
-                    ui.add_enabled(false, egui::Button::new("Running..."))
-                };
-                if btn.clicked() && btn_enabled {
-                    let (tx, rx) = std::sync::mpsc::channel::<String>();
-                    self.dashboard.bt_m1_is_running = true;
-                    self.dashboard.bt_m1_status = "Starting backtest...\n".to_string();
-                    self.dashboard.bt_m1_rx = Some(rx);
-                    spawn_ml_training_thread(tx, "ml.signal_model.backtest --model m1");
-                }
-                if !self.dashboard.bt_m1_status.is_empty() {
+        for (idx, title, model, direction) in configs {
+            egui::Frame::new()
+                .fill(colors::BG_SIDEBAR)
+                .corner_radius(6.0)
+                .inner_margin(egui::Margin::same(10))
+                .show(ui, |ui| {
+                    ui.label(RichText::new(title).size(12.0).color(colors::TEXT_PRIMARY));
                     ui.add_space(4.0);
-                    egui::Frame::new()
-                        .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
-                        .corner_radius(4.0)
-                        .inner_margin(egui::Margin::same(4))
-                        .show(ui, |ui| {
-                            ScrollArea::vertical()
-                                .id_salt("bt_m1_scroll")
-                                .max_height(300.0)
-                                .stick_to_bottom(true)
-                                .show(ui, |ui| {
-                                    ui.label(RichText::new(&self.dashboard.bt_m1_status)
-                                        .size(10.0).color(colors::TEXT_MUTED)
-                                        .font(egui::FontId::monospace(10.0)));
-                                });
-                        });
-                }
-            });
+                    let running = self.dashboard.bt_is_running[idx];
+                    let btn = if !running {
+                        Self::themed_button(ui, "Run Backtest")
+                    } else {
+                        ui.add_enabled(false, egui::Button::new("Running..."))
+                    };
+                    if btn.clicked() && !running {
+                        let (tx, rx) = std::sync::mpsc::channel::<String>();
+                        self.dashboard.bt_is_running[idx] = true;
+                        self.dashboard.bt_status[idx] = "Starting backtest...\n".to_string();
+                        self.dashboard.bt_rx[idx] = Some(rx);
+                        let cmd = format!(
+                            "ml.signal_model.backtest --model {} --direction {}",
+                            model, direction
+                        );
+                        spawn_ml_training_thread(tx, &cmd);
+                    }
+                    if !self.dashboard.bt_status[idx].is_empty() {
+                        ui.add_space(4.0);
+                        egui::Frame::new()
+                            .fill(Color32::from_rgba_premultiplied(0, 0, 0, 50))
+                            .corner_radius(4.0)
+                            .inner_margin(egui::Margin::same(4))
+                            .show(ui, |ui| {
+                                ScrollArea::vertical()
+                                    .id_salt(format!("bt_scroll_{}", idx))
+                                    .max_height(250.0)
+                                    .stick_to_bottom(true)
+                                    .show(ui, |ui| {
+                                        ui.label(RichText::new(&self.dashboard.bt_status[idx])
+                                            .size(10.0).color(colors::TEXT_MUTED)
+                                            .font(egui::FontId::monospace(10.0)));
+                                    });
+                            });
+                    }
+                });
+            ui.add_space(4.0);
+        }
     }
 
     // ── Start / Pause Card Content ───────────────────────────────────────
@@ -1297,8 +1267,7 @@ impl eframe::App for CTraderApp {
         self.poll_ai_decisions();
         // Force faster repaint while any ML training is active
         if self.ml_train.states.iter().any(|s| s.is_training)
-            || self.dashboard.bt_signal_is_running
-            || self.dashboard.bt_m1_is_running
+            || self.dashboard.bt_is_running.iter().any(|r| *r)
         {
             has_data = true;
         }
@@ -1307,16 +1276,13 @@ impl eframe::App for CTraderApp {
             &mut self.dashboard.clear_data_status,
             &mut self.dashboard.clear_data_rx,
         );
-        poll_background_thread(
-            &mut self.dashboard.bt_signal_is_running,
-            &mut self.dashboard.bt_signal_status,
-            &mut self.dashboard.bt_signal_rx,
-        );
-        poll_background_thread(
-            &mut self.dashboard.bt_m1_is_running,
-            &mut self.dashboard.bt_m1_status,
-            &mut self.dashboard.bt_m1_rx,
-        );
+        for i in 0..7 {
+            poll_background_thread(
+                &mut self.dashboard.bt_is_running[i],
+                &mut self.dashboard.bt_status[i],
+                &mut self.dashboard.bt_rx[i],
+            );
+        }
         self.refresh_ec_countdown();
 
         // Draw UI
