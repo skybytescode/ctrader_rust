@@ -79,7 +79,7 @@ enum AuthState {
 /// If Node.js is not found or port 6000 is already in use, logs and continues.
 fn start_econcal_server() {
     std::thread::spawn(|| {
-        let econcal_dir = "D:/RustProjects/ctrader_rust/econcal";
+        let econcal_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/econcal");
 
         // Skip if something is already listening on port 6000
         if std::net::TcpStream::connect("127.0.0.1:6000").is_ok() {
@@ -137,6 +137,66 @@ fn start_econcal_server() {
     });
 }
 
+/// Accept WebSocket clients on 127.0.0.1:6001 and stream broadcast messages to each.
+/// Every connected client gets its own subscriber to the broadcast channel.
+async fn run_ws_server(tick_tx: tokio::sync::broadcast::Sender<String>) {
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:6001").await {
+        Ok(l) => l,
+        Err(e) => {
+            println!("[ws] Failed to bind 127.0.0.1:6001: {}", e);
+            return;
+        }
+    };
+    println!("[ws] Listening on ws://127.0.0.1:6001");
+
+    loop {
+        let (stream, addr) = match listener.accept().await {
+            Ok(p) => p,
+            Err(e) => {
+                println!("[ws] Accept error: {}", e);
+                continue;
+            }
+        };
+        let mut sub = tick_tx.subscribe();
+        tokio::spawn(async move {
+            let ws = match tokio_tungstenite::accept_async(stream).await {
+                Ok(ws) => ws,
+                Err(e) => {
+                    println!("[ws] Handshake failed for {}: {}", addr, e);
+                    return;
+                }
+            };
+            println!("[ws] Client connected: {}", addr);
+            use futures_util::{SinkExt, StreamExt};
+            use tokio_tungstenite::tungstenite::Message;
+            let (mut write, mut read) = ws.split();
+            loop {
+                tokio::select! {
+                    msg = sub.recv() => {
+                        match msg {
+                            Ok(text) => {
+                                if write.send(Message::Text(text)).await.is_err() { break; }
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                println!("[ws] {} lagged {} messages", addr, n);
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    frame = read.next() => {
+                        match frame {
+                            Some(Ok(Message::Close(_))) | None => break,
+                            Some(Err(_)) => break,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            println!("[ws] Client disconnected: {}", addr);
+        });
+    }
+}
+
 fn main() {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
@@ -163,6 +223,38 @@ fn main() {
             .expect("Failed to create tokio runtime");
 
         rt.block_on(async move {
+            // Broadcast channel that fans PriceUpdate JSON out to every WS client.
+            let (tick_tx, _) = tokio::sync::broadcast::channel::<String>(256);
+
+            // Bridge: pull PriceUpdate off the mpsc, encode as JSON, broadcast.
+            let bridge_tx = tick_tx.clone();
+            let mut price_rx = rx;
+            tokio::spawn(async move {
+                while let Some(msg) = price_rx.recv().await {
+                    let json = match msg {
+                        PriceUpdate::InstrumentPrice { symbol, bid, ask } => {
+                            serde_json::json!({"type":"tick","symbol":symbol,"bid":bid,"ask":ask})
+                        }
+                        PriceUpdate::ConnectionStatus(s) => {
+                            serde_json::json!({"type":"status","value":s})
+                        }
+                        _ => continue,
+                    };
+                    let _ = bridge_tx.send(json.to_string());
+                }
+            });
+
+            // Spawn the WS server (clients connect to ws://127.0.0.1:6001).
+            let ws_tx = tick_tx.clone();
+            tokio::spawn(async move { run_ws_server(ws_tx).await; });
+
+            // Drain data_resp_rx — the React side will consume responses via the WS
+            // once we add a command channel; for now nothing reads it.
+            let mut data_resp_drain = data_resp_rx;
+            tokio::spawn(async move {
+                while data_resp_drain.recv().await.is_some() {}
+            });
+
             // Run price streaming with reconnection
             // request_rx passed by &mut so pending requests survive reconnects
             let mut request_rx = data_req_rx;
@@ -184,18 +276,13 @@ fn main() {
         });
     });
 
-    // Run egui/eframe app on main thread
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 800.0])
-            .with_title("cTrader Rust Terminal"),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "cTrader Rust Terminal",
-        options,
-        Box::new(|_cc| Ok(Box::new(ui::CTraderApp::new(rx, data_req_tx, data_resp_rx, shared_db)))),
-    ).expect("Failed to start eframe");
+    // data_req_tx is held by Tauri state — future commands will use it to request data.
+    let _ = data_req_tx;
+
+    tauri::Builder::default()
+        .setup(|_app| Ok(()))
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 
     // Window closed — force exit to kill background threads and child processes
     std::process::exit(0);
@@ -219,7 +306,7 @@ async fn run_session(
         .parse()
         .expect("CTRADER_ACCOUNT_ID must be a valid number");
     let target_symbol = std::env::var("CTRADER_SYMBOL")
-        .unwrap_or_else(|_| "BTCUSD".to_string());
+        .unwrap_or_else(|_| "XAUUSD".to_string());
 
     // Debug: Show loaded config (masked for security)
     println!("✓ Loaded config: Client ID: {}..., Account ID: {}, Symbol: {}",
@@ -265,8 +352,8 @@ async fn run_session(
     // Map symbol_id -> symbol_name for all subscribed instruments
     let mut symbol_id_to_name: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
 
-    // Symbols to subscribe to live spot prices
-    let instruments_to_subscribe: Vec<&str> = vec!["EURUSD"];
+    // Symbols to subscribe to live spot prices (driven by CTRADER_SYMBOL env var)
+    let instruments_to_subscribe: Vec<&str> = vec![target_symbol.as_str()];
     // All symbols whose IDs we need (cross-pairs for M1 data downloads, ID lookup only)
     let instruments_need_id: Vec<&str> = vec![
         "EURUSD",

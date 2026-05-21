@@ -1356,7 +1356,7 @@ impl CTraderApp {
         std::thread::spawn(move || {
             let result = std::process::Command::new("C:/Windows/py.exe")
                 .args(["-3.12", "-u", "ml/train_unified.py"])
-                .current_dir("D:/RustProjects/ctrader_rust")
+                .current_dir(env!("CARGO_MANIFEST_DIR"))
                 .env("PYTHONIOENCODING", "utf-8")
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
@@ -1721,7 +1721,7 @@ fn spawn_python_subprocess(
     std::thread::spawn(move || {
         let result = std::process::Command::new("C:/Windows/py.exe")
             .args(["-3.12", "-u", "-m", &module_path])
-            .current_dir("D:/RustProjects/ctrader_rust")
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
             .env("PYTHONIOENCODING", "utf-8")
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())

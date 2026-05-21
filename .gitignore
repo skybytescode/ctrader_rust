@@ -1,4 +1,5 @@
 /target
+/gen
 .prod-build/
 run_production.sh
 

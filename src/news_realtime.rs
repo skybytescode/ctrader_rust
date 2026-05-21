@@ -470,8 +470,12 @@ pub fn format_news_lines(rows: &[NewsRow]) -> Vec<String> {
             })
             .unwrap_or_default();
 
-        // Truncate title
-        let short_title = if r.title.len() > 60 { format!("{}...", &r.title[..57]) } else { r.title.clone() };
+        // Truncate title (char-aware so it doesn't panic on multibyte chars like '–')
+        let short_title = if r.title.chars().count() > 60 {
+            format!("{}...", r.title.chars().take(57).collect::<String>())
+        } else {
+            r.title.clone()
+        };
 
         lines.push(format!("  {} ({})  {}", time_str, ago, short_title));
     }

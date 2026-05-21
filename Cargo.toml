@@ -3,13 +3,21 @@ name = "ctrader_rust"
 version = "0.1.0"
 edition = "2024"
 default-run = "ctrader_rust"
+build = "build.rs"
 
 [[bin]]
 name = "ctrader_rust"
 path = "src/main.rs"
 
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
 [dependencies]
+# Pin tauri stack: tauri-runtime-wry 2.9+ has a closure Send/Sync bug under rustc 1.90+.
+tauri = { version = "=2.11.2", features = [] }
 tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
 tokio-rustls = "0.24"
 prost = "0.12"
 prost-build = "0.12"
