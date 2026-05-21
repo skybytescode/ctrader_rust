@@ -3,7 +3,7 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
-const DB_PATH: &str = "Bots_db/Algo_EURUSD.duckdb";
+const DB_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/Bots_db/Algo_EURUSD.duckdb");
 
 /// Mutex that serializes ALL DuckDB file access. Each caller opens/closes its own
 /// connection while holding the lock, ensuring only one connection exists at a time.
@@ -73,8 +73,121 @@ enum AuthState {
     Subscribed,
 }
 
-/// Spawn the econcal Node.js proxy server as a background process.
-/// Streams its stdout/stderr to our stdout so startup status is visible.
+/// PIDs of spawned child processes that should be killed when the app exits.
+/// 0 = slot not in use.
+static ECONCAL_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static VITE_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Latest broadcast JSON message keyed by `type` field. Sent to every newly-connected
+/// WS client so a client joining after a one-shot event (e.g. ec_today) still sees
+/// the current state instead of waiting for the next fetch.
+static SNAPSHOT_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>>
+    = std::sync::OnceLock::new();
+
+fn snapshot_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+    SNAPSHOT_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Best-effort: terminate a child process tree by PID. Used at shutdown.
+fn kill_process_tree(pid: u32, label: &str) {
+    if pid == 0 { return; }
+    println!("[{}] Killing process tree (pid {}) on shutdown...", label, pid);
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .output();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("kill")
+            .args(["-TERM", &format!("-{}", pid)])
+            .output();
+    }
+}
+
+/// Kills every spawned child (econcal, Vite dev server) before the process exits.
+fn shutdown_children() {
+    kill_process_tree(ECONCAL_PID.swap(0, std::sync::atomic::Ordering::Relaxed), "econcal");
+    kill_process_tree(VITE_PID.swap(0, std::sync::atomic::Ordering::Relaxed), "vite");
+}
+
+/// In debug builds, spawns the Vite dev server (`npm run dev` in frontend/) and
+/// blocks until it's responding on port 5173. In release builds this is a no-op;
+/// the bundled `frontend/dist/` is served directly by Tauri.
+#[cfg(debug_assertions)]
+fn start_vite_dev_server() {
+    let frontend_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/frontend");
+
+    if std::net::TcpStream::connect("127.0.0.1:5173").is_ok()
+        || std::net::TcpStream::connect("[::1]:5173").is_ok()
+    {
+        println!("[vite] Port 5173 already in use — assuming dev server is running.");
+        return;
+    }
+
+    println!("[vite] Starting dev server (npm run dev)...");
+
+    // On Windows, npm ships as npm.cmd; on Unix it's just `npm` on PATH.
+    #[cfg(windows)]
+    let cmd = "npm.cmd";
+    #[cfg(not(windows))]
+    let cmd = "npm";
+
+    let result = std::process::Command::new(cmd)
+        .args(["run", "dev"])
+        .current_dir(frontend_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn();
+
+    let mut child = match result {
+        Err(e) => {
+            println!("[vite] Failed to start: {} (is npm on PATH?)", e);
+            return;
+        }
+        Ok(c) => c,
+    };
+    VITE_PID.store(child.id(), std::sync::atomic::Ordering::Relaxed);
+
+    // Forward Vite stdout in the background so its logs show up alongside ours.
+    if let Some(stdout) = child.stdout.take() {
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            let reader = std::io::BufReader::new(stdout);
+            for line in reader.lines().flatten() {
+                println!("[vite] {}", line);
+            }
+        });
+    }
+    if let Some(stderr) = child.stderr.take() {
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            let reader = std::io::BufReader::new(stderr);
+            for line in reader.lines().flatten() {
+                println!("[vite] ERR: {}", line);
+            }
+        });
+    }
+
+    // Block until Vite is reachable (or 15s timeout), so the Tauri webview
+    // doesn't open to an "ERR_CONNECTION_REFUSED" page.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while std::time::Instant::now() < deadline {
+        if std::net::TcpStream::connect("127.0.0.1:5173").is_ok()
+            || std::net::TcpStream::connect("[::1]:5173").is_ok()
+        {
+            println!("[vite] Ready on port 5173.");
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    println!("[vite] Timed out waiting for port 5173 (continuing anyway).");
+}
+
+#[cfg(not(debug_assertions))]
+fn start_vite_dev_server() {} // Release builds use the bundled frontend/dist/.
+
 /// If Node.js is not found or port 6000 is already in use, logs and continues.
 fn start_econcal_server() {
     std::thread::spawn(|| {
@@ -114,6 +227,7 @@ fn start_econcal_server() {
                 println!("[econcal] Failed to start: {} (is Node.js installed?)", e);
             }
             Ok(mut child) => {
+                ECONCAL_PID.store(child.id(), std::sync::atomic::Ordering::Relaxed);
                 use std::io::BufRead;
                 // Stream stdout
                 if let Some(stdout) = child.stdout.take() {
@@ -183,6 +297,18 @@ async fn run_ws_server(tick_tx: tokio::sync::broadcast::Sender<String>) {
             use futures_util::{SinkExt, StreamExt};
             use tokio_tungstenite::tungstenite::Message;
             let (mut write, mut read) = ws.split();
+
+            // Replay the latest snapshot per message type so this client doesn't
+            // wait for the next broadcast to populate state (esp. ec_today/news_today).
+            let snapshot: Vec<String> = snapshot_cache().lock()
+                .map(|c| c.values().cloned().collect())
+                .unwrap_or_default();
+            for msg in snapshot {
+                if write.send(Message::Text(msg)).await.is_err() {
+                    println!("[ws] Client {} dropped during snapshot replay", addr);
+                    return;
+                }
+            }
             loop {
                 tokio::select! {
                     msg = sub.recv() => {
@@ -216,6 +342,10 @@ fn main() {
 
     // Start the econcal FXStreet proxy server in the background
     start_econcal_server();
+
+    // In dev builds, spawn `npm run dev` for the React frontend and wait until
+    // it's listening on 5173 so the Tauri webview has something to load.
+    start_vite_dev_server();
 
     // Create channel for price updates (network -> UI)
     let (tx, rx) = mpsc::channel::<PriceUpdate>(100);
@@ -279,7 +409,14 @@ fn main() {
                         }
                         _ => continue,
                     };
-                    let _ = bridge_tx.send(json.to_string());
+                    let serialized = json.to_string();
+                    // Cache the latest per-type snapshot so new WS clients can replay.
+                    if let Some(t) = json.get("type").and_then(|v| v.as_str()) {
+                        if let Ok(mut cache) = snapshot_cache().lock() {
+                            cache.insert(t.to_string(), serialized.clone());
+                        }
+                    }
+                    let _ = bridge_tx.send(serialized);
                 }
             });
 
@@ -323,7 +460,11 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 
-    // Window closed — force exit to kill background threads and child processes
+    // Window closed — clean up children (econcal + Vite dev server) before
+    // exiting so their node + puppeteer Chrome processes don't get orphaned.
+    shutdown_children();
+
+    // Force exit to kill background threads (tokio runtime, WS server, etc.).
     std::process::exit(0);
 }
 
