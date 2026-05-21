@@ -22,7 +22,6 @@ pub mod openapi {
 
 pub mod news;
 pub mod ai;
-pub mod ui;
 pub mod db;
 pub mod data_retrieval;
 pub mod ec_realtime;
@@ -140,11 +139,25 @@ fn start_econcal_server() {
 /// Accept WebSocket clients on 127.0.0.1:6001 and stream broadcast messages to each.
 /// Every connected client gets its own subscriber to the broadcast channel.
 async fn run_ws_server(tick_tx: tokio::sync::broadcast::Sender<String>) {
-    let listener = match tokio::net::TcpListener::bind("127.0.0.1:6001").await {
-        Ok(l) => l,
-        Err(e) => {
-            println!("[ws] Failed to bind 127.0.0.1:6001: {}", e);
-            return;
+    // Retry bind: a freshly-killed previous instance can still hold the port briefly
+    // (Windows TCP TIME_WAIT). Try every 250ms for up to 10 seconds.
+    let listener = {
+        let mut attempts: u32 = 0;
+        loop {
+            match tokio::net::TcpListener::bind("127.0.0.1:6001").await {
+                Ok(l) => break l,
+                Err(e) if attempts < 40 => {
+                    if attempts == 0 {
+                        println!("[ws] Port 6001 busy, waiting for it to free: {}", e);
+                    }
+                    attempts += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                }
+                Err(e) => {
+                    println!("[ws] Gave up binding 127.0.0.1:6001 after 10s: {}", e);
+                    return;
+                }
+            }
         }
     };
     println!("[ws] Listening on ws://127.0.0.1:6001");
@@ -237,6 +250,32 @@ fn main() {
                         }
                         PriceUpdate::ConnectionStatus(s) => {
                             serde_json::json!({"type":"status","value":s})
+                        }
+                        PriceUpdate::EcStatus(s) => {
+                            serde_json::json!({"type":"ec_status","value":s})
+                        }
+                        PriceUpdate::EcTodayRaw(events) => {
+                            let arr: Vec<serde_json::Value> = events.into_iter()
+                                .map(|(ts, currency, volatility, name, actual, forecast, previous, surprise)| {
+                                    serde_json::json!({
+                                        "ts": ts,
+                                        "currency": currency,
+                                        "volatility": volatility,
+                                        "name": name,
+                                        "actual": actual,
+                                        "forecast": forecast,
+                                        "previous": previous,
+                                        "surprise": surprise,
+                                    })
+                                })
+                                .collect();
+                            serde_json::json!({"type":"ec_today","events":arr})
+                        }
+                        PriceUpdate::NewsStatus(s) => {
+                            serde_json::json!({"type":"news_status","value":s})
+                        }
+                        PriceUpdate::NewsTodayLines(lines) => {
+                            serde_json::json!({"type":"news_today","lines":lines})
                         }
                         _ => continue,
                     };
@@ -539,10 +578,11 @@ async fn run_session(
     // Force initial schedule fetch 10 seconds after auth
     let mut ec_next_schedule_fetch: Option<tokio::time::Instant> = None;
     let mut ec_last_fetch_ts: i64 = 0; // last UTC timestamp we fetched at
-    let mut ec_capturing = false; // toggled by UI button
+    // EC + News default to always-on since the React dashboard surfaces them passively.
+    let mut ec_capturing = true;
 
     // ── News capture state ───────────────────────────────────────────────
-    let mut news_capturing = false;
+    let mut news_capturing = true;
     let mut news_next_fetch: Option<tokio::time::Instant> = None;
     let mut news_today_date: Option<String> = None;
 
