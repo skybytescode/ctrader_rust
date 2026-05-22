@@ -38,3 +38,6 @@ scraper_log.txt
 econcal_comparison_*.txt
 FXSTREET_CONTEXT.md
 nul
+
+# Generated news archive (rebuilt from DB via Archive tab)
+news_data/

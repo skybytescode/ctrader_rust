@@ -56,8 +56,8 @@ pub enum PriceUpdate {
     EcStatus(String),
     /// EC Calendar capture status (for the button)
     EcCaptureActive(bool),
-    /// News today's articles for UI display
-    NewsTodayLines(Vec<String>),
+    /// News today's articles for UI display (structured, includes body when fetched).
+    NewsTodayArticles(Vec<news_realtime::NewsRow>),
     /// News status message
     NewsStatus(String),
     /// News capture status (for the button)
@@ -86,6 +86,872 @@ static SNAPSHOT_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::Ha
 
 fn snapshot_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
     SNAPSHOT_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+// ── Chart trendbar requests ─────────────────────────────────────────────────
+
+/// A request from a Tauri command to the cTrader session for historical
+/// trendbars. The session generates a unique `client_msg_id`, sends the
+/// ProtoOAGetTrendbarsReq, and replies via the oneshot when the response arrives.
+pub struct ChartRequest {
+    pub symbol_id: i64,
+    pub period: openapi::ProtoOaTrendbarPeriod,
+    pub from_ms: i64,
+    pub to_ms: i64,
+    pub count: u32,
+    pub reply: tokio::sync::oneshot::Sender<Result<Vec<db::Candle>, String>>,
+}
+
+/// Global sender, populated in `main()` so any Tauri command can push a
+/// ChartRequest to the session loop.
+static CHART_REQ_TX: std::sync::OnceLock<tokio::sync::mpsc::Sender<ChartRequest>>
+    = std::sync::OnceLock::new();
+
+/// Cache of symbol name → cTrader symbol_id, populated by the bridge task each
+/// time the session emits a SymbolMapping. Tauri commands resolve names here.
+static SYMBOL_MAP: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, i64>>>
+    = std::sync::OnceLock::new();
+
+fn symbol_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, i64>> {
+    SYMBOL_MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+// ── Archive: per-day all-articles JSON files ────────────────────────────────
+
+/// Tauri-managed state shared with command handlers.
+struct AppState {
+    db_mutex: SharedDb,
+}
+
+#[derive(serde::Serialize)]
+struct ArchiveDayResult {
+    status: String,           // "written" | "done" | "error"
+    day: Option<String>,      // YYYY-MM-DD of the day just written
+    count: usize,             // articles in that file
+    path: Option<String>,     // absolute path to the file
+    remaining_days: usize,    // days in DB still unwritten
+    message: Option<String>,  // human-readable message
+}
+
+const ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/news_data/all");
+
+/// Extract the FXStreet article body from a JSON-LD `<script>` block in the page HTML.
+/// FXStreet embeds the article content as a NewsArticle schema for SEO; we parse
+/// `articleBody` directly — much more robust than scraping React-rendered DOM.
+fn extract_article_body(html: &str) -> Option<String> {
+    // Find every <script type="application/ld+json">...</script>
+    let mut search = html;
+    while let Some(start_idx) = search.find("application/ld+json") {
+        let after_attr = &search[start_idx..];
+        let json_start = after_attr.find('>')? + 1;
+        let rest = &after_attr[json_start..];
+        let end_idx = rest.find("</script>")?;
+        let json_str = &rest[..end_idx];
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+            let type_field = val.get("@type").and_then(|v| v.as_str()).unwrap_or("");
+            if matches!(type_field, "NewsArticle" | "Article" | "BlogPosting") {
+                if let Some(body) = val.get("articleBody").and_then(|v| v.as_str()) {
+                    return Some(body.to_string());
+                }
+            }
+        }
+        search = &rest[end_idx + "</script>".len()..];
+    }
+    None
+}
+
+/// Outcome of an attempt to fetch one article's body.
+#[derive(Debug)]
+enum BodyFetch {
+    /// HTTP succeeded and the page's NewsArticle JSON-LD gave us a real body.
+    Ok(String),
+    /// HTTP succeeded but the article genuinely has no body (FXStreet data flashes
+    /// like "US ISM PMI came in at..."). Safe to mark with '' so we don't retry.
+    EmptyBody,
+    /// FXStreet returned 429 — global throttle. The day should be aborted so we
+    /// don't waste time and so these rows stay NULL for a later retry.
+    RateLimited { retry_after_secs: u64 },
+    /// Other fetch failure: timeout, non-2xx (not 429), or JSON-LD parse error.
+    /// Leave the row at NULL so a later run can retry.
+    Failed,
+}
+
+/// Make sure the econcal proxy is responding on :6000. If not, spawn it and
+/// poll until it accepts connections (or give up after 30s). Returns true if
+/// the proxy is ready, false otherwise.
+async fn ensure_econcal_alive() -> bool {
+    if std::net::TcpStream::connect("127.0.0.1:6000").is_ok() {
+        return true;
+    }
+    println!("[econcal] proxy not responding on :6000 — attempting to (re)spawn...");
+    start_econcal_server();
+    // Poll until the proxy answers or we time out. We also pause briefly after
+    // the port goes up so puppeteer has time to finish FXStreet auth — the
+    // proxy queues requests internally, but skipping the pause sometimes shows
+    // up as the first request hanging for ~20s.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while std::time::Instant::now() < deadline {
+        if std::net::TcpStream::connect("127.0.0.1:6000").is_ok() {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    println!("[econcal] proxy failed to come up within 30s");
+    false
+}
+
+/// Strip HTML tags to plain text. <p> boundaries become \n\n, other tags are
+/// removed. <style>/<script> blocks are dropped wholesale (including content)
+/// so CSS rules don't leak into the body. Whitespace is collapsed.
+fn html_to_plain_text(html: &str) -> String {
+    // Drop <style>...</style> and <script>...</script> blocks first (content too).
+    fn drop_block(s: &str, open: &str, close: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let lower = s.to_ascii_lowercase();
+        let mut i = 0;
+        while i < s.len() {
+            if let Some(off) = lower[i..].find(open) {
+                out.push_str(&s[i..i + off]);
+                let after_open = i + off;
+                if let Some(end_off) = lower[after_open..].find(close) {
+                    i = after_open + end_off + close.len();
+                } else {
+                    // No close tag — drop to end.
+                    return out;
+                }
+            } else {
+                out.push_str(&s[i..]);
+                break;
+            }
+        }
+        out
+    }
+    let stripped = drop_block(html, "<style", "</style>");
+    let stripped = drop_block(&stripped, "<script", "</script>");
+
+    // Insert paragraph breaks before paragraph-level tags before stripping.
+    let normalized = stripped
+        .replace("</p>", "</p>\n\n")
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<br />", "\n");
+    // Strip any tags.
+    let mut out = String::with_capacity(normalized.len());
+    let mut in_tag = false;
+    for ch in normalized.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    // Decode a few common entities and collapse whitespace.
+    let out = out.replace("&nbsp;", " ").replace("&amp;", "&")
+        .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+        .replace("&#39;", "'");
+    // Collapse runs of whitespace but keep double newlines as paragraph separators.
+    let mut result = String::with_capacity(out.len());
+    let mut prev_blank = false;
+    for line in out.lines() {
+        let trimmed = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        if trimmed.is_empty() {
+            if !prev_blank && !result.is_empty() { result.push_str("\n\n"); }
+            prev_blank = true;
+        } else {
+            if !result.is_empty() && !result.ends_with("\n\n") { result.push('\n'); }
+            result.push_str(&trimmed);
+            prev_blank = false;
+        }
+    }
+    result.trim().to_string()
+}
+
+/// Fetch one article's body via the FXStreet API (through the local econcal proxy).
+/// This endpoint isn't subject to the public-web rate limit (separate bucket) and
+/// returns the body as an `HTML` field in JSON — no page-scraping needed.
+async fn fetch_one_body(client: &reqwest::Client, article_id: &str) -> BodyFetch {
+    let url = format!("http://127.0.0.1:6000/v4/en/post/{}", article_id);
+    let resp = match client.get(&url)
+        .header("x-api-host", "https://subscriptions.fxstreet.com")
+        .timeout(std::time::Duration::from_secs(30))
+        .send().await
+    {
+        Ok(r) => r,
+        Err(_) => return BodyFetch::Failed,
+    };
+    let status = resp.status();
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let retry_after_secs = resp.headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(60);
+        return BodyFetch::RateLimited { retry_after_secs };
+    }
+    if !status.is_success() { return BodyFetch::Failed; }
+    let json: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return BodyFetch::Failed,
+    };
+    let html = match json.get("HTML").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return BodyFetch::Failed,
+    };
+    if html.is_empty() {
+        return BodyFetch::EmptyBody;
+    }
+    let text = html_to_plain_text(html);
+    if text.is_empty() { BodyFetch::EmptyBody } else { BodyFetch::Ok(text) }
+}
+
+/// Compute the next day that still has articles without a body. Walks days
+/// chronologically and returns the oldest day with at least one NULL body.
+/// `year_prefix` (e.g. Some("2026")) limits the search to that year only.
+fn find_next_day_to_write(
+    db: &duckdb::Connection,
+    year_prefix: Option<&str>,
+) -> Result<Option<(String, usize)>, String> {
+    let (sql, has_filter) = if year_prefix.is_some() {
+        ("SELECT substr(published_utc, 1, 10) AS d, COUNT(*) AS n
+          FROM news_historical
+          WHERE length(published_utc) >= 10
+            AND body IS NULL
+            AND substr(published_utc, 1, 4) = ?
+          GROUP BY d
+          ORDER BY d ASC", true)
+    } else {
+        ("SELECT substr(published_utc, 1, 10) AS d, COUNT(*) AS n
+          FROM news_historical
+          WHERE length(published_utc) >= 10
+            AND body IS NULL
+          GROUP BY d
+          ORDER BY d ASC", false)
+    };
+    let mut stmt = db.prepare(sql).map_err(|e| format!("prepare days: {}", e))?;
+    let map_row = |row: &duckdb::Row<'_>| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize));
+    let rows: Vec<(String, usize)> = if has_filter {
+        stmt.query_map([year_prefix.unwrap()], map_row)
+            .map_err(|e| format!("query days: {}", e))?
+            .flatten().collect()
+    } else {
+        stmt.query_map([], map_row)
+            .map_err(|e| format!("query days: {}", e))?
+            .flatten().collect()
+    };
+    let total_remaining = rows.len();
+    Ok(rows.into_iter().next().map(|(day, _)| (day, total_remaining)))
+}
+
+/// Build the JSON for a single day from news_historical and write it to disk.
+fn write_archive_for_day(db: &duckdb::Connection, day: &str) -> Result<(String, usize), String> {
+    let mut stmt = db.prepare(
+        "SELECT article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday, body
+         FROM news_historical
+         WHERE published_utc LIKE ? || '%'
+         ORDER BY published_utc ASC"
+    ).map_err(|e| format!("prepare archive query: {}", e))?;
+
+    let rows = stmt.query_map([day], |row| {
+        let body_val: Option<String> = row.get(9).ok().flatten();
+        Ok(serde_json::json!({
+            "article_id":   row.get::<_, String>(0)?,
+            "title":        row.get::<_, String>(1)?,
+            "published_utc": row.get::<_, String>(2)?,
+            "summary":      row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            "url":          row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            "author":       row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+            "tags":         row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+            "hour_utc":     row.get::<_, i32>(7)?,
+            "weekday":      row.get::<_, i32>(8)?,
+            "body":         body_val,
+        }))
+    }).map_err(|e| format!("query archive: {}", e))?;
+
+    let articles: Vec<serde_json::Value> = rows.flatten().collect();
+    let count = articles.len();
+
+    let month = &day[..7];
+    let dir = std::path::Path::new(ARCHIVE_ROOT).join(month);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create dir {}: {}", dir.display(), e))?;
+    let path = dir.join(format!("{}.json", day));
+
+    let payload = serde_json::json!({
+        "date": day,
+        "count": count,
+        "generated_at": chrono::Utc::now().to_rfc3339(),
+        "articles": articles,
+    });
+    let pretty = serde_json::to_string_pretty(&payload).map_err(|e| format!("serialize: {}", e))?;
+    std::fs::write(&path, pretty).map_err(|e| format!("write {}: {}", path.display(), e))?;
+
+    Ok((path.to_string_lossy().to_string(), count))
+}
+
+/// Tauri command: pick the oldest un-archived day, fetch missing article bodies
+/// in parallel (10 concurrent against fxstreet.com), update `news_historical.body`,
+/// then write the day's archive file. Each call advances by one day.
+#[tauri::command]
+async fn write_next_archive_day(state: tauri::State<'_, AppState>) -> Result<ArchiveDayResult, String> {
+    write_next_archive_day_inner(state, None).await
+}
+
+/// Same as `write_next_archive_day` but restricted to days in `year` (e.g. "2026").
+#[tauri::command]
+async fn write_next_archive_day_for_year(year: String, state: tauri::State<'_, AppState>) -> Result<ArchiveDayResult, String> {
+    write_next_archive_day_inner(state, Some(year)).await
+}
+
+async fn write_next_archive_day_inner(
+    state: tauri::State<'_, AppState>,
+    year_filter: Option<String>,
+) -> Result<ArchiveDayResult, String> {
+    // Step 0: make sure econcal is reachable. The proxy is prone to puppeteer-
+    // memory crashes over multi-hour sessions; this self-heals before each click.
+    if !ensure_econcal_alive().await {
+        return Ok(ArchiveDayResult {
+            status: "error".into(),
+            day: None, count: 0, path: None, remaining_days: 0,
+            message: Some("Econcal proxy not reachable on :6000 and respawn failed. Restart the app.".into()),
+        });
+    }
+
+    // Step 1: figure out which day to write + which article URLs need fetching.
+    let db_mutex = state.db_mutex.clone();
+    let year_owned = year_filter.clone();
+    let plan = tokio::task::spawn_blocking(move || -> Result<Option<(String, usize, Vec<(String, String)>)>, String> {
+        let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+        let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+        let next = find_next_day_to_write(&db, year_owned.as_deref())?;
+        let Some((day, remaining)) = next else { return Ok(None); };
+
+        // Never-attempted articles with a URL. Empty-string body means "tried
+        // and got nothing usable" — leave those alone.
+        let mut stmt = db.prepare(
+            "SELECT article_id, url
+             FROM news_historical
+             WHERE published_utc LIKE ? || '%'
+               AND url IS NOT NULL AND url <> ''
+               AND body IS NULL"
+        ).map_err(|e| format!("prepare fetch list: {}", e))?;
+        let to_fetch: Vec<(String, String)> = stmt.query_map([day.as_str()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }).map_err(|e| format!("query fetch list: {}", e))?
+          .flatten().collect();
+        Ok(Some((day, remaining, to_fetch)))
+    })
+    .await
+    .map_err(|e| format!("task join: {}", e))??;
+
+    let Some((day, remaining, to_fetch)) = plan else {
+        return Ok(ArchiveDayResult {
+            status: "done".into(),
+            day: None, count: 0, path: None, remaining_days: 0,
+            message: Some("All days in DB are archived.".into()),
+        });
+    };
+
+    // Step 2: fetch bodies in parallel (10 concurrent).
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+        .build()
+        .map_err(|e| format!("build http client: {}", e))?;
+    // Concurrency 1 — the puppeteer proxy serialises requests internally and
+    // anything above 1 returns 400 for a fraction of articles (the proxy's
+    // shared page state gets confused). Sequential is reliable: ~500ms × 75
+    // articles ≈ 38s/day. Slow but correct.
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+    let mut tasks = tokio::task::JoinSet::new();
+    for (article_id, _url) in to_fetch {
+        let permit = sem.clone().acquire_owned().await.map_err(|e| e.to_string())?;
+        let client = client.clone();
+        tasks.spawn(async move {
+            let _permit = permit;
+            let body = fetch_one_body(&client, &article_id).await;
+            (article_id, body)
+        });
+    }
+    let mut fetched: Vec<(String, String)> = Vec::new();
+    let mut empty_ids: Vec<String> = Vec::new();
+    let mut failed_ids: Vec<String> = Vec::new();
+    let mut rate_limited = 0usize;
+    let mut max_retry_after = 0u64;
+    while let Some(joined) = tasks.join_next().await {
+        if let Ok((aid, outcome)) = joined {
+            match outcome {
+                BodyFetch::Ok(b)         => fetched.push((aid, b)),
+                BodyFetch::EmptyBody     => empty_ids.push(aid),
+                BodyFetch::Failed        => failed_ids.push(aid),
+                BodyFetch::RateLimited { retry_after_secs } => {
+                    rate_limited += 1;
+                    max_retry_after = max_retry_after.max(retry_after_secs);
+                }
+            }
+        }
+    }
+
+    // If FXStreet is rate-limiting, abort the day. Don't write anything, don't
+    // mark anything — these rows stay NULL so a later run after the cooldown
+    // can pick them up. The Tauri command returns a clear "wait N seconds"
+    // message and the React batch loop bails out.
+    if rate_limited > 0 && fetched.is_empty() {
+        return Ok(ArchiveDayResult {
+            status: "rate_limited".into(),
+            day: Some(day.clone()),
+            count: 0,
+            path: None,
+            remaining_days: remaining,
+            message: Some(format!(
+                "FXStreet rate-limited us: Retry-After ~{}s. Stopping for now. \
+                 Re-click in {} minutes.",
+                max_retry_after,
+                (max_retry_after + 59) / 60
+            )),
+        });
+    }
+
+    // If every fetch failed (e.g., the econcal proxy died), abort instead of
+    // force-marking everything '' — a previous version of this code did that
+    // and silently nuked ~33k articles when the proxy was down.
+    if fetched.is_empty() && empty_ids.is_empty() && !failed_ids.is_empty() {
+        return Ok(ArchiveDayResult {
+            status: "stalled".into(),
+            day: Some(day.clone()),
+            count: 0,
+            path: None,
+            remaining_days: remaining,
+            message: Some(format!(
+                "All {} fetches failed for {} — proxy may be down. \
+                 Check that econcal is listening on :6000 and retry.",
+                failed_ids.len(), day
+            )),
+        });
+    }
+
+    // Step 3: update DB + write file.
+    //   - fetched bodies → UPDATE body = '<text>'
+    //   - genuinely empty (data flashes) → UPDATE body = ''  (don't retry)
+    //   - HTTP/parse failures → leave NULL so a later run can retry
+    let fetched_count = fetched.len();
+    let empty_count   = empty_ids.len();
+    let fail_count    = failed_ids.len();
+    let day_clone = day.clone();
+    let db_mutex = state.db_mutex.clone();
+    let count = tokio::task::spawn_blocking(move || -> Result<usize, String> {
+        let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+        let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+        for (aid, body) in &fetched {
+            let _ = db.execute(
+                "UPDATE news_historical SET body = ? WHERE article_id = ?",
+                duckdb::params![body, aid],
+            );
+        }
+        for aid in &empty_ids {
+            let _ = db.execute(
+                "UPDATE news_historical SET body = '' WHERE article_id = ?",
+                duckdb::params![aid],
+            );
+        }
+        let (_path, count) = write_archive_for_day(&db, &day_clone)?;
+        Ok(count)
+    })
+    .await
+    .map_err(|e| format!("task join: {}", e))??;
+
+    let path = std::path::Path::new(ARCHIVE_ROOT).join(&day[..7]).join(format!("{}.json", day));
+    Ok(ArchiveDayResult {
+        status: "written".into(),
+        day: Some(day),
+        count,
+        path: Some(path.to_string_lossy().to_string()),
+        remaining_days: remaining.saturating_sub(1),
+        message: Some({
+            let mut parts = vec![format!("fetched: {}", fetched_count)];
+            if empty_count > 0 { parts.push(format!("empty: {}", empty_count)); }
+            if fail_count  > 0 { parts.push(format!("failed: {}", fail_count)); }
+            if rate_limited > 0 { parts.push(format!("rate-limited: {}", rate_limited)); }
+            parts.join(" | ")
+        }),
+    })
+}
+
+/// Ensure a per-(symbol, timeframe) candle cache table exists. Schema matches
+/// the legacy `{symbol}_m1` layout in `db::client` so we can share tables.
+fn ensure_candle_table(db: &duckdb::Connection, table: &str) -> Result<(), String> {
+    db.execute_batch(&format!(
+        "CREATE TABLE IF NOT EXISTS {} (
+            timestamp BIGINT PRIMARY KEY,
+            open DOUBLE,
+            high DOUBLE,
+            low DOUBLE,
+            close DOUBLE,
+            volume BIGINT
+        )", table
+    )).map_err(|e| format!("create {}: {}", table, e))
+}
+
+/// Upsert candles into a cache table. `ON CONFLICT (timestamp) DO UPDATE` so
+/// re-fetching the "current" (still-open) candle overwrites with the latest snapshot.
+fn upsert_candles(db: &duckdb::Connection, table: &str, candles: &[Candle]) -> Result<usize, String> {
+    if candles.is_empty() { return Ok(0); }
+    ensure_candle_table(db, table)?;
+    let upsert = format!(
+        "INSERT INTO {} (timestamp, open, high, low, close, volume) VALUES (?,?,?,?,?,?)
+         ON CONFLICT (timestamp) DO UPDATE SET
+             open = EXCLUDED.open, high = EXCLUDED.high,
+             low  = EXCLUDED.low,  close = EXCLUDED.close,
+             volume = EXCLUDED.volume",
+        table
+    );
+    let mut inserted = 0;
+    for c in candles {
+        if db.execute(&upsert, duckdb::params![
+            c.timestamp, c.open, c.high, c.low, c.close, c.volume,
+        ]).is_ok() {
+            inserted += 1;
+        }
+    }
+    Ok(inserted)
+}
+
+#[derive(serde::Serialize)]
+struct CandleJson {
+    time: i64,     // Unix seconds (UTC) — Lightweight Charts wants this as `time`
+    open: f64,
+    high: f64,
+    low: f64,
+    close: f64,
+    volume: i64,
+}
+
+/// Tauri command: fetch historical OHLC candles for `symbol` at `timeframe`
+/// (M1/M5/M15/M30/H1/H4/D1). Goes through the cTrader session via the chart
+/// request channel; resolves to the most recent `count` bars ending now.
+/// `to_ms` (optional): fetch `count` bars ending at this unix-ms instant. If
+/// absent, ends at "now". Used by the chart's lazy-load-on-pan to walk backward.
+///
+/// Caching strategy:
+/// 1. Check the per-(symbol, timeframe) DuckDB table for bars in [from, to].
+/// 2. If the table already has data older than our `from` boundary, return the
+///    cached slice — no API call.
+/// 3. Otherwise hit cTrader, store the response in the cache table, return.
+#[tauri::command]
+async fn get_trendbars(
+    state: tauri::State<'_, AppState>,
+    symbol: String,
+    timeframe: String,
+    count: u32,
+    to_ms: Option<i64>,
+) -> Result<Vec<CandleJson>, String> {
+    let symbol_id = {
+        let map = symbol_map().lock().map_err(|e| e.to_string())?;
+        match map.get(symbol.as_str()).copied() {
+            Some(id) => id,
+            None => return Err(format!("symbol '{}' not in symbol map (not yet subscribed?)", symbol)),
+        }
+    };
+
+    let (period, minutes_per_bar): (openapi::ProtoOaTrendbarPeriod, i64) = match timeframe.as_str() {
+        "M1"  => (openapi::ProtoOaTrendbarPeriod::M1,  1),
+        "M2"  => (openapi::ProtoOaTrendbarPeriod::M2,  2),
+        "M3"  => (openapi::ProtoOaTrendbarPeriod::M3,  3),
+        "M4"  => (openapi::ProtoOaTrendbarPeriod::M4,  4),
+        "M5"  => (openapi::ProtoOaTrendbarPeriod::M5,  5),
+        "M10" => (openapi::ProtoOaTrendbarPeriod::M10, 10),
+        "M15" => (openapi::ProtoOaTrendbarPeriod::M15, 15),
+        "M30" => (openapi::ProtoOaTrendbarPeriod::M30, 30),
+        "H1"  => (openapi::ProtoOaTrendbarPeriod::H1,  60),
+        "H4"  => (openapi::ProtoOaTrendbarPeriod::H4,  240),
+        "H12" => (openapi::ProtoOaTrendbarPeriod::H12, 720),
+        "D1"  => (openapi::ProtoOaTrendbarPeriod::D1,  60 * 24),
+        "W1"  => (openapi::ProtoOaTrendbarPeriod::W1,  60 * 24 * 7),
+        "MN1" => (openapi::ProtoOaTrendbarPeriod::Mn1, 60 * 24 * 30),
+        other => return Err(format!("unsupported timeframe '{}'", other)),
+    };
+
+    let end_ms = to_ms.unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+    let count_i64 = count as i64;
+    let from_ms = end_ms - count_i64 * minutes_per_bar * 60 * 1000;
+    let from_sec = from_ms / 1000;
+    let to_sec = end_ms / 1000;
+
+    let table = format!("{}_{}", symbol.to_lowercase(), timeframe.to_lowercase());
+
+    // Step 1: try the cache.
+    let db_mutex = state.db_mutex.clone();
+    let table_q = table.clone();
+    let (cached, oldest_in_table, newest_in_cached): (Vec<CandleJson>, Option<i64>, Option<i64>) =
+        tokio::task::spawn_blocking(move || -> Result<(Vec<CandleJson>, Option<i64>, Option<i64>), String> {
+            let _lock = db_mutex.lock().map_err(|e| e.to_string())?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| e.to_string())?;
+            ensure_candle_table(&db, &table_q)?;
+            let q = format!(
+                "SELECT timestamp, open, high, low, close, volume FROM {}
+                 WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp ASC",
+                table_q
+            );
+            let mut stmt = db.prepare(&q).map_err(|e| e.to_string())?;
+            let bars: Vec<CandleJson> = stmt.query_map(
+                duckdb::params![from_sec, to_sec],
+                |row| Ok(CandleJson {
+                    time:   row.get(0)?, open:  row.get(1)?, high:   row.get(2)?,
+                    low:    row.get(3)?, close: row.get(4)?, volume: row.get(5)?,
+                })
+            ).map_err(|e| e.to_string())?.flatten().collect();
+            let oldest: Option<i64> = db.query_row(
+                &format!("SELECT MIN(timestamp) FROM {}", table_q),
+                [], |row| row.get::<_, Option<i64>>(0)
+            ).unwrap_or(None);
+            let newest_in_cached = bars.last().map(|b| b.time);
+            Ok((bars, oldest, newest_in_cached))
+        }).await.map_err(|e| e.to_string())??;
+
+    // Coverage check:
+    //   (a) oldest cached ts is at or before our `from` boundary
+    //   (b) we have ≥70% of expected bars (loose for weekend gaps etc.)
+    //   (c) if the request was for the *current* window (to_ms unset → end_ms = now),
+    //       also require the newest cached bar to be within ~2 buckets of now.
+    //       For lazy-load (explicit older `to_ms`), skip this freshness check —
+    //       the user is panning into the past and doesn't need an up-to-date tail.
+    let expected_bars = count_i64 as usize;
+    let asking_for_now = to_ms.is_none();
+    let tail_tolerance = minutes_per_bar * 60 * 2;
+    let tail_fresh = !asking_for_now
+        || matches!(newest_in_cached, Some(n) if to_sec - n <= tail_tolerance);
+    let cache_covers = matches!(oldest_in_table, Some(o) if o <= from_sec)
+        && cached.len() >= (expected_bars * 70 / 100)
+        && tail_fresh;
+    if cache_covers {
+        println!("[chart] cache hit: {} {} {} bars (range {}..{})",
+                 symbol, timeframe, cached.len(), from_sec, to_sec);
+        return Ok(cached);
+    }
+    if !cached.is_empty() {
+        let stale_secs = newest_in_cached.map(|n| to_sec - n).unwrap_or(0);
+        println!("[chart] cache stale/partial: {} {} {} bars (need ~{}, tail stale by {}s) — refetching",
+                 symbol, timeframe, cached.len(), expected_bars, stale_secs);
+    }
+
+    // Step 2: cache miss → fetch from cTrader.
+    let tx = CHART_REQ_TX.get().ok_or("chart channel not initialised")?;
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    tx.send(ChartRequest { symbol_id, period, from_ms, to_ms: end_ms, count, reply: reply_tx })
+        .await
+        .map_err(|e| format!("send chart req: {}", e))?;
+    let timeout = tokio::time::timeout(std::time::Duration::from_secs(30), reply_rx).await;
+    let fetched: Vec<Candle> = match timeout {
+        Ok(Ok(Ok(c)))  => c,
+        Ok(Ok(Err(e))) => return Err(e),
+        Ok(Err(_))     => return Err("chart request was cancelled".into()),
+        Err(_)         => return Err("cTrader response timeout".into()),
+    };
+    let fetched_count = fetched.len();
+
+    // Step 3: persist (best-effort; don't fail the call if upsert fails).
+    let db_mutex = state.db_mutex.clone();
+    let table_w = table.clone();
+    let candles_to_store = fetched.clone();
+    tokio::task::spawn_blocking(move || {
+        if let Ok(_lock) = db_mutex.lock() {
+            if let Ok(db) = duckdb::Connection::open(DB_PATH) {
+                let _ = upsert_candles(&db, &table_w, &candles_to_store);
+            }
+        }
+    }).await.ok();
+
+    println!("[chart] API fetch: {} {} {} bars stored to `{}`",
+             symbol, timeframe, fetched_count, table);
+    Ok(fetched.into_iter().map(|c| CandleJson {
+        time: c.timestamp,
+        open: c.open, high: c.high, low: c.low, close: c.close,
+        volume: c.volume,
+    }).collect())
+}
+
+#[derive(serde::Serialize)]
+struct ArticleBodyResult {
+    article_id: String,
+    body: Option<String>,
+    status: String, // "ok" | "empty" | "failed"
+    message: Option<String>,
+}
+
+/// Tauri command: fetch one article's body on demand (when a user opens it in the
+/// modal). Hits the econcal proxy API, parses the HTML field, strips tags, and
+/// updates `news_historical.body` so subsequent loads are free.
+#[tauri::command]
+async fn fetch_article_body_on_demand(
+    article_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<ArticleBodyResult, String> {
+    if !ensure_econcal_alive().await {
+        return Ok(ArticleBodyResult {
+            article_id,
+            body: None,
+            status: "failed".into(),
+            message: Some("Econcal proxy not reachable.".into()),
+        });
+    }
+
+    // Check if we already have it.
+    let db_mutex = state.db_mutex.clone();
+    let aid = article_id.clone();
+    let existing: Option<String> = tokio::task::spawn_blocking(move || {
+        let _lock = db_mutex.lock().ok()?;
+        let db = duckdb::Connection::open(DB_PATH).ok()?;
+        db.query_row(
+            "SELECT body FROM news_historical WHERE article_id = ?",
+            duckdb::params![aid],
+            |row| row.get::<_, Option<String>>(0),
+        ).ok().flatten()
+    }).await.unwrap_or(None);
+
+    if let Some(b) = existing.as_ref() {
+        if !b.is_empty() {
+            return Ok(ArticleBodyResult {
+                article_id,
+                body: Some(b.clone()),
+                status: "ok".into(),
+                message: None,
+            });
+        }
+    }
+
+    // Fetch from proxy.
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let outcome = fetch_one_body(&client, &article_id).await;
+
+    let (status, body_to_store): (&'static str, Option<String>) = match &outcome {
+        BodyFetch::Ok(b) => ("ok", Some(b.clone())),
+        BodyFetch::EmptyBody => ("empty", Some(String::new())),
+        BodyFetch::Failed | BodyFetch::RateLimited { .. } => ("failed", None),
+    };
+
+    if let Some(b) = body_to_store.clone() {
+        let db_mutex = state.db_mutex.clone();
+        let aid = article_id.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            let _lock = db_mutex.lock().ok()?;
+            let db = duckdb::Connection::open(DB_PATH).ok()?;
+            db.execute(
+                "UPDATE news_historical SET body = ? WHERE article_id = ?",
+                duckdb::params![b, aid],
+            ).ok()
+        }).await;
+    }
+
+    let returned_body = match outcome {
+        BodyFetch::Ok(b) => Some(b),
+        _ => None,
+    };
+    Ok(ArticleBodyResult { article_id, body: returned_body, status: status.into(), message: None })
+}
+
+#[derive(serde::Serialize)]
+struct NewsBackfillResult {
+    fetched: usize,
+    inserted_estimate: usize,
+    duration_ms: u128,
+    error: Option<String>,
+}
+
+/// Tauri command: pull the newest ~10,000 articles from FXStreet (200 pages × 50)
+/// and upsert into news_historical. Crypto is filtered out by the existing logic.
+/// Used to fill gaps where the app wasn't running and missed the regular cycle.
+#[tauri::command]
+async fn backfill_news_from_api(state: tauri::State<'_, AppState>) -> Result<NewsBackfillResult, String> {
+    let start = std::time::Instant::now();
+    let db_mutex = state.db_mutex.clone();
+
+    // Count existing rows so we can estimate how many got inserted.
+    let before: usize = {
+        let mutex_clone = db_mutex.clone();
+        tokio::task::spawn_blocking(move || -> Result<usize, String> {
+            let _lock = mutex_clone.lock().map_err(|e| e.to_string())?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| e.to_string())?;
+            db.query_row("SELECT COUNT(*) FROM news_historical", [], |row| row.get::<_, i64>(0))
+                .map(|n| n as usize)
+                .map_err(|e| e.to_string())
+        }).await.map_err(|e| e.to_string())??
+    };
+
+    // Fetch all pages with no cutoff so we walk past our latest into the gap.
+    let rows = match news_realtime::fetch_news_since(50, 200, None, None).await {
+        Ok(r) => r,
+        Err(e) => return Ok(NewsBackfillResult {
+            fetched: 0,
+            inserted_estimate: 0,
+            duration_ms: start.elapsed().as_millis(),
+            error: Some(e),
+        }),
+    };
+    let fetched = rows.len();
+
+    // Upsert into the DB.
+    let mutex_clone = db_mutex.clone();
+    let inserted_estimate = tokio::task::spawn_blocking(move || -> Result<usize, String> {
+        let _lock = mutex_clone.lock().map_err(|e| e.to_string())?;
+        let db = duckdb::Connection::open(DB_PATH).map_err(|e| e.to_string())?;
+        // Surface DB errors instead of silently dropping them.
+        if let Err(e) = news_realtime::write_news_to_db(&db, &rows) {
+            return Err(format!("write_news_to_db: {}", e));
+        }
+        let after: i64 = db.query_row("SELECT COUNT(*) FROM news_historical", [], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        Ok((after as usize).saturating_sub(before))
+    }).await.map_err(|e| e.to_string())??;
+
+    Ok(NewsBackfillResult {
+        fetched,
+        inserted_estimate,
+        duration_ms: start.elapsed().as_millis(),
+        error: None,
+    })
+}
+
+/// Tauri command: status without writing. Returns total days in DB and how many remain.
+#[tauri::command]
+async fn archive_status(state: tauri::State<'_, AppState>) -> Result<ArchiveDayResult, String> {
+    archive_status_inner(state, None).await
+}
+
+#[tauri::command]
+async fn archive_status_for_year(year: String, state: tauri::State<'_, AppState>) -> Result<ArchiveDayResult, String> {
+    archive_status_inner(state, Some(year)).await
+}
+
+async fn archive_status_inner(
+    state: tauri::State<'_, AppState>,
+    year_filter: Option<String>,
+) -> Result<ArchiveDayResult, String> {
+    let db_mutex = state.db_mutex.clone();
+    let year_owned = year_filter.clone();
+    tokio::task::spawn_blocking(move || {
+        let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+        let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+        let next = find_next_day_to_write(&db, year_owned.as_deref())?;
+        Ok(match next {
+            None => ArchiveDayResult {
+                status: "done".into(),
+                day: None, count: 0, path: None, remaining_days: 0,
+                message: Some("All days archived.".into()),
+            },
+            Some((day, remaining)) => ArchiveDayResult {
+                status: "pending".into(),
+                day: Some(day),
+                count: 0,
+                path: None,
+                remaining_days: remaining,
+                message: None,
+            },
+        })
+    })
+    .await
+    .map_err(|e| format!("task join: {}", e))?
 }
 
 /// Best-effort: terminate a child process tree by PID. Used at shutdown.
@@ -354,6 +1220,11 @@ fn main() {
     let (data_req_tx, data_req_rx) = mpsc::channel::<DataRequest>(32);
     let (data_resp_tx, data_resp_rx) = mpsc::channel::<DataResponse>(64);
 
+    // Chart trendbar requests: Tauri commands → session loop. Global sender so
+    // any command can publish; receiver moves into the tokio thread.
+    let (chart_req_tx, chart_req_rx) = mpsc::channel::<ChartRequest>(32);
+    let _ = CHART_REQ_TX.set(chart_req_tx);
+
     // Mutex serializes all DuckDB file access (only one connection at a time on Windows)
     let shared_db: SharedDb = Arc::new(std::sync::Mutex::new(()));
     let db_for_async = shared_db.clone();
@@ -381,6 +1252,13 @@ fn main() {
                         PriceUpdate::ConnectionStatus(s) => {
                             serde_json::json!({"type":"status","value":s})
                         }
+                        PriceUpdate::SymbolMapping(map) => {
+                            // Cache for Tauri commands so they can resolve names → IDs.
+                            if let Ok(mut cache) = symbol_map().lock() {
+                                *cache = map.clone();
+                            }
+                            continue;  // not broadcast over WS
+                        }
                         PriceUpdate::EcStatus(s) => {
                             serde_json::json!({"type":"ec_status","value":s})
                         }
@@ -404,8 +1282,8 @@ fn main() {
                         PriceUpdate::NewsStatus(s) => {
                             serde_json::json!({"type":"news_status","value":s})
                         }
-                        PriceUpdate::NewsTodayLines(lines) => {
-                            serde_json::json!({"type":"news_today","lines":lines})
+                        PriceUpdate::NewsTodayArticles(articles) => {
+                            serde_json::json!({"type":"news_today","articles":articles})
                         }
                         _ => continue,
                     };
@@ -434,10 +1312,11 @@ fn main() {
             // Run price streaming with reconnection
             // request_rx passed by &mut so pending requests survive reconnects
             let mut request_rx = data_req_rx;
+            let mut chart_req_rx_holder = chart_req_rx;
             let mut backoff_seconds = 1;
             loop {
                 println!("Starting cTrader price stream...");
-                match run_session(tx.clone(), &mut request_rx, data_resp_tx.clone(), db_for_async.clone()).await {
+                match run_session(tx.clone(), &mut request_rx, data_resp_tx.clone(), &mut chart_req_rx_holder, db_for_async.clone()).await {
                     Ok(_) => println!("Session ended gracefully."),
                     Err(e) => {
                         println!("Session error: {}", e);
@@ -455,7 +1334,18 @@ fn main() {
     // data_req_tx is held by Tauri state — future commands will use it to request data.
     let _ = data_req_tx;
 
+    let app_state = AppState { db_mutex: shared_db.clone() };
     tauri::Builder::default()
+        .manage(app_state)
+        .invoke_handler(tauri::generate_handler![
+            write_next_archive_day,
+            write_next_archive_day_for_year,
+            archive_status,
+            archive_status_for_year,
+            backfill_news_from_api,
+            fetch_article_body_on_demand,
+            get_trendbars,
+        ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -472,8 +1362,15 @@ async fn run_session(
     tx: mpsc::Sender<PriceUpdate>,
     request_rx: &mut mpsc::Receiver<DataRequest>,
     response_tx: mpsc::Sender<DataResponse>,
+    chart_req_rx: &mut mpsc::Receiver<ChartRequest>,
     shared_db: SharedDb,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Local map: client_msg_id → oneshot reply for in-flight chart requests.
+    let mut pending_chart_reqs: std::collections::HashMap<
+        String,
+        tokio::sync::oneshot::Sender<Result<Vec<Candle>, String>>,
+    > = std::collections::HashMap::new();
+    let mut chart_msg_id_counter: u64 = 0;
     // Load credentials from environment variables
     let app_client_id = std::env::var("CTRADER_CLIENT_ID")
         .expect("CTRADER_CLIENT_ID must be set in .env file");
@@ -895,15 +1792,34 @@ async fn run_session(
                     },
                     2138 => { // ProtoOAGetTrendbarsRes
                         if let Some(payload) = &msg.payload {
-                            let res = openapi::ProtoOaGetTrendbarsRes::decode(payload.as_slice())?;
-                            handle_trendbars_response(
-                                &mut tls_stream,
-                                &res,
-                                account_id,
-                                &response_tx,
-                                &mut active_download,
-                                &shared_db,
-                            ).await?;
+                            // Did this response come from a chart request? Match on client_msg_id.
+                            let chart_reply = msg.client_msg_id.as_ref()
+                                .and_then(|id| pending_chart_reqs.remove(id));
+                            if let Some(reply_tx) = chart_reply {
+                                match openapi::ProtoOaGetTrendbarsRes::decode(payload.as_slice()) {
+                                    Ok(res) => {
+                                        let candles: Vec<Candle> = res.trendbar.iter()
+                                            .filter_map(|bar| trendbar_to_candle(
+                                                bar.volume, bar.low, bar.delta_open,
+                                                bar.delta_close, bar.delta_high,
+                                                bar.utc_timestamp_in_minutes,
+                                            ))
+                                            .collect();
+                                        let _ = reply_tx.send(Ok(candles));
+                                    }
+                                    Err(e) => { let _ = reply_tx.send(Err(format!("decode: {}", e))); }
+                                }
+                            } else {
+                                let res = openapi::ProtoOaGetTrendbarsRes::decode(payload.as_slice())?;
+                                handle_trendbars_response(
+                                    &mut tls_stream,
+                                    &res,
+                                    account_id,
+                                    &response_tx,
+                                    &mut active_download,
+                                    &shared_db,
+                                ).await?;
+                            }
                         }
                     },
                     2146 => { // ProtoOAGetTickDataRes
@@ -1366,6 +2282,33 @@ async fn run_session(
                     &shared_db,
                 ).await?;
             }
+            // Chart-history request from a Tauri command: send ProtoOAGetTrendbarsReq
+            // with a unique client_msg_id and remember the oneshot so we can reply.
+            Some(chart_req) = chart_req_rx.recv() => {
+                chart_msg_id_counter += 1;
+                let cid = format!("chart-{}", chart_msg_id_counter);
+                pending_chart_reqs.insert(cid.clone(), chart_req.reply);
+                let req = openapi::ProtoOaGetTrendbarsReq {
+                    payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaGetTrendbarsReq as i32),
+                    ctid_trader_account_id: account_id,
+                    from_timestamp: Some(chart_req.from_ms),
+                    to_timestamp: Some(chart_req.to_ms),
+                    period: chart_req.period as i32,
+                    symbol_id: chart_req.symbol_id,
+                    count: Some(chart_req.count),
+                };
+                if let Err(e) = send_message_with_id(
+                    &mut tls_stream,
+                    openapi::ProtoOaPayloadType::ProtoOaGetTrendbarsReq as u32,
+                    req,
+                    &cid,
+                ).await {
+                    // Send failed: fail the pending request so the Tauri command unblocks.
+                    if let Some(reply_tx) = pending_chart_reqs.remove(&cid) {
+                        let _ = reply_tx.send(Err(format!("send failed: {}", e)));
+                    }
+                }
+            }
             _ = heartbeat_interval.tick() => {
                 if let Err(e) = send_heartbeat(&mut tls_stream).await {
                     println!("Failed to send periodic heartbeat: {}", e);
@@ -1523,36 +2466,53 @@ async fn run_session(
             };
 
             if should_fetch {
-                // Schedule next fetch in 10 minutes
+                // Schedule next fetch in 5 minutes
                 news_next_fetch = Some(
-                    tokio::time::Instant::now() + Duration::from_secs(600)
+                    tokio::time::Instant::now() + Duration::from_secs(300)
                 );
 
-                match news_realtime::fetch_news(50, 1, None).await {
+                // Look up the latest article we already have so fetch_news_since
+                // can stop once it walks past our existing data. On a fresh DB or
+                // after a long downtime, this lets the next fetch walk back many
+                // pages to backfill the gap; on a hot cycle it stops after page 1.
+                let db_clone = shared_db.clone();
+                let since: Option<String> = tokio::task::spawn_blocking(move || {
+                    let _lock = db_clone.lock().unwrap();
+                    duckdb::Connection::open(DB_PATH)
+                        .ok()
+                        .and_then(|db| news_realtime::get_latest_news_timestamp(&db))
+                })
+                .await
+                .unwrap_or(None);
+
+                if since.is_some() {
+                    println!("News: backfilling since {}", since.as_deref().unwrap_or(""));
+                }
+
+                match news_realtime::fetch_news_since(50, 200, since.as_deref(), None).await {
                     Ok(rows) => {
                         let total = rows.len();
 
                         let db_clone = shared_db.clone();
-                        let lines = tokio::task::spawn_blocking(move || {
+                        let today_rows = tokio::task::spawn_blocking(move || {
                             let _lock = db_clone.lock().unwrap();
                             match duckdb::Connection::open(DB_PATH) {
                                 Ok(db) => {
                                     let _ = news_realtime::write_news_to_db(&db, &rows);
-                                    let today_rows = news_realtime::read_news_today(&db);
-                                    news_realtime::format_news_lines(&today_rows)
+                                    news_realtime::read_news_today(&db)
                                 }
-                                Err(e) => vec![format!("DB error: {}", e)],
+                                Err(_) => Vec::new(),
                             }
                         })
                         .await
-                        .unwrap_or_else(|e| vec![format!("Task error: {}", e)]);
+                        .unwrap_or_default();
 
                         let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
                         let _ = tx.send(PriceUpdate::NewsStatus(format!(
-                            "{} articles | next: 10m | updated: {}",
+                            "{} articles | next: 5m | updated: {}",
                             total, now_str
                         ))).await;
-                        let _ = tx.send(PriceUpdate::NewsTodayLines(lines)).await;
+                        let _ = tx.send(PriceUpdate::NewsTodayArticles(today_rows)).await;
                     }
                     Err(e) => {
                         let _ = tx.send(PriceUpdate::NewsStatus(format!("News error: {}", e))).await;
@@ -1575,6 +2535,15 @@ async fn send_message<T: Message>(
     payload_type: u32,
     payload: T,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    send_message_with_id(stream, payload_type, payload, "1").await
+}
+
+async fn send_message_with_id<T: Message>(
+    stream: &mut tokio_rustls::client::TlsStream<TcpStream>,
+    payload_type: u32,
+    payload: T,
+    client_msg_id: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut body = Vec::new();
     payload.encode(&mut body)?;
     println!("DEBUG send: payload_type={}, body_len={}", payload_type, body.len());
@@ -1582,7 +2551,7 @@ async fn send_message<T: Message>(
     let proto_msg = openapi::ProtoMessage {
         payload_type,
         payload: Some(body),
-        client_msg_id: Some("1".to_string()),
+        client_msg_id: Some(client_msg_id.to_string()),
     };
 
     let mut full_msg = Vec::new();

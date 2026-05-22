@@ -66,8 +66,9 @@ pub struct NewsTag {
     pub name: Option<String>,
 }
 
-/// Parsed news row ready for DB insertion.
-#[derive(Debug, Clone)]
+/// Parsed news row ready for DB insertion. Body is `None` for fresh rows from
+/// the listing endpoint; it's populated separately via the article body fetcher.
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct NewsRow {
     pub article_id: String,
     pub title: String,
@@ -78,6 +79,8 @@ pub struct NewsRow {
     pub tags: String, // comma-separated tag names
     pub hour_utc: i8,
     pub weekday: i8,
+    #[serde(default)]
+    pub body: Option<String>,
 }
 
 // ── Fetch & parse ────────────────────────────────────────────────────────────
@@ -225,7 +228,10 @@ pub async fn fetch_news_since(
         }
     }
 
-    if all_rows.is_empty() {
+    // Empty result is only a real error when we tried to crawl the full feed
+    // (since=None). When since is set and we found nothing newer, that just
+    // means we're caught up — the caller should treat it as Ok([]).
+    if all_rows.is_empty() && since.is_none() {
         return Err("No articles fetched".to_string());
     }
 
@@ -302,6 +308,7 @@ fn parse_article_no_crypto_check(a: NewsArticle) -> Option<NewsRow> {
         tags: tags_str,
         hour_utc: hour,
         weekday,
+        body: None,
     })
 }
 
@@ -344,7 +351,10 @@ pub fn write_news_to_db(db: &duckdb::Connection, rows: &[NewsRow]) -> Result<usi
     // Ensure historical table exists
     db.execute_batch(CREATE_NEWS_HISTORICAL).map_err(|e| format!("create news_historical: {}", e))?;
 
-    let insert_today = "INSERT INTO news_today VALUES (?,?,?,?,?,?,?,?,?)";
+    // Migrate legacy DBs that still have the pre-body schema.
+    let _ = db.execute("ALTER TABLE news_historical ADD COLUMN IF NOT EXISTS body VARCHAR", []);
+
+    let insert_today = "INSERT INTO news_today (article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday) VALUES (?,?,?,?,?,?,?,?,?)";
     let mut inserted = 0usize;
 
     // Filter to today's articles only for the today table
@@ -375,9 +385,12 @@ pub fn write_news_to_db(db: &duckdb::Connection, rows: &[NewsRow]) -> Result<usi
             }
         }
 
-        // Upsert into historical (all articles)
+        // Upsert into historical (all articles). Explicit column list so we don't
+        // break when a `body` column was added by ALTER TABLE on an existing DB.
         let upsert = "
-            INSERT INTO news_historical VALUES (?,?,?,?,?,?,?,?,?)
+            INSERT INTO news_historical
+                (article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday)
+            VALUES (?,?,?,?,?,?,?,?,?)
             ON CONFLICT (article_id) DO UPDATE SET
                 title         = EXCLUDED.title,
                 summary       = EXCLUDED.summary,
@@ -405,16 +418,21 @@ pub fn write_news_to_db(db: &duckdb::Connection, rows: &[NewsRow]) -> Result<usi
 
 /// Read today's news for UI display.
 pub fn read_news_today(db: &duckdb::Connection) -> Vec<NewsRow> {
+    // Read today's articles directly from the historical table so we don't
+    // depend on news_today being recently populated. The historical upsert
+    // path runs on every fetch, including ones that found 0 new rows.
+    let today_str = Utc::now().format("%Y-%m-%d").to_string();
     let query = "
-        SELECT article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday
-        FROM news_today
+        SELECT article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday, body
+        FROM news_historical
+        WHERE published_utc LIKE ? || '%'
         ORDER BY published_utc DESC
     ";
     let mut stmt = match db.prepare(query) {
         Ok(s) => s,
         Err(_) => return Vec::new(),
     };
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map([today_str.as_str()], |row| {
         Ok(NewsRow {
             article_id: row.get::<_, String>(0)?,
             title: row.get::<_, String>(1)?,
@@ -425,6 +443,7 @@ pub fn read_news_today(db: &duckdb::Connection) -> Vec<NewsRow> {
             tags: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
             hour_utc: row.get::<_, i32>(7)? as i8,
             weekday: row.get::<_, i32>(8)? as i8,
+            body: row.get::<_, Option<String>>(9)?,
         })
     });
     match rows {
