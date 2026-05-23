@@ -630,6 +630,8 @@ struct CandleJson {
 /// request channel; resolves to the most recent `count` bars ending now.
 /// `to_ms` (optional): fetch `count` bars ending at this unix-ms instant. If
 /// absent, ends at "now". Used by the chart's lazy-load-on-pan to walk backward.
+/// `force_refresh` (optional): skip the cache hit check and always go to the
+/// cTrader API. Used by the Dashboard "Load Gold" button to ensure freshness.
 ///
 /// Caching strategy:
 /// 1. Check the per-(symbol, timeframe) DuckDB table for bars in [from, to].
@@ -643,6 +645,7 @@ async fn get_trendbars(
     timeframe: String,
     count: u32,
     to_ms: Option<i64>,
+    force_refresh: Option<bool>,
 ) -> Result<Vec<CandleJson>, String> {
     let symbol_id = {
         let map = symbol_map().lock().map_err(|e| e.to_string())?;
@@ -709,28 +712,65 @@ async fn get_trendbars(
 
     // Coverage check:
     //   (a) oldest cached ts is at or before our `from` boundary
-    //   (b) we have ≥70% of expected bars (loose for weekend gaps etc.)
+    //   (b) we have at least *some* bars in the requested window (the 70%-of-1000
+    //       threshold used to fail on weekends/holidays when cTrader returns far
+    //       fewer bars than `count` simply because the market was closed for half
+    //       the window)
     //   (c) if the request was for the *current* window (to_ms unset → end_ms = now),
     //       also require the newest cached bar to be within ~2 buckets of now.
     //       For lazy-load (explicit older `to_ms`), skip this freshness check —
     //       the user is panning into the past and doesn't need an up-to-date tail.
-    let expected_bars = count_i64 as usize;
     let asking_for_now = to_ms.is_none();
     let tail_tolerance = minutes_per_bar * 60 * 2;
     let tail_fresh = !asking_for_now
         || matches!(newest_in_cached, Some(n) if to_sec - n <= tail_tolerance);
-    let cache_covers = matches!(oldest_in_table, Some(o) if o <= from_sec)
-        && cached.len() >= (expected_bars * 70 / 100)
-        && tail_fresh;
-    if cache_covers {
+    let has_coverage = matches!(oldest_in_table, Some(o) if o <= from_sec)
+        && cached.len() >= 10;
+    let cache_covers = has_coverage && tail_fresh;
+    let force = force_refresh.unwrap_or(false);
+    if cache_covers && !force {
         println!("[chart] cache hit: {} {} {} bars (range {}..{})",
                  symbol, timeframe, cached.len(), from_sec, to_sec);
         return Ok(cached);
     }
+    // Tail-stale but coverage OK → serve cache instantly + refresh in the
+    // background. The user sees the chart immediately; the next open or pan
+    // sees fresh data. The live-tick handler in the frontend keeps the
+    // in-progress bar tracking the current price.
+    if has_coverage && !tail_fresh && !force {
+        let stale_secs = newest_in_cached.map(|n| to_sec - n).unwrap_or(0);
+        println!("[chart] cache hit (stale tail by {}s): {} {} {} bars — bg refresh",
+                 symbol, timeframe, stale_secs, cached.len());
+        if let Some(tx_bg) = CHART_REQ_TX.get().cloned() {
+            let db_mutex_bg = state.db_mutex.clone();
+            let table_bg = table.clone();
+            let symbol_bg = symbol.clone();
+            let tf_bg = timeframe.clone();
+            tokio::spawn(async move {
+                let (rt, rr) = tokio::sync::oneshot::channel();
+                if tx_bg.send(ChartRequest {
+                    symbol_id, period, from_ms, to_ms: end_ms, count, reply: rt,
+                }).await.is_err() { return; }
+                let timeout = tokio::time::timeout(std::time::Duration::from_secs(30), rr).await;
+                if let Ok(Ok(Ok(fresh))) = timeout {
+                    let n = fresh.len();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if let Ok(_lock) = db_mutex_bg.lock() {
+                            if let Ok(db) = duckdb::Connection::open(DB_PATH) {
+                                let _ = upsert_candles(&db, &table_bg, &fresh);
+                            }
+                        }
+                    }).await;
+                    println!("[chart] bg refresh done: {} {} {} bars", symbol_bg, tf_bg, n);
+                }
+            });
+        }
+        return Ok(cached);
+    }
     if !cached.is_empty() {
         let stale_secs = newest_in_cached.map(|n| to_sec - n).unwrap_or(0);
-        println!("[chart] cache stale/partial: {} {} {} bars (need ~{}, tail stale by {}s) — refetching",
-                 symbol, timeframe, cached.len(), expected_bars, stale_secs);
+        println!("[chart] cache partial: {} {} {} bars (tail stale by {}s) — refetching",
+                 symbol, timeframe, cached.len(), stale_secs);
     }
 
     // Step 2: cache miss → fetch from cTrader.

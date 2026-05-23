@@ -221,6 +221,11 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
   const allCandlesRef = useRef<Candle[]>([])
   const loadingMoreRef = useRef(false)
   const noMoreDataRef = useRef(false)
+  // Remember each TF's visible *logical* range so switching M1→M3→M1 restores
+  // the user's zoom/pan on M1. Logical range (bar indices) drives the chart's
+  // internal bar spacing — without per-TF restore *and* a hard reset on first
+  // visit, the previous TF's zoom would visibly leak into the next.
+  const zoomByTfRef = useRef<Partial<Record<Timeframe, { from: number; to: number }>>>({})
   const [timeframe, setTimeframe] = useState<Timeframe>('M1')
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -229,21 +234,46 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
   // and pick up the now-valid chartRef/seriesRef. Refs themselves don't trigger
   // effect re-runs in React.
   const [chartGen, setChartGen] = useState(0)
+  // Mirror the live tick into a ref so the load effect can read the current
+  // bid without needing `tick` in its deps (which would refetch on every tick).
+  const tickRef = useRef<Tick | null>(tick)
+  useEffect(() => { tickRef.current = tick }, [tick])
 
-  // Init the chart once per symbol mount.
+  // Recreate the chart on every symbol *or* timeframe change. The chart
+  // instance carries hidden zoom/scroll state that survives setData and resists
+  // applyOptions/resetTimeScale, so the only way to guarantee each timeframe
+  // starts with its own clean (or saved) zoom is to throw away the old chart
+  // and build a new one. Cache hits keep this near-instant.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       const { createChart, CandlestickSeries } = await import('lightweight-charts')
       if (cancelled || !containerRef.current) return
 
+      // Tear down any previous chart for this symbol/TF.
+      if (chartRef.current) {
+        try { chartRef.current.remove() } catch { /* ignore */ }
+        chartRef.current = null
+        seriesRef.current = null
+      }
+
       const chart = createChart(containerRef.current, {
-        layout: { background: { color: '#0e0e10' }, textColor: '#d4d4d8' },
+        layout: {
+          background: { color: '#0e0e10' },
+          textColor: '#d4d4d8',
+          attributionLogo: false,  // hide the TradingView watermark
+        },
         grid: {
           vertLines: { color: '#1f2128' },
           horzLines: { color: '#1f2128' },
         },
-        timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#25272d' },
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
+          borderColor: '#25272d',
+          rightOffset: 8,        // a few empty bars on the right for breathing room
+          barSpacing: 6,          // pixels per bar — TradingView default
+        },
         rightPriceScale: { borderColor: '#25272d' },
         autoSize: true,
       })
@@ -259,12 +289,12 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
     return () => {
       cancelled = true
       if (chartRef.current) {
-        chartRef.current.remove()
+        try { chartRef.current.remove() } catch { /* ignore */ }
         chartRef.current = null
         seriesRef.current = null
       }
     }
-  }, [symbol])
+  }, [symbol, timeframe])
 
   // Reload historical bars whenever timeframe or symbol changes.
   useEffect(() => {
@@ -273,15 +303,16 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
       // sets seriesRef. We trigger that by depending on a small timer below.
     }
     let cancelled = false
-    setLoading(true)
     setError(null)
     // Clear in-memory state so a tick that arrives during fetch doesn't draw
-    // a candle using the previous TF's bucket size or last candle.
+    // a candle using the previous TF's bucket size or last candle. We do NOT
+    // clear the chart's series.setData here — the previous TF's bars stay
+    // visible until the new ones arrive, so cache hits feel like an instant swap.
     lastCandleRef.current = null
     allCandlesRef.current = []
-    if (seriesRef.current) {
-      try { seriesRef.current.setData([]) } catch {}
-    }
+    // Only show the loading overlay if the fetch is actually slow — cache hits
+    // typically return in <100ms and we'd rather not flash the overlay then.
+    const loadingTimer = window.setTimeout(() => { if (!cancelled) setLoading(true) }, 250)
 
     const tryLoad = async () => {
       // Wait briefly for chart init if needed.
@@ -326,9 +357,39 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
           setError(`No ${timeframe} bars available for this window. Try a different timeframe or wait for market hours.`)
         }
         lastCandleRef.current = deduped.length > 0 ? deduped[deduped.length - 1] : null
+        // cTrader's historical trendbar close doesn't always track the current
+        // bid (often a half-spread or full-spread offset depending on the broker's
+        // bar-builder). Rebase the last bar's close to the latest tick.bid so the
+        // chart's price label matches the sidebar bid from the moment the chart
+        // opens — subsequent ticks will keep it in sync.
+        const liveTick = tickRef.current
+        if (lastCandleRef.current && liveTick && liveTick.symbol === symbol) {
+          const last = lastCandleRef.current
+          last.close = liveTick.bid
+          last.high = Math.max(last.high, liveTick.bid)
+          last.low = Math.min(last.low, liveTick.bid)
+          seriesRef.current.update({
+            time: last.time as any,
+            open: last.open, high: last.high, low: last.low, close: last.close,
+          })
+        }
         setLoading(false)
         if (deduped.length > 0) {
-          chartRef.current?.timeScale().fitContent()
+          // The chart is fresh (recreated on every TF change), so no need to
+          // reset zoom — just apply the saved range for this TF, or the
+          // default 120-bar TradingView-style window.
+          const ts = chartRef.current?.timeScale()
+          const saved = zoomByTfRef.current[timeframe]
+          if (ts) {
+            if (saved) {
+              try { ts.setVisibleLogicalRange({ from: saved.from, to: saved.to }) }
+              catch { /* ignore */ }
+            } else {
+              const n = deduped.length
+              const visibleCount = Math.min(120, n)
+              ts.setVisibleLogicalRange({ from: n - visibleCount, to: n + 8 })
+            }
+          }
         }
       } catch (e) {
         if (!cancelled) {
@@ -338,8 +399,11 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
         }
       }
     }
-    tryLoad()
-    return () => { cancelled = true }
+    tryLoad().finally(() => {
+      window.clearTimeout(loadingTimer)
+      if (!cancelled) setLoading(false)
+    })
+    return () => { cancelled = true; window.clearTimeout(loadingTimer) }
   }, [symbol, timeframe])
 
   // Subscribe to pan-left so we can lazy-load older bars from cTrader on demand.
@@ -484,12 +548,9 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
       lastCandleRef.current = newCandle
       // Also push into allCandlesRef so pan-left math stays consistent.
       allCandlesRef.current = [...allCandlesRef.current, newCandle]
-      // Bring the new bar into view — fitContent's old visible range stopped at
-      // the last historical bar, which is now several buckets to the left of
-      // the live bar.
-      try {
-        chartRef.current?.timeScale().fitContent()
-      } catch {}
+      // Don't fitContent here — it would zoom out to fit all 1000+ bars and
+      // override the "show last 120" view we set after the initial load.
+      // The chart's rightOffset already leaves room for new bars on the right.
     }
     // bucket < prev.time → ignore stale tick (clock skew, etc.).
   }, [tick, symbol, timeframe, loading])
@@ -503,7 +564,18 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
             <button
               key={t}
               className={`chart-tf-btn ${t === timeframe ? 'active' : ''}`}
-              onClick={() => setTimeframe(t)}
+              onClick={() => {
+                if (t === timeframe) return
+                // Snapshot the current TF's visible *logical* range so we can
+                // restore exact zoom + scroll position when the user switches
+                // back. Logical range drives bar spacing.
+                const ts = chartRef.current?.timeScale()
+                const range = ts?.getVisibleLogicalRange?.()
+                if (range && typeof range.from === 'number' && typeof range.to === 'number') {
+                  zoomByTfRef.current[timeframe] = { from: range.from, to: range.to }
+                }
+                setTimeframe(t)
+              }}
               disabled={loading}
             >
               {t}
@@ -527,11 +599,63 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
 }
 
 function DashboardView({ tick }: { tick: Tick | null }) {
+  const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState<{ tf: Timeframe; done: number } | null>(null)
+  const [done, setDone] = useState<{ count: number; failed: string[] } | null>(null)
+
+  const loadAll = async () => {
+    setLoading(true)
+    setDone(null)
+    const failed: string[] = []
+    for (let i = 0; i < TIMEFRAMES.length; i++) {
+      const tf = TIMEFRAMES[i]
+      setProgress({ tf, done: i })
+      try {
+        await invoke<Candle[]>('get_trendbars', {
+          symbol: 'XAUUSD', timeframe: tf, count: BARS_PER_TF[tf],
+          forceRefresh: true,  // bypass cache so the data is genuinely fresh
+        })
+      } catch (e) {
+        console.error(`[loadgold] ${tf} failed`, e)
+        failed.push(tf)
+      }
+    }
+    setProgress(null)
+    setLoading(false)
+    setDone({ count: TIMEFRAMES.length - failed.length, failed })
+  }
+
   return (
-    <div className="placeholder">
-      {tick
-        ? `Live ${tick.symbol} — bid ${tick.bid.toFixed(2)} / ask ${tick.ask.toFixed(2)}`
-        : 'Waiting for live ticks…'}
+    <div className="dashboard">
+      <div className="dashboard-card">
+        <h2>Welcome to cTrader Rust Terminal</h2>
+        <p className="muted">
+          {tick
+            ? `Live ${tick.symbol} — bid ${tick.bid.toFixed(2)} / ask ${tick.ask.toFixed(2)}`
+            : 'Waiting for live ticks…'}
+        </p>
+        <div className="dashboard-actions">
+          <button
+            className="btn btn-loadgold"
+            onClick={loadAll}
+            disabled={loading}
+          >
+            {loading ? `Caching ${progress?.tf} (${(progress?.done ?? 0) + 1}/${TIMEFRAMES.length})…` : 'Load Gold'}
+          </button>
+          <span className="muted small">
+            Pre-fetches XAUUSD bars for all 14 timeframes into the local cache so
+            charts open instantly.
+          </span>
+        </div>
+        {done && (
+          <div className={`dashboard-result ${done.failed.length > 0 ? 'partial' : 'ok'}`}>
+            {done.failed.length === 0
+              ? `✓ All ${done.count} timeframes cached. Click XAUUSD in the sidebar to open the chart.`
+              : `Cached ${done.count}/${TIMEFRAMES.length}. Failed: ${done.failed.join(', ')}`}
+          </div>
+        )}
+        <p className="muted small">Or pick an instrument from the sidebar to jump straight to its chart.</p>
+      </div>
     </div>
   )
 }
