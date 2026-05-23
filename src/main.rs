@@ -682,6 +682,15 @@ async fn get_trendbars(
     let table = format!("{}_{}", symbol.to_lowercase(), timeframe.to_lowercase());
 
     // Step 1: try the cache.
+    //
+    // Match cTrader's `count` semantics: return the most recent N bars at or
+    // before to_sec, regardless of whether they fall inside [from_sec, to_sec).
+    // The naive WHERE timestamp >= from_sec AND timestamp < to_sec query
+    // under-selects on weekends/holidays (e.g. on Saturday for M1 it would
+    // only return the ~40 minute-bars between Friday 21:20 UTC and Friday
+    // 22:00 UTC even though the cache holds the full 1000 bars cTrader
+    // returned during the first fetch).
+    let count_for_query = count as i64;
     let db_mutex = state.db_mutex.clone();
     let table_q = table.clone();
     let (cached, oldest_in_table, newest_in_cached): (Vec<CandleJson>, Option<i64>, Option<i64>) =
@@ -690,22 +699,21 @@ async fn get_trendbars(
             let db = duckdb::Connection::open(DB_PATH).map_err(|e| e.to_string())?;
             ensure_candle_table(&db, &table_q)?;
             let q = format!(
-                "SELECT timestamp, open, high, low, close, volume FROM {}
-                 WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp ASC",
+                "SELECT timestamp, open, high, low, close, volume FROM (
+                     SELECT timestamp, open, high, low, close, volume FROM {}
+                     WHERE timestamp < ? ORDER BY timestamp DESC LIMIT ?
+                 ) ORDER BY timestamp ASC",
                 table_q
             );
             let mut stmt = db.prepare(&q).map_err(|e| e.to_string())?;
             let bars: Vec<CandleJson> = stmt.query_map(
-                duckdb::params![from_sec, to_sec],
+                duckdb::params![to_sec, count_for_query],
                 |row| Ok(CandleJson {
                     time:   row.get(0)?, open:  row.get(1)?, high:   row.get(2)?,
                     low:    row.get(3)?, close: row.get(4)?, volume: row.get(5)?,
                 })
             ).map_err(|e| e.to_string())?.flatten().collect();
-            let oldest: Option<i64> = db.query_row(
-                &format!("SELECT MIN(timestamp) FROM {}", table_q),
-                [], |row| row.get::<_, Option<i64>>(0)
-            ).unwrap_or(None);
+            let oldest: Option<i64> = bars.first().map(|b| b.time);
             let newest_in_cached = bars.last().map(|b| b.time);
             Ok((bars, oldest, newest_in_cached))
         }).await.map_err(|e| e.to_string())??;
