@@ -35,12 +35,15 @@ type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTod
 type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error'
 type Tab = 'dashboard' | 'calendar' | 'news' | 'archive'
 
-type ArchiveResult = {
-  status: 'written' | 'done' | 'pending' | 'error' | 'rate_limited' | 'stalled'
-  day: string | null
-  count: number
-  path: string | null
-  remaining_days: number
+type NewsUpdateResult = {
+  last_archive_day: string | null
+  cutoff: string
+  articles_fetched: number
+  bodies_fetched: number
+  bodies_empty: number
+  bodies_failed: number
+  rate_limited: boolean
+  days_written: [string, number][]
   message: string | null
 }
 
@@ -168,7 +171,7 @@ function App() {
             {newsArticles.length > 0 && <span className="badge">{newsArticles.length}</span>}
           </button>
           <button className={tab === 'archive' ? 'tab active' : 'tab'} onClick={() => setTab('archive')}>
-            Archive
+            Archives
           </button>
         </nav>
 
@@ -800,272 +803,69 @@ function ArticleModal({ article, onClose }: { article: NewsArticle; onClose: () 
   )
 }
 
-type BackfillResult = {
-  fetched: number
-  inserted_estimate: number
-  duration_ms: number
-  error: string | null
-}
-
 function ArchiveView() {
-  const [status, setStatus] = useState<ArchiveResult | null>(null)
-  const [lastWritten, setLastWritten] = useState<ArchiveResult | null>(null)
   const [busy, setBusy] = useState(false)
-  const [batchMode, setBatchMode] = useState<'idle' | 'running'>('idle')
-  const [batchCount, setBatchCount] = useState(0)
-  const [backfillBusy, setBackfillBusy] = useState(false)
-  const [backfillResult, setBackfillResult] = useState<BackfillResult | null>(null)
-  const [yearStatus, setYearStatus] = useState<ArchiveResult | null>(null)
-  const [yearMode, setYearMode] = useState<'idle' | 'running'>('idle')
-  const [yearCount, setYearCount] = useState(0)
-  const [yearLast, setYearLast] = useState<ArchiveResult | null>(null)
-  const stopYearRef = useRef(false)
-  const stopRef = useRef(false)
+  const [result, setResult] = useState<NewsUpdateResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const loadStatus = async () => {
-    try {
-      const s = await invoke<ArchiveResult>('archive_status')
-      setStatus(s)
-    } catch (e) {
-      setStatus({ status: 'error', day: null, count: 0, path: null, remaining_days: 0, message: String(e) })
-    }
-  }
-
-  useEffect(() => { loadStatus() }, [])
-
-  const writeNext = async () => {
+  const runUpdate = async () => {
     setBusy(true)
+    setError(null)
+    setResult(null)
     try {
-      const r = await invoke<ArchiveResult>('write_next_archive_day')
-      setLastWritten(r)
-      setStatus({ ...r, status: r.remaining_days > 0 ? 'pending' : 'done' })
-      return r
+      const r = await invoke<NewsUpdateResult>('update_news_archive')
+      setResult(r)
     } catch (e) {
-      setLastWritten({ status: 'error', day: null, count: 0, path: null, remaining_days: 0, message: String(e) })
-      return null
+      setError(String(e))
     } finally {
       setBusy(false)
     }
   }
 
-  const runBatch = async () => {
-    stopRef.current = false
-    setBatchMode('running')
-    setBatchCount(0)
-    while (!stopRef.current) {
-      const r = await writeNext()
-      if (!r) break
-      if (r.status === 'done' || r.status === 'error' || r.status === 'rate_limited' || r.status === 'stalled') break
-      setBatchCount(c => c + 1)
-    }
-    setBatchMode('idle')
-  }
-
-  const stopBatch = () => { stopRef.current = true }
-
-  const loadYearStatus = async (year: string) => {
-    try {
-      const s = await invoke<ArchiveResult>('archive_status_for_year', { year })
-      setYearStatus(s)
-    } catch (e) {
-      setYearStatus({ status: 'error', day: null, count: 0, path: null, remaining_days: 0, message: String(e) })
-    }
-  }
-
-  const writeNextForYear = async (year: string): Promise<ArchiveResult | null> => {
-    try {
-      const r = await invoke<ArchiveResult>('write_next_archive_day_for_year', { year })
-      setYearLast(r)
-      await loadYearStatus(year)
-      return r
-    } catch (e) {
-      setYearLast({ status: 'error', day: null, count: 0, path: null, remaining_days: 0, message: String(e) })
-      return null
-    }
-  }
-
-  const runYearBatch = async (year: string) => {
-    stopYearRef.current = false
-    setYearMode('running')
-    setYearCount(0)
-    await loadYearStatus(year)
-    while (!stopYearRef.current) {
-      const r = await writeNextForYear(year)
-      if (!r) break
-      if (r.status === 'done' || r.status === 'error' || r.status === 'rate_limited' || r.status === 'stalled') break
-      setYearCount(c => c + 1)
-    }
-    setYearMode('idle')
-  }
-
-  const stopYearBatch = () => { stopYearRef.current = true }
-
-  const backfillNews = async () => {
-    setBackfillBusy(true)
-    setBackfillResult(null)
-    try {
-      const r = await invoke<BackfillResult>('backfill_news_from_api')
-      setBackfillResult(r)
-      await loadStatus()  // refresh remaining days
-    } catch (e) {
-      setBackfillResult({ fetched: 0, inserted_estimate: 0, duration_ms: 0, error: String(e) })
-    } finally {
-      setBackfillBusy(false)
-    }
-  }
-
   return (
     <div className="archive">
-      <h3>News archive</h3>
+      <h3>News Archives</h3>
       <p className="muted">
-        Writes one JSON file per day under <code>news_data/all/YYYY-MM/YYYY-MM-DD.json</code>,
-        containing every article we have for that day (crypto already excluded by the ingest filter).
+        Detects the newest day file under <code>news_data/all/</code>, reads its latest
+        article time, then fetches every newer article from FXStreet and (re)writes
+        one JSON file per affected day up to today.
       </p>
 
-      {status && (
-        <div className="archive-status">
-          {status.status === 'done' ? (
-            <span className="ok">✓ All days in the local DB are archived.</span>
-          ) : (
-            <>
-              <span>Next day to write: <strong>{status.day ?? '—'}</strong></span>
-              <span className="muted"> &middot; remaining: <strong>{status.remaining_days}</strong></span>
-            </>
-          )}
-        </div>
-      )}
-
       <div className="archive-actions">
-        <button
-          className="btn"
-          onClick={writeNext}
-          disabled={busy || batchMode === 'running' || status?.status === 'done'}
-        >
-          {busy ? 'Writing…' : 'Fetch next day'}
-        </button>
-
-        {batchMode === 'idle' ? (
-          <button
-            className="btn btn-secondary"
-            onClick={runBatch}
-            disabled={busy || status?.status === 'done'}
-          >
-            Fetch all remaining
-          </button>
-        ) : (
-          <button className="btn btn-danger" onClick={stopBatch}>
-            Stop ({batchCount} written)
-          </button>
-        )}
-
-        <button className="btn btn-ghost" onClick={loadStatus} disabled={busy}>
-          Refresh
+        <button className="btn" onClick={runUpdate} disabled={busy}>
+          {busy ? 'Updating… (this can take a minute)' : 'News_Updates'}
         </button>
       </div>
 
-      <div className="backfill-section">
-        <h4 className="section-h">Fetch bodies for a specific year</h4>
-        <p className="muted">
-          Walks only that year's days. Each click fetches one day's missing bodies
-          via the proxy API and rewrites the corresponding JSON file with the bodies
-          filled in.
-        </p>
-        {yearStatus && (
-          <div className="archive-status">
-            {yearStatus.status === 'done' ? (
-              <span className="ok">✓ All 2026 days are fully bodied.</span>
-            ) : (
-              <>
-                <span>Next 2026 day to write: <strong>{yearStatus.day ?? '—'}</strong></span>
-                <span className="muted"> &middot; remaining: <strong>{yearStatus.remaining_days}</strong></span>
-              </>
-            )}
-          </div>
-        )}
-        <div className="archive-actions">
-          {yearMode === 'idle' ? (
-            <button className="btn" onClick={() => runYearBatch('2026')} disabled={busy}>
-              Fetch all 2026 bodies
-            </button>
-          ) : (
-            <button className="btn btn-danger" onClick={stopYearBatch}>
-              Stop ({yearCount} written)
-            </button>
-          )}
-          <button className="btn btn-ghost" onClick={() => loadYearStatus('2026')} disabled={yearMode === 'running'}>
-            Refresh
-          </button>
-        </div>
-        {yearLast && (
-          <div className={`archive-result ${yearLast.status}`}>
-            {yearLast.status === 'written' && (
-              <>
-                <div><strong>Wrote {yearLast.day}</strong> — {yearLast.count} articles</div>
-                {yearLast.message && <div className="muted small">{yearLast.message}</div>}
-              </>
-            )}
-            {yearLast.status === 'stalled' && (
-              <div className="err">Stalled: {yearLast.message}</div>
-            )}
-            {yearLast.status === 'rate_limited' && (
-              <div className="err">Rate-limited: {yearLast.message}</div>
-            )}
-            {yearLast.status === 'done' && (
-              <div className="ok">✓ All 2026 days bodied.</div>
-            )}
-            {yearLast.status === 'error' && (
-              <div className="err">Error: {yearLast.message}</div>
-            )}
-          </div>
-        )}
-      </div>
+      {error && <div className="archive-result err">Error: {error}</div>}
 
-      <div className="backfill-section">
-        <h4 className="section-h">Fill missing days from FXStreet</h4>
-        <p className="muted">
-          For days where the app wasn't running (e.g. the Apr–May 2026 gap), there are no
-          articles in the local DB so the archive button has nothing to write. This button
-          walks up to 200 pages of the FXStreet feed and upserts what it finds. Takes ~1–3 min.
-        </p>
-        <div className="archive-actions">
-          <button className="btn btn-secondary" onClick={backfillNews} disabled={backfillBusy}>
-            {backfillBusy ? 'Pulling from FXStreet…' : 'Backfill missing news'}
-          </button>
-        </div>
-        {backfillResult && (
-          <div className={`archive-result ${backfillResult.error ? 'error' : 'written'}`}>
-            {backfillResult.error ? (
-              <div className="err">Error: {backfillResult.error}</div>
-            ) : (
-              <>
-                <div>
-                  Fetched <strong>{backfillResult.fetched}</strong> articles from the API,
-                  added <strong>~{backfillResult.inserted_estimate}</strong> new rows
-                  in {(backfillResult.duration_ms / 1000).toFixed(1)}s.
-                </div>
-                <div className="muted small">
-                  Click "Fetch next day" or "Fetch all remaining" to write archive files for the newly-filled days.
-                </div>
-              </>
-            )}
+      {result && (
+        <div className={`archive-result ${result.rate_limited ? 'err' : 'ok'}`}>
+          <div>
+            <strong>Last archive day:</strong> {result.last_archive_day ?? '(none — first run)'}
           </div>
-        )}
-      </div>
-
-      {lastWritten && (
-        <div className={`archive-result ${lastWritten.status}`}>
-          {lastWritten.status === 'written' && (
-            <>
-              <div><strong>Wrote {lastWritten.day}</strong> — {lastWritten.count} articles</div>
-              <div className="muted small">{lastWritten.path}</div>
-            </>
+          <div>
+            <strong>Cutoff used:</strong> {result.cutoff}
+          </div>
+          <div>
+            <strong>Articles fetched:</strong> {result.articles_fetched}
+          </div>
+          <div>
+            <strong>Bodies:</strong> {result.bodies_fetched} fetched
+            {result.bodies_empty > 0 && `, ${result.bodies_empty} empty`}
+            {result.bodies_failed > 0 && `, ${result.bodies_failed} failed`}
+          </div>
+          <div>
+            <strong>Day files written:</strong> {result.days_written.length}
+          </div>
+          {result.days_written.length > 0 && (
+            <ul className="archive-days">
+              {result.days_written.map(([day, count]) => (
+                <li key={day}><code>{day}.json</code> — {count} articles</li>
+              ))}
+            </ul>
           )}
-          {lastWritten.status === 'done' && (
-            <div className="ok">✓ {lastWritten.message ?? 'All days archived.'}</div>
-          )}
-          {lastWritten.status === 'error' && (
-            <div className="err">Error: {lastWritten.message}</div>
-          )}
+          {result.message && <div className="muted small">{result.message}</div>}
         </div>
       )}
     </div>

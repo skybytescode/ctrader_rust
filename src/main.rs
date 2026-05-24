@@ -116,23 +116,13 @@ fn symbol_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, i
     SYMBOL_MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-// ── Archive: per-day all-articles JSON files ────────────────────────────────
-
 /// Tauri-managed state shared with command handlers.
 struct AppState {
     db_mutex: SharedDb,
 }
 
-#[derive(serde::Serialize)]
-struct ArchiveDayResult {
-    status: String,           // "written" | "done" | "error"
-    day: Option<String>,      // YYYY-MM-DD of the day just written
-    count: usize,             // articles in that file
-    path: Option<String>,     // absolute path to the file
-    remaining_days: usize,    // days in DB still unwritten
-    message: Option<String>,  // human-readable message
-}
-
+/// Root directory for per-day news archive JSON files.
+/// Layout: news_data/all/YYYY-MM/YYYY-MM-DD.json
 const ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/news_data/all");
 
 /// Extract the FXStreet article body from a JSON-LD `<script>` block in the page HTML.
@@ -304,276 +294,6 @@ async fn fetch_one_body(client: &reqwest::Client, article_id: &str) -> BodyFetch
     }
     let text = html_to_plain_text(html);
     if text.is_empty() { BodyFetch::EmptyBody } else { BodyFetch::Ok(text) }
-}
-
-/// Compute the next day that still has articles without a body. Walks days
-/// chronologically and returns the oldest day with at least one NULL body.
-/// `year_prefix` (e.g. Some("2026")) limits the search to that year only.
-fn find_next_day_to_write(
-    db: &duckdb::Connection,
-    year_prefix: Option<&str>,
-) -> Result<Option<(String, usize)>, String> {
-    let (sql, has_filter) = if year_prefix.is_some() {
-        ("SELECT substr(published_utc, 1, 10) AS d, COUNT(*) AS n
-          FROM news_historical
-          WHERE length(published_utc) >= 10
-            AND body IS NULL
-            AND substr(published_utc, 1, 4) = ?
-          GROUP BY d
-          ORDER BY d ASC", true)
-    } else {
-        ("SELECT substr(published_utc, 1, 10) AS d, COUNT(*) AS n
-          FROM news_historical
-          WHERE length(published_utc) >= 10
-            AND body IS NULL
-          GROUP BY d
-          ORDER BY d ASC", false)
-    };
-    let mut stmt = db.prepare(sql).map_err(|e| format!("prepare days: {}", e))?;
-    let map_row = |row: &duckdb::Row<'_>| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize));
-    let rows: Vec<(String, usize)> = if has_filter {
-        stmt.query_map([year_prefix.unwrap()], map_row)
-            .map_err(|e| format!("query days: {}", e))?
-            .flatten().collect()
-    } else {
-        stmt.query_map([], map_row)
-            .map_err(|e| format!("query days: {}", e))?
-            .flatten().collect()
-    };
-    let total_remaining = rows.len();
-    Ok(rows.into_iter().next().map(|(day, _)| (day, total_remaining)))
-}
-
-/// Build the JSON for a single day from news_historical and write it to disk.
-fn write_archive_for_day(db: &duckdb::Connection, day: &str) -> Result<(String, usize), String> {
-    let mut stmt = db.prepare(
-        "SELECT article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday, body
-         FROM news_historical
-         WHERE published_utc LIKE ? || '%'
-         ORDER BY published_utc ASC"
-    ).map_err(|e| format!("prepare archive query: {}", e))?;
-
-    let rows = stmt.query_map([day], |row| {
-        let body_val: Option<String> = row.get(9).ok().flatten();
-        Ok(serde_json::json!({
-            "article_id":   row.get::<_, String>(0)?,
-            "title":        row.get::<_, String>(1)?,
-            "published_utc": row.get::<_, String>(2)?,
-            "summary":      row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-            "url":          row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-            "author":       row.get::<_, Option<String>>(5)?.unwrap_or_default(),
-            "tags":         row.get::<_, Option<String>>(6)?.unwrap_or_default(),
-            "hour_utc":     row.get::<_, i32>(7)?,
-            "weekday":      row.get::<_, i32>(8)?,
-            "body":         body_val,
-        }))
-    }).map_err(|e| format!("query archive: {}", e))?;
-
-    let articles: Vec<serde_json::Value> = rows.flatten().collect();
-    let count = articles.len();
-
-    let month = &day[..7];
-    let dir = std::path::Path::new(ARCHIVE_ROOT).join(month);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("create dir {}: {}", dir.display(), e))?;
-    let path = dir.join(format!("{}.json", day));
-
-    let payload = serde_json::json!({
-        "date": day,
-        "count": count,
-        "generated_at": chrono::Utc::now().to_rfc3339(),
-        "articles": articles,
-    });
-    let pretty = serde_json::to_string_pretty(&payload).map_err(|e| format!("serialize: {}", e))?;
-    std::fs::write(&path, pretty).map_err(|e| format!("write {}: {}", path.display(), e))?;
-
-    Ok((path.to_string_lossy().to_string(), count))
-}
-
-/// Tauri command: pick the oldest un-archived day, fetch missing article bodies
-/// in parallel (10 concurrent against fxstreet.com), update `news_historical.body`,
-/// then write the day's archive file. Each call advances by one day.
-#[tauri::command]
-async fn write_next_archive_day(state: tauri::State<'_, AppState>) -> Result<ArchiveDayResult, String> {
-    write_next_archive_day_inner(state, None).await
-}
-
-/// Same as `write_next_archive_day` but restricted to days in `year` (e.g. "2026").
-#[tauri::command]
-async fn write_next_archive_day_for_year(year: String, state: tauri::State<'_, AppState>) -> Result<ArchiveDayResult, String> {
-    write_next_archive_day_inner(state, Some(year)).await
-}
-
-async fn write_next_archive_day_inner(
-    state: tauri::State<'_, AppState>,
-    year_filter: Option<String>,
-) -> Result<ArchiveDayResult, String> {
-    // Step 0: make sure econcal is reachable. The proxy is prone to puppeteer-
-    // memory crashes over multi-hour sessions; this self-heals before each click.
-    if !ensure_econcal_alive().await {
-        return Ok(ArchiveDayResult {
-            status: "error".into(),
-            day: None, count: 0, path: None, remaining_days: 0,
-            message: Some("Econcal proxy not reachable on :6000 and respawn failed. Restart the app.".into()),
-        });
-    }
-
-    // Step 1: figure out which day to write + which article URLs need fetching.
-    let db_mutex = state.db_mutex.clone();
-    let year_owned = year_filter.clone();
-    let plan = tokio::task::spawn_blocking(move || -> Result<Option<(String, usize, Vec<(String, String)>)>, String> {
-        let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-        let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-        let next = find_next_day_to_write(&db, year_owned.as_deref())?;
-        let Some((day, remaining)) = next else { return Ok(None); };
-
-        // Never-attempted articles with a URL. Empty-string body means "tried
-        // and got nothing usable" — leave those alone.
-        let mut stmt = db.prepare(
-            "SELECT article_id, url
-             FROM news_historical
-             WHERE published_utc LIKE ? || '%'
-               AND url IS NOT NULL AND url <> ''
-               AND body IS NULL"
-        ).map_err(|e| format!("prepare fetch list: {}", e))?;
-        let to_fetch: Vec<(String, String)> = stmt.query_map([day.as_str()], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }).map_err(|e| format!("query fetch list: {}", e))?
-          .flatten().collect();
-        Ok(Some((day, remaining, to_fetch)))
-    })
-    .await
-    .map_err(|e| format!("task join: {}", e))??;
-
-    let Some((day, remaining, to_fetch)) = plan else {
-        return Ok(ArchiveDayResult {
-            status: "done".into(),
-            day: None, count: 0, path: None, remaining_days: 0,
-            message: Some("All days in DB are archived.".into()),
-        });
-    };
-
-    // Step 2: fetch bodies in parallel (10 concurrent).
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
-        .build()
-        .map_err(|e| format!("build http client: {}", e))?;
-    // Concurrency 1 — the puppeteer proxy serialises requests internally and
-    // anything above 1 returns 400 for a fraction of articles (the proxy's
-    // shared page state gets confused). Sequential is reliable: ~500ms × 75
-    // articles ≈ 38s/day. Slow but correct.
-    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
-    let mut tasks = tokio::task::JoinSet::new();
-    for (article_id, _url) in to_fetch {
-        let permit = sem.clone().acquire_owned().await.map_err(|e| e.to_string())?;
-        let client = client.clone();
-        tasks.spawn(async move {
-            let _permit = permit;
-            let body = fetch_one_body(&client, &article_id).await;
-            (article_id, body)
-        });
-    }
-    let mut fetched: Vec<(String, String)> = Vec::new();
-    let mut empty_ids: Vec<String> = Vec::new();
-    let mut failed_ids: Vec<String> = Vec::new();
-    let mut rate_limited = 0usize;
-    let mut max_retry_after = 0u64;
-    while let Some(joined) = tasks.join_next().await {
-        if let Ok((aid, outcome)) = joined {
-            match outcome {
-                BodyFetch::Ok(b)         => fetched.push((aid, b)),
-                BodyFetch::EmptyBody     => empty_ids.push(aid),
-                BodyFetch::Failed        => failed_ids.push(aid),
-                BodyFetch::RateLimited { retry_after_secs } => {
-                    rate_limited += 1;
-                    max_retry_after = max_retry_after.max(retry_after_secs);
-                }
-            }
-        }
-    }
-
-    // If FXStreet is rate-limiting, abort the day. Don't write anything, don't
-    // mark anything — these rows stay NULL so a later run after the cooldown
-    // can pick them up. The Tauri command returns a clear "wait N seconds"
-    // message and the React batch loop bails out.
-    if rate_limited > 0 && fetched.is_empty() {
-        return Ok(ArchiveDayResult {
-            status: "rate_limited".into(),
-            day: Some(day.clone()),
-            count: 0,
-            path: None,
-            remaining_days: remaining,
-            message: Some(format!(
-                "FXStreet rate-limited us: Retry-After ~{}s. Stopping for now. \
-                 Re-click in {} minutes.",
-                max_retry_after,
-                (max_retry_after + 59) / 60
-            )),
-        });
-    }
-
-    // If every fetch failed (e.g., the econcal proxy died), abort instead of
-    // force-marking everything '' — a previous version of this code did that
-    // and silently nuked ~33k articles when the proxy was down.
-    if fetched.is_empty() && empty_ids.is_empty() && !failed_ids.is_empty() {
-        return Ok(ArchiveDayResult {
-            status: "stalled".into(),
-            day: Some(day.clone()),
-            count: 0,
-            path: None,
-            remaining_days: remaining,
-            message: Some(format!(
-                "All {} fetches failed for {} — proxy may be down. \
-                 Check that econcal is listening on :6000 and retry.",
-                failed_ids.len(), day
-            )),
-        });
-    }
-
-    // Step 3: update DB + write file.
-    //   - fetched bodies → UPDATE body = '<text>'
-    //   - genuinely empty (data flashes) → UPDATE body = ''  (don't retry)
-    //   - HTTP/parse failures → leave NULL so a later run can retry
-    let fetched_count = fetched.len();
-    let empty_count   = empty_ids.len();
-    let fail_count    = failed_ids.len();
-    let day_clone = day.clone();
-    let db_mutex = state.db_mutex.clone();
-    let count = tokio::task::spawn_blocking(move || -> Result<usize, String> {
-        let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-        let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-        for (aid, body) in &fetched {
-            let _ = db.execute(
-                "UPDATE news_historical SET body = ? WHERE article_id = ?",
-                duckdb::params![body, aid],
-            );
-        }
-        for aid in &empty_ids {
-            let _ = db.execute(
-                "UPDATE news_historical SET body = '' WHERE article_id = ?",
-                duckdb::params![aid],
-            );
-        }
-        let (_path, count) = write_archive_for_day(&db, &day_clone)?;
-        Ok(count)
-    })
-    .await
-    .map_err(|e| format!("task join: {}", e))??;
-
-    let path = std::path::Path::new(ARCHIVE_ROOT).join(&day[..7]).join(format!("{}.json", day));
-    Ok(ArchiveDayResult {
-        status: "written".into(),
-        day: Some(day),
-        count,
-        path: Some(path.to_string_lossy().to_string()),
-        remaining_days: remaining.saturating_sub(1),
-        message: Some({
-            let mut parts = vec![format!("fetched: {}", fetched_count)];
-            if empty_count > 0 { parts.push(format!("empty: {}", empty_count)); }
-            if fail_count  > 0 { parts.push(format!("failed: {}", fail_count)); }
-            if rate_limited > 0 { parts.push(format!("rate-limited: {}", rate_limited)); }
-            parts.join(" | ")
-        }),
-    })
 }
 
 /// Ensure a per-(symbol, timeframe) candle cache table exists. Schema matches
@@ -899,107 +619,337 @@ async fn fetch_article_body_on_demand(
     Ok(ArticleBodyResult { article_id, body: returned_body, status: status.into(), message: None })
 }
 
-#[derive(serde::Serialize)]
-struct NewsBackfillResult {
-    fetched: usize,
-    inserted_estimate: usize,
-    duration_ms: u128,
-    error: Option<String>,
-}
+// ── News archive: incremental day-file updates ─────────────────────────────────
 
-/// Tauri command: pull the newest ~10,000 articles from FXStreet (200 pages × 50)
-/// and upsert into news_historical. Crypto is filtered out by the existing logic.
-/// Used to fill gaps where the app wasn't running and missed the regular cycle.
-#[tauri::command]
-async fn backfill_news_from_api(state: tauri::State<'_, AppState>) -> Result<NewsBackfillResult, String> {
-    let start = std::time::Instant::now();
-    let db_mutex = state.db_mutex.clone();
+/// Walk `news_data/all/YYYY-MM/` folders to find the newest `YYYY-MM-DD.json`
+/// file. Returns `(day, max_published_utc)` where `day` is "YYYY-MM-DD" and
+/// `max_published_utc` is the latest article timestamp in that file ("YYYY-MM-DDTHH:MM:SS").
+/// Returns `(None, None)` if no archive files exist.
+fn find_newest_archive_cutoff() -> (Option<String>, Option<String>) {
+    let root = std::path::Path::new(ARCHIVE_ROOT);
+    if !root.exists() { return (None, None); }
 
-    // Count existing rows so we can estimate how many got inserted.
-    let before: usize = {
-        let mutex_clone = db_mutex.clone();
-        tokio::task::spawn_blocking(move || -> Result<usize, String> {
-            let _lock = mutex_clone.lock().map_err(|e| e.to_string())?;
-            let db = duckdb::Connection::open(DB_PATH).map_err(|e| e.to_string())?;
-            db.query_row("SELECT COUNT(*) FROM news_historical", [], |row| row.get::<_, i64>(0))
-                .map(|n| n as usize)
-                .map_err(|e| e.to_string())
-        }).await.map_err(|e| e.to_string())??
+    // Find the lexically-largest YYYY-MM-DD.json across all YYYY-MM subdirs.
+    let mut newest_path: Option<std::path::PathBuf> = None;
+    let mut newest_day: Option<String> = None;
+    let entries = match std::fs::read_dir(root) { Ok(e) => e, Err(_) => return (None, None) };
+    for month_entry in entries.flatten() {
+        let month_path = month_entry.path();
+        if !month_path.is_dir() { continue; }
+        let day_entries = match std::fs::read_dir(&month_path) { Ok(e) => e, Err(_) => continue };
+        for day_entry in day_entries.flatten() {
+            let p = day_entry.path();
+            let name = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s, None => continue };
+            // Expect "YYYY-MM-DD.json", 15 chars total.
+            if name.len() != 15 || !name.ends_with(".json") { continue; }
+            let day = &name[..10];
+            if newest_day.as_deref().map(|d| day > d).unwrap_or(true) {
+                newest_day = Some(day.to_string());
+                newest_path = Some(p);
+            }
+        }
+    }
+
+    let (day, path) = match (newest_day, newest_path) {
+        (Some(d), Some(p)) => (d, p),
+        _ => return (None, None),
     };
 
-    // Fetch all pages with no cutoff so we walk past our latest into the gap.
-    let rows = match news_realtime::fetch_news_since(50, 200, None, None).await {
+    // Parse the file and pull max(article.published_utc).
+    let max_pub = (|| -> Option<String> {
+        let content = std::fs::read_to_string(&path).ok()?;
+        let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+        let articles = json.get("articles")?.as_array()?;
+        articles.iter()
+            .filter_map(|a| a.get("published_utc")?.as_str().map(String::from))
+            .max()
+    })();
+
+    (Some(day), max_pub)
+}
+
+/// Read all articles for `day` from `news_historical` and write the per-day
+/// archive file at `news_data/all/YYYY-MM/YYYY-MM-DD.json`. Preserves existing
+/// bodies stored in the DB. Returns `(absolute_path, article_count)`.
+fn write_archive_for_day(db: &duckdb::Connection, day: &str) -> Result<(String, usize), String> {
+    let mut stmt = db.prepare(
+        "SELECT article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday, body
+         FROM news_historical
+         WHERE published_utc LIKE ? || '%'
+         ORDER BY published_utc ASC"
+    ).map_err(|e| format!("prepare archive query: {}", e))?;
+
+    let rows = stmt.query_map([day], |row| {
+        let body_val: Option<String> = row.get(9).ok().flatten();
+        Ok(serde_json::json!({
+            "article_id":    row.get::<_, String>(0)?,
+            "title":         row.get::<_, String>(1)?,
+            "published_utc": row.get::<_, String>(2)?,
+            "summary":       row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            "url":           row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            "author":        row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+            "tags":          row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+            "hour_utc":      row.get::<_, i32>(7)?,
+            "weekday":       row.get::<_, i32>(8)?,
+            "body":          body_val,
+        }))
+    }).map_err(|e| format!("query archive: {}", e))?;
+
+    let articles: Vec<serde_json::Value> = rows.flatten().collect();
+    let count = articles.len();
+
+    let month = &day[..7];
+    let dir = std::path::Path::new(ARCHIVE_ROOT).join(month);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create dir {}: {}", dir.display(), e))?;
+    let path = dir.join(format!("{}.json", day));
+
+    let payload = serde_json::json!({
+        "date":         day,
+        "count":        count,
+        "generated_at": chrono::Utc::now().to_rfc3339(),
+        "articles":     articles,
+    });
+    let pretty = serde_json::to_string_pretty(&payload).map_err(|e| format!("serialize: {}", e))?;
+    std::fs::write(&path, pretty).map_err(|e| format!("write {}: {}", path.display(), e))?;
+
+    Ok((path.to_string_lossy().to_string(), count))
+}
+
+#[derive(serde::Serialize)]
+struct NewsUpdateResult {
+    /// "YYYY-MM-DD" of the most recent archive file before the run, or null if
+    /// no archive files existed.
+    last_archive_day: Option<String>,
+    /// ISO timestamp used as the lower bound when calling fetch_news_since
+    /// (latest article time in the last archive file, or 7 days ago as fallback).
+    cutoff: String,
+    /// Number of new articles pulled from FXStreet.
+    articles_fetched: usize,
+    /// Article bodies successfully fetched and written to news_historical.body.
+    bodies_fetched: usize,
+    /// Articles where FXStreet's API returned an empty body (data flashes).
+    /// Stored as '' so we don't retry.
+    bodies_empty: usize,
+    /// Body fetches that failed (timeout / parse error / proxy error).
+    /// Left as NULL so a later run can retry.
+    bodies_failed: usize,
+    /// True if FXStreet returned HTTP 429 during the body fetch loop.
+    /// Body fetching stops at the first 429 and the message field explains.
+    rate_limited: bool,
+    /// (day, article_count) for every day whose file was (re)written.
+    days_written: Vec<(String, usize)>,
+    /// Optional human-readable error or info message.
+    message: Option<String>,
+}
+
+/// Tauri command: incremental archive update.
+///
+/// 1. Walks `news_data/all/` to find the newest YYYY-MM-DD.json
+/// 2. Reads its latest `published_utc`
+/// 3. Calls `fetch_news_since(cutoff)` to pull every newer article from FXStreet
+/// 4. Upserts them into `news_historical`
+/// 5. For every article in the affected days that still has `body IS NULL`,
+///    fetches the body via the per-article proxy endpoint and updates
+///    `news_historical.body` (concurrency 1 — the puppeteer proxy serialises
+///    requests internally and >1 confuses its shared page state)
+/// 6. (Re)writes one JSON file per affected day under `news_data/all/` —
+///    pulling the now-populated bodies along with everything else
+///
+/// When no archive files exist yet, the cutoff defaults to 7 days before "now"
+/// so the first run does a sensible bootstrap rather than crawling the full feed.
+#[tauri::command]
+async fn update_news_archive(state: tauri::State<'_, AppState>) -> Result<NewsUpdateResult, String> {
+    // Step 1: find newest archive day + its latest article time.
+    let (last_archive_day, latest_in_file) =
+        tokio::task::spawn_blocking(find_newest_archive_cutoff)
+            .await
+            .map_err(|e| format!("scan task join: {}", e))?;
+
+    // Cutoff: the latest article time in the newest file, or 7 days ago if no
+    // archive exists yet. fetch_news_since stops walking once it sees articles
+    // <= cutoff, so this is also our "how far back do we crawl" bound.
+    let cutoff = match latest_in_file.clone() {
+        Some(t) => t,
+        None => {
+            let seven_days_ago = chrono::Utc::now() - chrono::Duration::days(7);
+            seven_days_ago.format("%Y-%m-%dT%H:%M:%S").to_string()
+        }
+    };
+
+    // Step 2: make sure econcal is reachable (we need it for both the news
+    // listing fetch AND the per-article body fetch).
+    if !ensure_econcal_alive().await {
+        return Ok(NewsUpdateResult {
+            last_archive_day, cutoff,
+            articles_fetched: 0,
+            bodies_fetched: 0, bodies_empty: 0, bodies_failed: 0,
+            rate_limited: false,
+            days_written: Vec::new(),
+            message: Some("Econcal proxy not reachable on :6000. Restart the app and retry.".into()),
+        });
+    }
+
+    // Step 3: fetch newer articles from FXStreet.
+    let rows = match news_realtime::fetch_news_since(50, 200, Some(&cutoff), None).await {
         Ok(r) => r,
-        Err(e) => return Ok(NewsBackfillResult {
-            fetched: 0,
-            inserted_estimate: 0,
-            duration_ms: start.elapsed().as_millis(),
-            error: Some(e),
+        Err(e) => return Ok(NewsUpdateResult {
+            last_archive_day, cutoff,
+            articles_fetched: 0,
+            bodies_fetched: 0, bodies_empty: 0, bodies_failed: 0,
+            rate_limited: false,
+            days_written: Vec::new(),
+            message: Some(format!("Fetch failed: {}", e)),
         }),
     };
-    let fetched = rows.len();
+    let articles_fetched = rows.len();
 
-    // Upsert into the DB.
-    let mutex_clone = db_mutex.clone();
-    let inserted_estimate = tokio::task::spawn_blocking(move || -> Result<usize, String> {
-        let _lock = mutex_clone.lock().map_err(|e| e.to_string())?;
-        let db = duckdb::Connection::open(DB_PATH).map_err(|e| e.to_string())?;
-        // Surface DB errors instead of silently dropping them.
-        if let Err(e) = news_realtime::write_news_to_db(&db, &rows) {
-            return Err(format!("write_news_to_db: {}", e));
-        }
-        let after: i64 = db.query_row("SELECT COUNT(*) FROM news_historical", [], |row| row.get(0))
-            .map_err(|e| e.to_string())?;
-        Ok((after as usize).saturating_sub(before))
-    }).await.map_err(|e| e.to_string())??;
+    // Step 4: upsert into news_historical + compute affected days.
+    let affected_days: std::collections::BTreeSet<String> = rows.iter()
+        .filter_map(|r| if r.published_utc.len() >= 10 { Some(r.published_utc[..10].to_string()) } else { None })
+        .collect();
 
-    Ok(NewsBackfillResult {
-        fetched,
-        inserted_estimate,
-        duration_ms: start.elapsed().as_millis(),
-        error: None,
-    })
-}
-
-/// Tauri command: status without writing. Returns total days in DB and how many remain.
-#[tauri::command]
-async fn archive_status(state: tauri::State<'_, AppState>) -> Result<ArchiveDayResult, String> {
-    archive_status_inner(state, None).await
-}
-
-#[tauri::command]
-async fn archive_status_for_year(year: String, state: tauri::State<'_, AppState>) -> Result<ArchiveDayResult, String> {
-    archive_status_inner(state, Some(year)).await
-}
-
-async fn archive_status_inner(
-    state: tauri::State<'_, AppState>,
-    year_filter: Option<String>,
-) -> Result<ArchiveDayResult, String> {
-    let db_mutex = state.db_mutex.clone();
-    let year_owned = year_filter.clone();
-    tokio::task::spawn_blocking(move || {
-        let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-        let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-        let next = find_next_day_to_write(&db, year_owned.as_deref())?;
-        Ok(match next {
-            None => ArchiveDayResult {
-                status: "done".into(),
-                day: None, count: 0, path: None, remaining_days: 0,
-                message: Some("All days archived.".into()),
-            },
-            Some((day, remaining)) => ArchiveDayResult {
-                status: "pending".into(),
-                day: Some(day),
-                count: 0,
-                path: None,
-                remaining_days: remaining,
-                message: None,
-            },
+    {
+        let db_mutex = state.db_mutex.clone();
+        let rows_for_db = rows.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            if !rows_for_db.is_empty() {
+                news_realtime::write_news_to_db(&db, &rows_for_db)
+                    .map_err(|e| format!("write_news_to_db: {}", e))?;
+            }
+            Ok(())
         })
+        .await
+        .map_err(|e| format!("upsert task join: {}", e))??;
+    }
+
+    // Step 5: list every article in the affected days that still has no body.
+    // We include OLD articles (not just the ones we just inserted) so an
+    // article that landed in DB via the live 5-min fetch — and never got a
+    // body — gets one on this click too.
+    let affected_for_query: Vec<String> = affected_days.iter().cloned().collect();
+    let to_fetch: Vec<String> = {
+        let db_mutex = state.db_mutex.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<String>, String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            let mut ids = Vec::new();
+            for day in &affected_for_query {
+                let mut stmt = db.prepare(
+                    "SELECT article_id FROM news_historical
+                     WHERE published_utc LIKE ? || '%'
+                       AND url IS NOT NULL AND url <> ''
+                       AND body IS NULL"
+                ).map_err(|e| format!("prepare body-list: {}", e))?;
+                let day_ids: Vec<String> = stmt.query_map([day.as_str()], |row| row.get::<_, String>(0))
+                    .map_err(|e| format!("query body-list: {}", e))?
+                    .flatten().collect();
+                ids.extend(day_ids);
+            }
+            Ok(ids)
+        })
+        .await
+        .map_err(|e| format!("body-list join: {}", e))??
+    };
+
+    // Step 6: fetch bodies sequentially. Bail at the first 429.
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+        .build()
+        .map_err(|e| format!("build http client: {}", e))?;
+
+    let mut fetched_bodies: Vec<(String, String)> = Vec::new();
+    let mut empty_body_ids: Vec<String> = Vec::new();
+    let mut failed_body_ids: Vec<String> = Vec::new();
+    let mut rate_limited = false;
+    let mut max_retry_after = 0u64;
+
+    for aid in &to_fetch {
+        if rate_limited { break; }
+        match fetch_one_body(&client, aid).await {
+            BodyFetch::Ok(b)         => fetched_bodies.push((aid.clone(), b)),
+            BodyFetch::EmptyBody     => empty_body_ids.push(aid.clone()),
+            BodyFetch::Failed        => failed_body_ids.push(aid.clone()),
+            BodyFetch::RateLimited { retry_after_secs } => {
+                rate_limited = true;
+                max_retry_after = retry_after_secs;
+            }
+        }
+    }
+
+    let bodies_fetched = fetched_bodies.len();
+    let bodies_empty   = empty_body_ids.len();
+    let bodies_failed  = failed_body_ids.len();
+
+    // Step 7: write fetched + empty body markers back to DB.
+    if !fetched_bodies.is_empty() || !empty_body_ids.is_empty() {
+        let db_mutex = state.db_mutex.clone();
+        let fetched_for_db = fetched_bodies.clone();
+        let empty_for_db = empty_body_ids.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            for (aid, body) in &fetched_for_db {
+                let _ = db.execute(
+                    "UPDATE news_historical SET body = ? WHERE article_id = ?",
+                    duckdb::params![body, aid],
+                );
+            }
+            for aid in &empty_for_db {
+                let _ = db.execute(
+                    "UPDATE news_historical SET body = '' WHERE article_id = ?",
+                    duckdb::params![aid],
+                );
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| format!("body-write join: {}", e))??;
+    }
+
+    // Step 8: regenerate each affected day's JSON file from DB.
+    let days_written: Vec<(String, usize)> = {
+        let db_mutex = state.db_mutex.clone();
+        let affected_for_write = affected_days.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<(String, usize)>, String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            let mut written = Vec::with_capacity(affected_for_write.len());
+            for day in &affected_for_write {
+                let (_path, count) = write_archive_for_day(&db, day)?;
+                written.push((day.clone(), count));
+            }
+            Ok(written)
+        })
+        .await
+        .map_err(|e| format!("write-days join: {}", e))??
+    };
+
+    let message = if rate_limited {
+        Some(format!(
+            "FXStreet rate-limited after {} bodies (Retry-After ~{}s). \
+             {} bodies still missing — click News_Updates again in {} minute(s) to resume.",
+            bodies_fetched + bodies_empty,
+            max_retry_after,
+            to_fetch.len() - bodies_fetched - bodies_empty,
+            (max_retry_after + 59) / 60,
+        ))
+    } else {
+        None
+    };
+
+    Ok(NewsUpdateResult {
+        last_archive_day,
+        cutoff,
+        articles_fetched,
+        bodies_fetched,
+        bodies_empty,
+        bodies_failed,
+        rate_limited,
+        days_written,
+        message,
     })
-    .await
-    .map_err(|e| format!("task join: {}", e))?
 }
 
 /// Best-effort: terminate a child process tree by PID. Used at shutdown.
@@ -1048,12 +998,26 @@ fn start_vite_dev_server() {
     #[cfg(not(windows))]
     let cmd = "npm";
 
-    let result = std::process::Command::new(cmd)
+    let mut command = std::process::Command::new(cmd);
+    command
         .args(["run", "dev"])
         .current_dir(frontend_dir)
+        // Detach stdin so the child can't lock the parent terminal after we
+        // exit. Without this, npm + Vite's subprocess tree (esbuild, etc.)
+        // inherit the parent stdin handle and leave the terminal unusable
+        // once they're killed — the user has to close the terminal window.
+        .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn();
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW (0x08000000) — keep the child completely detached
+        // from our console. Otherwise Windows shares console handles down the
+        // process tree and breaks the parent terminal on shutdown.
+        command.creation_flags(0x08000000);
+    }
+    let result = command.spawn();
 
     let mut child = match result {
         Err(e) => {
@@ -1118,23 +1082,39 @@ fn start_econcal_server() {
         // Install dependencies if node_modules is missing
         if !std::path::Path::new(econcal_dir).join("node_modules").exists() {
             println!("[econcal] node_modules not found, running npm install...");
-            match std::process::Command::new("npm")
+            let mut npm_install = std::process::Command::new("npm");
+            npm_install
                 .args(["install", "--prefer-offline"])
                 .current_dir(econcal_dir)
-                .status()
+                .stdin(std::process::Stdio::null());
+            #[cfg(windows)]
             {
+                use std::os::windows::process::CommandExt;
+                npm_install.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            }
+            match npm_install.status() {
                 Ok(s) if s.success() => println!("[econcal] npm install done."),
                 Ok(s) => println!("[econcal] npm install exited: {}", s),
                 Err(e) => println!("[econcal] npm install failed: {}", e),
             }
         }
 
-        let result = std::process::Command::new("node")
+        let mut command = std::process::Command::new("node");
+        command
             .arg("econcal.js")
             .current_dir(econcal_dir)
+            // Detach stdin (see start_vite_dev_server for the rationale). The
+            // econcal proxy is even more important here because it spawns
+            // puppeteer's Chromium, which leaks console handles aggressively.
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn();
+            .stderr(std::process::Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let result = command.spawn();
 
         match result {
             Err(e) => {
@@ -1386,13 +1366,9 @@ fn main() {
     tauri::Builder::default()
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
-            write_next_archive_day,
-            write_next_archive_day_for_year,
-            archive_status,
-            archive_status_for_year,
-            backfill_news_from_api,
             fetch_article_body_on_demand,
             get_trendbars,
+            update_news_archive,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
