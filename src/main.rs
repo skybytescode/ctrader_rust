@@ -2237,6 +2237,7 @@ fn read_disk_event_count(day: &str) -> usize {
 #[derive(serde::Serialize)]
 struct TradeIdeaResult {
     /// Markdown text from Claude (or an error message rendered as markdown).
+    /// The trailing fenced ```json block is stripped before this is returned.
     markdown: String,
     /// True if the Claude call succeeded. False on missing CLI / spawn error.
     ok: bool,
@@ -2244,6 +2245,74 @@ struct TradeIdeaResult {
     duration_ms: u128,
     /// Model alias actually used (echoed for transparency).
     model: String,
+    /// Structured form of the trade idea, parsed from the JSON block at the
+    /// end of Claude's response. `None` if the block was missing or invalid
+    /// (in which case the frontend just renders the markdown).
+    parsed: Option<TradeIdea>,
+}
+
+/// Machine-readable form of the trade idea. Mirrors the JSON block the
+/// xauusd-trader agent appends to its markdown output. The frontend uses
+/// this to render the trade card + chart-overlay levels.
+///
+/// All level fields are `Option<f64>` because FLAT ideas legitimately have
+/// no entry / stop / target.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct TradeIdea {
+    bias: String,
+    current_price: Option<f64>,
+    atr_h1: Option<f64>,
+    atr_d1: Option<f64>,
+    atr_d1_pct: Option<f64>,
+    vol_regime: Option<String>,
+    entry_low: Option<f64>,
+    entry_high: Option<f64>,
+    entry_note: Option<String>,
+    stop: Option<f64>,
+    target1: Option<f64>,
+    target2: Option<f64>,
+    rr1: Option<f64>,
+    rr2: Option<f64>,
+    conviction: Option<String>,
+    timeframe: Option<String>,
+    market_state: Option<String>,
+    next_catalyst_utc: Option<String>,
+    next_catalyst_name: Option<String>,
+    invalidation_note: Option<String>,
+}
+
+/// Pull the trailing ```json … ``` fenced block out of Claude's markdown and
+/// deserialize it into a `TradeIdea`. Returns `(stripped_markdown, parsed)`:
+/// the markdown with the JSON block removed so the frontend doesn't render it
+/// twice, plus the parsed struct (or `None` if absent / unparseable).
+fn extract_trade_idea_json(markdown: &str) -> (String, Option<TradeIdea>) {
+    // Find the LAST ```json fence in the text — the agent is instructed to
+    // place it after the human-readable markdown. Scan from the end so we
+    // don't accidentally match a JSON example inside the rationale.
+    let lower = markdown.to_ascii_lowercase();
+    let Some(open_idx) = lower.rfind("```json") else {
+        return (markdown.to_string(), None);
+    };
+    // Find the matching closing ``` after the opener.
+    let after_open = open_idx + "```json".len();
+    let Some(rel_close) = markdown[after_open..].find("```") else {
+        return (markdown.to_string(), None);
+    };
+    let close_idx = after_open + rel_close;
+    let json_body = markdown[after_open..close_idx].trim();
+
+    let parsed: Option<TradeIdea> = serde_json::from_str(json_body).ok();
+
+    // Strip the fenced block (and the line break before it, if any) from the
+    // markdown so the modal shows the human prose only.
+    let mut stripped = markdown[..open_idx].trim_end().to_string();
+    // Tail after the closing fence, in case the agent added trailing prose.
+    let tail = markdown[close_idx + 3..].trim();
+    if !tail.is_empty() {
+        stripped.push_str("\n\n");
+        stripped.push_str(tail);
+    }
+    (stripped, parsed)
 }
 
 /// Tauri command behind the `Gold_Trade_Ideas` button.
@@ -2450,20 +2519,19 @@ async fn get_gold_trade_idea(
     emit_phase(&format!("Snapshot ready — {} · sending to Claude ({})…", summary, model));
 
     let user_message = format!(
-        "Produce an XAUUSD trade idea using your standard workflow and output \
-         template exactly.\n\n\
-         The starting snapshot below was gathered seconds ago directly from \
-         the DuckDB at `d:/MyProjects/ctrader_rust/Bots_db/Algo_EURUSD.duckdb` \
-         (the price tables `xauusd_m1/m5/m15/h1/h4/d1/w1/mn1` are kept fresh \
-         by a 30s background refresh loop). Every price you cite must come \
-         either from this snapshot OR from an additional DuckDB query you \
-         run yourself via Bash — never invent values.\n\n\
-         **If you need more history** (deeper HTF context, prior swing levels, \
-         pattern lookbacks, ATR over longer windows, etc.) feel free to run \
-         additional DuckDB queries — the schema is in your system prompt. For \
-         example: `xauusd_d1` goes back to 2020 and `xauusd_w1` to 1998.\n\n\
-         Current snapshot (you can use it directly without re-querying for \
-         the immediate state):\n\n```json\n{}\n```",
+        "Produce an XAUUSD trade idea using your standard output template \
+         (markdown + trailing ```json block).\n\n\
+         **The snapshot below has what you need.** Price, last 30 H1 bars, \
+         last 30 D1 bars, today's vol≥2 EC events, today's news headlines, \
+         and the 3 most relevant article bodies — gathered seconds ago from \
+         the project DuckDB. **Reason from this snapshot first.**\n\n\
+         **Budget: max 6 additional Bash calls.** Run a DuckDB query only if \
+         you can name the specific number it produces and it's not in the \
+         snapshot (e.g. precise ATR, 1Y high/low). Combine related queries. \
+         Do not re-query the snapshot, do not Read the same file twice, do \
+         not Grep a file you've already Read, do not spawn another agent. \
+         If you're at 5 queries and still uncertain, the answer is FLAT.\n\n\
+         Snapshot:\n\n```json\n{}\n```",
         serde_json::to_string_pretty(&snapshot).unwrap_or_default()
     );
 
@@ -2485,7 +2553,12 @@ async fn get_gold_trade_idea(
             "-p",                          // print mode (non-interactive, exit after)
             "--agent", "xauusd-trader",    // use the trader subagent
             "--model", &model,             // opus / sonnet / haiku alias
-            "--output-format", "text",
+            // stream-json + verbose: each line is a NDJSON event (tool_use,
+            // tool_result, assistant text, final result). We parse it live so
+            // the modal can show "Running Bash: SELECT ..." as it happens,
+            // instead of staring at a blind spinner for 5-10 minutes.
+            "--output-format", "stream-json",
+            "--verbose",
         ])
         .current_dir(project_root)
         .stdin(std::process::Stdio::piped())  // ← piped, we'll write the prompt
@@ -2512,6 +2585,7 @@ async fn get_gold_trade_idea(
             ok: false,
             duration_ms: start_clock.elapsed().as_millis(),
             model,
+            parsed: None,
         }),
     };
 
@@ -2524,71 +2598,221 @@ async fn get_gold_trade_idea(
                 ok: false,
                 duration_ms: start_clock.elapsed().as_millis(),
                 model,
+                parsed: None,
             });
         }
         let _ = stdin.shutdown().await;
         drop(stdin);
     }
 
-    // 5-minute timeout. Opus 4.7 with the xauusd-trader subagent often runs
-    // a handful of Bash DuckDB queries before answering (the agent's prompt
-    // tells it to query additional history when useful), which adds up — 3
-    // minutes wasn't always enough. 5 minutes is generous without papering
-    // over a real hang.
-    emit_phase("Claude is thinking — running tool calls and synthesising the trade idea…");
-    let output = match tokio::time::timeout(
-        std::time::Duration::from_secs(300),
-        child.wait_with_output(),
+    // 10-minute timeout. With the upgraded 9-step workflow (long-range
+    // context, multi-day narrative, event study, etc.) Opus 4.7 routinely
+    // spends 5-8 minutes in tool calls. We stream stdout line-by-line so
+    // the user sees progress (each Bash query, each Read) instead of a
+    // blind spinner — that's why a longer timeout is OK UX-wise.
+    emit_phase("Claude is thinking — streaming tool calls live…");
+
+    // Drain stderr in the background so the OS pipe buffer doesn't fill
+    // and block the child. We only surface stderr if the child exits non-zero.
+    let mut stderr = child.stderr.take().expect("stderr piped");
+    let stderr_task = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut buf = Vec::with_capacity(4096);
+        let _ = stderr.read_to_end(&mut buf).await;
+        buf
+    });
+
+    let stdout = child.stdout.take().expect("stdout piped");
+    let final_text = match tokio::time::timeout(
+        std::time::Duration::from_secs(600),
+        stream_claude_output(stdout, &emit_phase),
     ).await {
-        Ok(Ok(o)) => o,
-        Ok(Err(e)) => return Ok(TradeIdeaResult {
-            markdown: format!("### claude CLI exited with IO error\n\n```\n{}\n```", e),
-            ok: false,
-            duration_ms: start_clock.elapsed().as_millis(),
-            model,
-        }),
-        Err(_) => return Ok(TradeIdeaResult {
-            markdown: "### Claude CLI timed out\n\nThe CLI didn't respond within 5 minutes. \
-                       Try again, or try a faster model with `CLAUDE_MODEL=sonnet` in `.env`.".into(),
-            ok: false,
-            duration_ms: start_clock.elapsed().as_millis(),
-            model,
-        }),
+        Ok(Ok(text)) => text,
+        Ok(Err(e)) => {
+            let _ = child.kill().await;
+            return Ok(TradeIdeaResult {
+                markdown: format!("### Error reading Claude stream\n\n```\n{}\n```", e),
+                ok: false,
+                duration_ms: start_clock.elapsed().as_millis(),
+                model,
+                parsed: None,
+            });
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            return Ok(TradeIdeaResult {
+                markdown: "### Claude CLI timed out\n\nThe CLI didn't respond within 10 minutes. \
+                           Try again, or try a faster model with `CLAUDE_MODEL=sonnet` in `.env`.".into(),
+                ok: false,
+                duration_ms: start_clock.elapsed().as_millis(),
+                model,
+                parsed: None,
+            });
+        }
     };
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    // Reap the child + collect exit status.
+    let status = match child.wait().await {
+        Ok(s) => s,
+        Err(e) => return Ok(TradeIdeaResult {
+            markdown: format!("### Couldn't reap claude CLI\n\n```\n{}\n```", e),
+            ok: false,
+            duration_ms: start_clock.elapsed().as_millis(),
+            model,
+            parsed: None,
+        }),
+    };
+    let stderr_bytes = stderr_task.await.unwrap_or_default();
+
+    if !status.success() {
+        let stderr_str = String::from_utf8_lossy(&stderr_bytes).into_owned();
         return Ok(TradeIdeaResult {
             markdown: format!(
                 "### Claude CLI returned non-zero exit\n\n**stderr:**\n```\n{}\n```\n\n\
-                 **stdout (first chars):**\n```\n{}\n```",
-                stderr.trim(),
-                stdout.chars().take(2000).collect::<String>().trim(),
+                 **last assistant text (first chars):**\n```\n{}\n```",
+                stderr_str.trim(),
+                final_text.chars().take(2000).collect::<String>().trim(),
             ),
             ok: false,
             duration_ms: start_clock.elapsed().as_millis(),
             model,
+            parsed: None,
         });
     }
 
-    let markdown = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if markdown.is_empty() {
+    let raw = final_text.trim().to_string();
+    if raw.is_empty() {
         return Ok(TradeIdeaResult {
             markdown: "### Claude CLI returned empty output\n\nNo error, but no content either. \
                        Try running `claude -p \"hello\"` in your terminal to confirm the CLI is working.".into(),
             ok: false,
             duration_ms: start_clock.elapsed().as_millis(),
             model,
+            parsed: None,
         });
     }
+
+    let (markdown, parsed) = extract_trade_idea_json(&raw);
 
     Ok(TradeIdeaResult {
         markdown,
         ok: true,
         duration_ms: start_clock.elapsed().as_millis(),
         model,
+        parsed,
     })
+}
+
+/// Read claude CLI's stream-json (NDJSON) stdout line-by-line, emit a phase
+/// event for every tool use the agent runs, and return the final assistant
+/// text once the `result` event arrives. Each line of stdout is one JSON
+/// event from the claude CLI.
+///
+/// Event shapes we care about (claude CLI stream-json):
+///   - `{"type":"system","subtype":"init",...}`           — session bootstrap
+///   - `{"type":"assistant","message":{"content":[
+///        {"type":"text","text":"..."},
+///        {"type":"tool_use","name":"Bash","input":{...}},
+///        ...]}}`                                          — assistant turn
+///   - `{"type":"user","message":{"content":[
+///        {"type":"tool_result","content":"..."}]}}`       — tool finished
+///   - `{"type":"result","subtype":"success","result":"...final markdown..."}`
+async fn stream_claude_output<F>(
+    stdout: tokio::process::ChildStdout,
+    emit_phase: &F,
+) -> std::io::Result<String>
+where
+    F: Fn(&str),
+{
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    let reader = BufReader::new(stdout);
+    let mut lines = reader.lines();
+    let mut final_text = String::new();
+    let mut tool_n: usize = 0;
+
+    while let Some(line) = lines.next_line().await? {
+        if line.trim().is_empty() { continue; }
+        // Parse as JSON; if it's not JSON (unexpected text noise), skip it.
+        let v: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let ty = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
+        match ty {
+            "system" => {
+                if v.get("subtype").and_then(|x| x.as_str()) == Some("init") {
+                    emit_phase("Claude session initialised — preparing to think…");
+                }
+            }
+            "assistant" => {
+                if let Some(content) = v.pointer("/message/content").and_then(|c| c.as_array()) {
+                    for block in content {
+                        let btype = block.get("type").and_then(|x| x.as_str()).unwrap_or("");
+                        match btype {
+                            "tool_use" => {
+                                tool_n += 1;
+                                let name = block.get("name").and_then(|x| x.as_str()).unwrap_or("?");
+                                let preview = describe_tool_use(name, block.get("input"));
+                                emit_phase(&format!("[#{}] {} {}", tool_n, name, preview));
+                            }
+                            "text" => {
+                                if let Some(t) = block.get("text").and_then(|x| x.as_str()) {
+                                    let snippet = t.trim();
+                                    if !snippet.is_empty() {
+                                        let preview: String = snippet
+                                            .lines().next().unwrap_or("")
+                                            .chars().take(120).collect();
+                                        emit_phase(&format!("Thinking: {}…", preview));
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            "result" => {
+                // Final event. Capture the result text and stop.
+                if let Some(text) = v.get("result").and_then(|x| x.as_str()) {
+                    final_text = text.to_string();
+                }
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(final_text)
+}
+
+/// One-line, user-friendly description of a tool-use block for the live
+/// phase emit. Keep short — the modal shows it in a single line.
+fn describe_tool_use(name: &str, input: Option<&serde_json::Value>) -> String {
+    let Some(input) = input else { return String::new(); };
+    match name {
+        "Bash" => {
+            let cmd = input.get("command").and_then(|x| x.as_str()).unwrap_or("");
+            let preview: String = cmd.chars().take(140).collect();
+            format!("· {}", preview.replace('\n', " "))
+        }
+        "Read" => {
+            let path = input.get("file_path").and_then(|x| x.as_str()).unwrap_or("");
+            // Show just the trailing folder/file for brevity.
+            let short = path.rsplit_once(['/', '\\']).map(|(_, t)| t).unwrap_or(path);
+            format!("· {}", short)
+        }
+        "Grep" => {
+            let pat = input.get("pattern").and_then(|x| x.as_str()).unwrap_or("");
+            let path = input.get("path").and_then(|x| x.as_str()).unwrap_or("");
+            let short = path.rsplit_once(['/', '\\']).map(|(_, t)| t).unwrap_or(path);
+            format!("· /{}/ in {}", pat, short)
+        }
+        "Glob" => {
+            let pat = input.get("pattern").and_then(|x| x.as_str()).unwrap_or("");
+            format!("· {}", pat)
+        }
+        _ => String::new(),
+    }
 }
 
 /// Best-effort: terminate a child process tree by PID. Used at shutdown.

@@ -38,11 +38,35 @@ type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTod
 type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error'
 type Tab = 'dashboard' | 'calendar' | 'news' | 'archive' | 'trade-ideas'
 
+type TradeIdea = {
+  bias: 'LONG' | 'SHORT' | 'FLAT' | string
+  current_price: number | null
+  atr_h1: number | null
+  atr_d1: number | null
+  atr_d1_pct: number | null
+  vol_regime: string | null
+  entry_low: number | null
+  entry_high: number | null
+  entry_note: string | null
+  stop: number | null
+  target1: number | null
+  target2: number | null
+  rr1: number | null
+  rr2: number | null
+  conviction: string | null
+  timeframe: string | null
+  market_state: string | null
+  next_catalyst_utc: string | null
+  next_catalyst_name: string | null
+  invalidation_note: string | null
+}
+
 type TradeIdeaResult = {
   markdown: string
   ok: boolean
   duration_ms: number
   model: string
+  parsed: TradeIdea | null
 }
 
 type NewsUpdateResult = {
@@ -1516,10 +1540,14 @@ function TradeIdeaModal({
           </div>
         )}
         {!busy && result && (
-          <div className="trade-idea-body markdown-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {result.markdown}
-            </ReactMarkdown>
+          <div className="trade-idea-body">
+            {result.parsed && <TradeIdeaCard idea={result.parsed} />}
+            {result.parsed && <TradeIdeaChart idea={result.parsed} />}
+            <div className="markdown-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {result.markdown}
+              </ReactMarkdown>
+            </div>
             <div className="muted small trade-idea-footer">
               {result.ok
                 ? `Model: ${result.model} · ${(result.duration_ms / 1000).toFixed(1)}s`
@@ -1528,6 +1556,206 @@ function TradeIdeaModal({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// Trade-idea structured card — at-a-glance view of the agent's structured
+// output (bias badge, levels, conviction, next catalyst). Renders above the
+// markdown rationale in the modal.
+function TradeIdeaCard({ idea }: { idea: TradeIdea }) {
+  const bias = (idea.bias || 'FLAT').toUpperCase()
+  const biasClass =
+    bias === 'LONG' ? 'bias-long'
+    : bias === 'SHORT' ? 'bias-short'
+    : 'bias-flat'
+
+  const conv = (idea.conviction || '').toLowerCase()
+  const convClass =
+    conv === 'high' ? 'conv-high'
+    : conv === 'medium' || conv === 'med' ? 'conv-medium'
+    : 'conv-low'
+
+  const pct = (p: number | null, ref: number | null): string => {
+    if (p == null || ref == null || ref === 0) return ''
+    return ` (${((p - ref) / ref * 100).toFixed(2)}%)`
+  }
+  const cur = idea.current_price
+  const entry = idea.entry_low != null && idea.entry_high != null
+    ? (idea.entry_low === idea.entry_high
+        ? fmtNum(idea.entry_low)
+        : `${fmtNum(idea.entry_low)} – ${fmtNum(idea.entry_high)}`)
+    : (idea.entry_note ?? '—')
+
+  return (
+    <div className="trade-card">
+      <div className="trade-card-header">
+        <span className={`bias-badge ${biasClass}`}>{bias}</span>
+        <span className="trade-card-pair">XAUUSD</span>
+        {idea.timeframe && <span className="trade-card-timeframe">{idea.timeframe}</span>}
+        {idea.conviction && (
+          <span className={`conv-pill ${convClass}`}>conviction: {idea.conviction}</span>
+        )}
+        {idea.market_state && (
+          <span className="market-state-pill">{idea.market_state}</span>
+        )}
+      </div>
+
+      <div className="trade-card-grid">
+        <div className="trade-card-cell">
+          <div className="trade-card-label">Current</div>
+          <div className="trade-card-value">{fmtNum(cur)}</div>
+        </div>
+        <div className="trade-card-cell">
+          <div className="trade-card-label">Entry</div>
+          <div className="trade-card-value">{entry}</div>
+        </div>
+        <div className="trade-card-cell">
+          <div className="trade-card-label">Stop</div>
+          <div className="trade-card-value">
+            <span className="value-loss">{fmtNum(idea.stop)}</span>
+            <span className="trade-card-sub">{pct(idea.stop, cur)}</span>
+          </div>
+        </div>
+        <div className="trade-card-cell">
+          <div className="trade-card-label">Target 1</div>
+          <div className="trade-card-value">
+            <span className="value-gain">{fmtNum(idea.target1)}</span>
+            <span className="trade-card-sub">{pct(idea.target1, cur)}
+              {idea.rr1 != null && ` · R:R ${idea.rr1.toFixed(1)}:1`}
+            </span>
+          </div>
+        </div>
+        <div className="trade-card-cell">
+          <div className="trade-card-label">Target 2</div>
+          <div className="trade-card-value">
+            <span className="value-gain">{fmtNum(idea.target2)}</span>
+            <span className="trade-card-sub">{pct(idea.target2, cur)}
+              {idea.rr2 != null && ` · R:R ${idea.rr2.toFixed(1)}:1`}
+            </span>
+          </div>
+        </div>
+        <div className="trade-card-cell">
+          <div className="trade-card-label">ATR(14, H1)</div>
+          <div className="trade-card-value">
+            {fmtNum(idea.atr_h1)}
+            {idea.vol_regime && <span className="trade-card-sub"> · {idea.vol_regime}</span>}
+          </div>
+        </div>
+      </div>
+
+      {(idea.next_catalyst_name || idea.invalidation_note) && (
+        <div className="trade-card-footer-row">
+          {idea.next_catalyst_name && (
+            <div className="trade-card-foot">
+              <strong>Next catalyst:</strong> {idea.next_catalyst_name}
+              {idea.next_catalyst_utc && (
+                <span className="trade-card-sub"> · {formatTime(idea.next_catalyst_utc)} UTC</span>
+              )}
+            </div>
+          )}
+          {idea.invalidation_note && (
+            <div className="trade-card-foot">
+              <strong>Invalidation:</strong> {idea.invalidation_note}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Mini candle chart with horizontal lines for entry zone / stop / targets.
+// Pulls the last 60 H1 bars for XAUUSD via the same get_trendbars command
+// the dashboard uses, then overlays the structured levels as priceLines.
+function TradeIdeaChart({ idea }: { idea: TradeIdea }) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    let cleanup: (() => void) | null = null
+
+    ;(async () => {
+      const [{ createChart, CandlestickSeries }, candles] = await Promise.all([
+        import('lightweight-charts'),
+        invoke<Candle[]>('get_trendbars', { symbol: 'XAUUSD', timeframe: 'H1', count: 60 }),
+      ])
+      if (cancelled || !containerRef.current) return
+
+      const chart = createChart(containerRef.current, {
+        layout: {
+          background: { color: '#15171c' },
+          textColor: '#d4d4d8',
+          attributionLogo: false,
+        },
+        grid: {
+          vertLines: { color: '#1f2128' },
+          horzLines: { color: '#1f2128' },
+        },
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
+          borderColor: '#25272d',
+          rightOffset: 4,
+          barSpacing: 5,
+        },
+        rightPriceScale: { borderColor: '#25272d' },
+        autoSize: true,
+        handleScroll: false,
+        handleScale: false,
+      })
+      const series = chart.addSeries(CandlestickSeries, {
+        upColor: '#2dd47b', downColor: '#f87171',
+        borderUpColor: '#2dd47b', borderDownColor: '#f87171',
+        wickUpColor: '#2dd47b', wickDownColor: '#f87171',
+      })
+
+      const sorted = [...candles].sort((a, b) => a.time - b.time)
+      series.setData(sorted.map(c => ({
+        time: c.time as any,
+        open: c.open, high: c.high, low: c.low, close: c.close,
+      })))
+
+      const addLine = (price: number | null, color: string, label: string, lineStyle = 2) => {
+        if (price == null) return
+        series.createPriceLine({
+          price,
+          color,
+          lineWidth: 1,
+          lineStyle: lineStyle as any,
+          axisLabelVisible: true,
+          title: label,
+        })
+      }
+
+      // Entry zone: two solid lines at low and high. They visually band the
+      // entry region. Stop = red dashed. Targets = green dashed.
+      addLine(idea.entry_low, '#facc15', 'Entry lo', 0)
+      addLine(idea.entry_high, '#facc15', 'Entry hi', 0)
+      addLine(idea.stop, '#f87171', 'Stop', 2)
+      addLine(idea.target1, '#2dd47b', 'T1', 2)
+      addLine(idea.target2, '#2dd47b', 'T2', 2)
+      if (idea.current_price != null) {
+        addLine(idea.current_price, '#60a5fa', 'Now', 0)
+      }
+
+      chart.timeScale().fitContent()
+
+      cleanup = () => {
+        try { chart.remove() } catch { /* ignore */ }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      if (cleanup) cleanup()
+    }
+  }, [idea])
+
+  return (
+    <div className="trade-chart-wrap">
+      <div className="trade-chart-label">XAUUSD H1 · last 60 bars · levels overlaid</div>
+      <div ref={containerRef} className="trade-chart" />
     </div>
   )
 }
