@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for the cTrader Rust Terminal main window — Tauri core defaults plus event listening so the frontend can subscribe to backend-emitted events (e.g. EC_Gold_Events_Update progress).",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

@@ -116,6 +116,85 @@ fn symbol_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, i
     SYMBOL_MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// Snapshot of the background history-backfill loop's current progress.
+/// The loop writes into this on every chunk so the Archives tab can poll it
+/// and render a live status panel without needing Tauri events plumbed
+/// through to the tokio thread that runs the loop.
+#[derive(Clone, serde::Serialize, Default)]
+pub struct BackfillState {
+    /// "idle" | "running" | "complete" | "error"
+    pub status: String,
+    pub started_at_utc: Option<String>,
+    pub completed_at_utc: Option<String>,
+    /// Currently-active TF name (e.g. "m1"); None when idle / complete.
+    pub current_tf: Option<String>,
+    /// Mode for the current TF: "first-build" | "fill-forward" | "extend-back" | "full-walk".
+    pub current_mode: Option<String>,
+    /// Chunks fetched + bars upserted for the current TF only.
+    pub chunks_this_tf: usize,
+    pub bars_this_tf: usize,
+    /// Lifetime totals across the whole backfill run.
+    pub total_bars: usize,
+    /// ISO timestamp of the oldest bar in the last chunk we wrote (so the UI
+    /// can show "currently walking back through 2024-03-…" type context).
+    pub last_chunk_oldest_utc: Option<String>,
+    /// TFs the loop finished cleanly (in order of completion).
+    pub tfs_completed: Vec<String>,
+    /// TFs the loop skipped because they were already complete on startup.
+    pub tfs_skipped: Vec<String>,
+    /// Total expected TFs (currently always 14).
+    pub tfs_total: usize,
+    /// Last error message if status == "error".
+    pub last_error: Option<String>,
+}
+
+static BACKFILL_STATE: std::sync::OnceLock<std::sync::Mutex<BackfillState>> = std::sync::OnceLock::new();
+
+fn backfill_state() -> &'static std::sync::Mutex<BackfillState> {
+    BACKFILL_STATE.get_or_init(|| std::sync::Mutex::new(BackfillState::default()))
+}
+
+/// Mutate the global backfill state. Cheap — only locks briefly.
+fn with_backfill_state<F>(f: F) where F: FnOnce(&mut BackfillState) {
+    if let Ok(mut s) = backfill_state().lock() { f(&mut s); }
+}
+
+/// Tauri command: snapshot of the current backfill state for the UI panel.
+#[tauri::command]
+fn get_history_backfill_state() -> BackfillState {
+    backfill_state().lock().ok().map(|s| s.clone()).unwrap_or_default()
+}
+
+/// Tauri command behind the `XAUUSD_History_Update` button. Spawns the
+/// history backfill in the background (fire-and-forget). The Current
+/// fetching state panel polls progress in real time. Returns immediately
+/// with a small status string so the UI can disable the button while busy.
+///
+/// Works for both first-time bootstrap and subsequent incremental updates —
+/// the inner `run_history_backfill` already detects which TFs are complete,
+/// stale-tail, or missing data and picks the right mode per TF.
+#[tauri::command]
+async fn start_history_backfill(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    // Refuse to start a second backfill if one is already running.
+    if let Ok(s) = backfill_state().lock() {
+        if s.status == "running" {
+            return Ok("already running".to_string());
+        }
+    }
+    // CHART_REQ_TX is set up by the cTrader session loop on startup. If it's
+    // missing here, the session hasn't authenticated yet.
+    if CHART_REQ_TX.get().is_none() {
+        return Err("cTrader session not ready yet — wait a few seconds and try again.".into());
+    }
+
+    let symbol = std::env::var("CTRADER_SYMBOL").unwrap_or_else(|_| "XAUUSD".to_string());
+    let db = state.db_mutex.clone();
+    tokio::spawn(async move {
+        run_history_backfill(symbol, db).await;
+    });
+    Ok("started".to_string())
+}
+
 /// Tauri-managed state shared with command handlers.
 struct AppState {
     db_mutex: SharedDb,
@@ -952,6 +1031,1566 @@ async fn update_news_archive(state: tauri::State<'_, AppState>) -> Result<NewsUp
     })
 }
 
+// ── Gold EC events: one-shot table create + walk to today ──────────────────────
+
+/// 30-day windows are large enough for one FXStreet API call but small
+/// enough that the response stays well under a few MB. Each chunk commits
+/// independently, so interrupting the walk never loses more than a chunk.
+const EC_GOLD_CHUNK_DAYS: i64 = 30;
+
+/// Earliest date FXStreet's `/v4/eventdate/mini` endpoint reliably returns
+/// data for. Matches the floor of the existing eurusd_economic_calendar
+/// (oldest row there is 2009-01-02).
+const EC_GOLD_START_DATE: &str = "2009-01-01";
+
+/// Emitted via Tauri events after every 30-day chunk so the frontend can
+/// render a live progress bar instead of staring at a frozen "Updating…"
+/// label for two minutes.
+#[derive(serde::Serialize, Clone)]
+struct EcGoldProgress {
+    chunks_done: usize,
+    chunks_total: usize,
+    rows_added_so_far: usize,
+    /// YYYY-MM-DD of the chunk we just finished.
+    current_chunk_start: String,
+    current_chunk_end: String,
+    /// Wallclock seconds elapsed since the click. Frontend uses this to
+    /// compute an ETA = elapsed / chunks_done × (chunks_total - chunks_done).
+    elapsed_secs: u64,
+}
+
+#[derive(serde::Serialize)]
+struct EcGoldUpdateResult {
+    /// True iff `xauusd_economic_calendar` already existed before this run.
+    /// False on the very first click (we just created it from scratch).
+    table_existed: bool,
+    /// `MAX(timestamp_utc)` in the table before the run — null if fresh.
+    cursor_before: Option<String>,
+    /// First date the walk asked FXStreet for (YYYY-MM-DD).
+    walk_start: String,
+    /// End of the walk (always today's UTC date, YYYY-MM-DD).
+    walk_end: String,
+    /// 30-day chunks fetched + upserted this run.
+    chunks_processed: usize,
+    /// Sum of rows inserted/updated this run (after currency filter).
+    rows_added_this_call: usize,
+    /// `COUNT(*) FROM xauusd_economic_calendar` after the run.
+    total_rows: usize,
+    /// Final coverage window after the run.
+    oldest_in_db: Option<String>,
+    newest_in_db: Option<String>,
+    /// Wallclock time spent on the walk.
+    duration_ms: u128,
+    /// Set if a chunk failed mid-walk; the partial progress is still
+    /// committed and the next click will resume from `MAX(timestamp_utc)+1`.
+    error: Option<String>,
+}
+
+/// Tauri command behind the `EC_Gold_Events_Update` button.
+///
+///  - If `xauusd_economic_calendar` is missing → create it and walk every
+///    30-day window from 2009-01-01 → today, upserting all gold-relevant
+///    events (USD/EUR/GBP/JPY/CHF/AUD/CNY, every impact level).
+///  - If it exists → resume from `MAX(timestamp_utc) + 1 day` and walk
+///    forward to today.
+///
+/// Per-chunk commit so a network/proxy hiccup never costs more than one
+/// chunk of progress. The next click picks up from the last committed row.
+#[tauri::command]
+async fn update_ec_gold_events(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<EcGoldUpdateResult, String> {
+    use chrono::{Duration, NaiveDate};
+    use tauri::Emitter;
+    let start_clock = std::time::Instant::now();
+
+    // Step 1: proxy must be alive.
+    if !ensure_econcal_alive().await {
+        return Ok(EcGoldUpdateResult {
+            table_existed: false,
+            cursor_before: None,
+            walk_start: String::new(),
+            walk_end: chrono::Utc::now().format("%Y-%m-%d").to_string(),
+            chunks_processed: 0,
+            rows_added_this_call: 0,
+            total_rows: 0,
+            oldest_in_db: None,
+            newest_in_db: None,
+            duration_ms: start_clock.elapsed().as_millis(),
+            error: Some("Econcal proxy not reachable on :6000.".into()),
+        });
+    }
+
+    // Step 2: ensure table exists and find resume cursor.
+    let (table_existed, cursor_before, cursor_start): (bool, Option<String>, NaiveDate) = {
+        let db_mutex = state.db_mutex.clone();
+        tokio::task::spawn_blocking(move || -> Result<(bool, Option<String>, NaiveDate), String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            let existed = db.query_row(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'xauusd_economic_calendar'",
+                [], |row| row.get::<_, i64>(0)
+            ).unwrap_or(0) > 0;
+            ec_realtime::create_xauusd_ec_table(&db)?;
+            let max_ts: Option<String> = db.query_row(
+                "SELECT MAX(timestamp_utc) FROM xauusd_economic_calendar",
+                [], |row| row.get::<_, Option<String>>(0)
+            ).unwrap_or(None);
+            let start = match &max_ts {
+                Some(ts) if ts.len() >= 10 => {
+                    NaiveDate::parse_from_str(&ts[..10], "%Y-%m-%d")
+                        .map_err(|e| format!("parse max ts: {}", e))?
+                        + Duration::days(1)
+                }
+                _ => NaiveDate::parse_from_str(EC_GOLD_START_DATE, "%Y-%m-%d")
+                    .map_err(|e| format!("parse start date: {}", e))?,
+            };
+            Ok((existed, max_ts, start))
+        }).await.map_err(|e| format!("cursor task join: {}", e))??
+    };
+
+    let today: NaiveDate = chrono::Utc::now().date_naive();
+
+    // Already current → no-op.
+    if cursor_start > today {
+        let (total, oldest, newest) = read_xauusd_ec_stats(&state).await?;
+        return Ok(EcGoldUpdateResult {
+            table_existed,
+            cursor_before,
+            walk_start: cursor_start.format("%Y-%m-%d").to_string(),
+            walk_end: today.format("%Y-%m-%d").to_string(),
+            chunks_processed: 0,
+            rows_added_this_call: 0,
+            total_rows: total,
+            oldest_in_db: oldest,
+            newest_in_db: newest,
+            duration_ms: start_clock.elapsed().as_millis(),
+            error: None,
+        });
+    }
+
+    // Step 3: walk forward in 30-day chunks. No per-click cap — a single
+    // click does the whole backfill (2009→today ≈ 200 chunks ≈ ~2 minutes).
+    // Emit a Tauri event after every chunk so the UI can render progress.
+    let walk_start_str = cursor_start.format("%Y-%m-%d").to_string();
+    let total_days = (today - cursor_start).num_days().max(0);
+    let chunks_total = ((total_days as usize + EC_GOLD_CHUNK_DAYS as usize - 1)
+                       / EC_GOLD_CHUNK_DAYS as usize)
+                       .max(1);
+    let mut cursor = cursor_start;
+    let mut rows_added_this_call = 0usize;
+    let mut chunks_processed = 0usize;
+    let mut last_error: Option<String> = None;
+    let mut chunk_idx = 0usize;
+
+    while cursor <= today {
+        let chunk_end = (cursor + Duration::days(EC_GOLD_CHUNK_DAYS - 1)).min(today);
+        let s = cursor.format("%Y%m%d").to_string();
+        let e = chunk_end.format("%Y%m%d").to_string();
+        chunk_idx += 1;
+
+        let fetched = match ec_realtime::fetch_events_for_date(&s, &e).await {
+            Ok(r) => r,
+            Err(err) => {
+                last_error = Some(format!("chunk {} ({}..{}) failed: {}", chunk_idx, s, e, err));
+                break;
+            }
+        };
+
+        let db_mutex = state.db_mutex.clone();
+        let fetched_for_write = fetched.clone();
+        let written = tokio::task::spawn_blocking(move || -> Result<usize, String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            ec_realtime::upsert_xauusd_ec(&db, &fetched_for_write)
+        })
+        .await
+        .map_err(|e| format!("upsert task join: {}", e))??;
+
+        rows_added_this_call += written;
+        chunks_processed += 1;
+        println!("[ec-gold] {}..{}: {} fetched, {} kept (cum {} / chunk {}/{})",
+                 s, e, fetched.len(), written, rows_added_this_call, chunks_processed, chunks_total);
+
+        // Push live progress to the frontend so the user sees the walk
+        // happening instead of a frozen "Updating…" label.
+        let progress = EcGoldProgress {
+            chunks_done: chunks_processed,
+            chunks_total,
+            rows_added_so_far: rows_added_this_call,
+            current_chunk_start: cursor.format("%Y-%m-%d").to_string(),
+            current_chunk_end: chunk_end.format("%Y-%m-%d").to_string(),
+            elapsed_secs: start_clock.elapsed().as_secs(),
+        };
+        let _ = app.emit("ec_gold_progress", &progress);
+
+        cursor = chunk_end + Duration::days(1);
+
+        // 120 ms pacing so the puppeteer proxy stays happy.
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    }
+
+    let (total_rows, oldest_in_db, newest_in_db) = read_xauusd_ec_stats(&state).await?;
+
+    Ok(EcGoldUpdateResult {
+        table_existed,
+        cursor_before,
+        walk_start: walk_start_str,
+        walk_end: today.format("%Y-%m-%d").to_string(),
+        chunks_processed,
+        rows_added_this_call,
+        total_rows,
+        oldest_in_db,
+        newest_in_db,
+        duration_ms: start_clock.elapsed().as_millis(),
+        error: last_error,
+    })
+}
+
+/// Helper for `update_ec_gold_events`: row count + coverage window snapshot.
+async fn read_xauusd_ec_stats(state: &tauri::State<'_, AppState>) -> Result<(usize, Option<String>, Option<String>), String> {
+    let db_mutex = state.db_mutex.clone();
+    tokio::task::spawn_blocking(move || -> Result<(usize, Option<String>, Option<String>), String> {
+        let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+        let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+        let count: i64 = db.query_row(
+            "SELECT COUNT(*) FROM xauusd_economic_calendar",
+            [], |row| row.get(0)
+        ).unwrap_or(0);
+        let oldest: Option<String> = db.query_row(
+            "SELECT MIN(timestamp_utc) FROM xauusd_economic_calendar",
+            [], |row| row.get::<_, Option<String>>(0)
+        ).unwrap_or(None);
+        let newest: Option<String> = db.query_row(
+            "SELECT MAX(timestamp_utc) FROM xauusd_economic_calendar",
+            [], |row| row.get::<_, Option<String>>(0)
+        ).unwrap_or(None);
+        Ok((count as usize, oldest, newest))
+    })
+    .await
+    .map_err(|e| format!("stats task join: {}", e))?
+}
+
+// ── Per-TF stats panel for the Archives tab ──────────────────────────────────
+
+#[derive(serde::Serialize, Clone)]
+struct TfStats {
+    /// Display name ("M1", "M5", ..., "MN1")
+    timeframe: String,
+    /// Backing table name ("xauusd_m1", etc.)
+    table: String,
+    /// Row count (0 if table missing).
+    rows: u64,
+    /// Oldest bar's timestamp as ISO 8601 (or null).
+    oldest: Option<String>,
+    /// Newest bar's timestamp as ISO 8601 (or null).
+    newest: Option<String>,
+    /// (newest - oldest) in days as a float, null if empty.
+    coverage_days: Option<f64>,
+    /// (now - newest) in seconds — how stale the tail is. Null if empty.
+    tail_age_secs: Option<i64>,
+    /// One bar width in seconds — used by the UI to decide "fresh" vs "stale".
+    bar_secs: i64,
+}
+
+#[derive(serde::Serialize)]
+struct XauusdStatsResult {
+    timeframes: Vec<TfStats>,
+    /// "live" / "weekend-closed" — gives the UI context for what "fresh" means.
+    market_state: String,
+    /// `now` at query time (so the UI's "fresh as of …" indicator stays honest).
+    queried_at_utc: String,
+}
+
+/// Tauri command for the Archives tab's "Gold DB timeframe states" panel.
+/// Returns one row per xauusd_{tf} table with row count + coverage + freshness.
+#[tauri::command]
+async fn get_xauusd_tf_stats(state: tauri::State<'_, AppState>) -> Result<XauusdStatsResult, String> {
+    // (display name, table suffix, bar width seconds) — only the TFs the
+    // broker actually exposes. M2/M4/M10/M30/H4 dropped because the broker
+    // returns empty for them.
+    let tfs: &[(&str, &str, i64)] = &[
+        ("M1",  "m1",  60),
+        ("M3",  "m3",  180),
+        ("M5",  "m5",  300),
+        ("M15", "m15", 900),
+        ("H1",  "h1",  3600),
+        ("H12", "h12", 43200),
+        ("D1",  "d1",  86400),
+        ("W1",  "w1",  604800),
+        ("MN1", "mn1", 2592000),
+    ];
+
+    let now_secs = chrono::Utc::now().timestamp();
+    let queried_at_utc = chrono::Utc::now().to_rfc3339();
+    let market_state = if xauusd_is_market_closed() { "weekend-closed" } else { "live" }.to_string();
+
+    let db_mutex = state.db_mutex.clone();
+    let tfs_vec: Vec<(String, String, i64)> = tfs.iter()
+        .map(|(n, s, b)| (n.to_string(), format!("xauusd_{}", s), *b))
+        .collect();
+
+    let timeframes = tokio::task::spawn_blocking(move || -> Vec<TfStats> {
+        let _lock = match db_mutex.lock() { Ok(l) => l, Err(_) => return Vec::new() };
+        let db = match duckdb::Connection::open(DB_PATH) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+
+        tfs_vec.into_iter().map(|(tf, table, bar_secs)| {
+            // Existence check — don't auto-create here; if a TF was never
+            // touched, we want to report rows=0 honestly.
+            let exists: i64 = db.query_row(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+                duckdb::params![table.as_str()],
+                |row| row.get(0)
+            ).unwrap_or(0);
+
+            if exists == 0 {
+                return TfStats {
+                    timeframe: tf, table, rows: 0,
+                    oldest: None, newest: None,
+                    coverage_days: None, tail_age_secs: None, bar_secs,
+                };
+            }
+
+            let count: i64 = db.query_row(
+                &format!("SELECT COUNT(*) FROM {}", table),
+                [], |row| row.get(0)
+            ).unwrap_or(0);
+
+            let oldest_ts: Option<i64> = db.query_row(
+                &format!("SELECT MIN(timestamp) FROM {}", table),
+                [], |row| row.get::<_, Option<i64>>(0)
+            ).ok().flatten();
+            let newest_ts: Option<i64> = db.query_row(
+                &format!("SELECT MAX(timestamp) FROM {}", table),
+                [], |row| row.get::<_, Option<i64>>(0)
+            ).ok().flatten();
+
+            let coverage_days = match (oldest_ts, newest_ts) {
+                (Some(o), Some(n)) if n > o => Some((n - o) as f64 / 86400.0),
+                _ => None,
+            };
+            let tail_age_secs = newest_ts.map(|n| now_secs - n);
+
+            let to_iso = |ts: i64| chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string());
+
+            TfStats {
+                timeframe: tf,
+                table,
+                rows: count as u64,
+                oldest: oldest_ts.and_then(to_iso),
+                newest: newest_ts.and_then(to_iso),
+                coverage_days,
+                tail_age_secs,
+                bar_secs,
+            }
+        }).collect()
+    })
+    .await
+    .map_err(|e| format!("stats task join: {}", e))?;
+
+    Ok(XauusdStatsResult { timeframes, market_state, queried_at_utc })
+}
+
+// ── Background price refresh: keeps xauusd_m1/m5/h1/d1 caches fresh ──────────
+//
+// Spawned once after the cTrader subscription is confirmed. Polls fresh bars
+// per timeframe on a sensible cadence (more frequent for lower TFs) so the
+// Trade Ideas agent and any other DB reader always sees recent prices —
+// without the user having to open the chart.
+
+const REFRESH_TICK_SECS: u64 = 30;
+const REFRESH_M1_INTERVAL_SECS: u64 = 60;        // every minute
+const REFRESH_M5_INTERVAL_SECS: u64 = 5 * 60;    // every 5 min
+const REFRESH_H1_INTERVAL_SECS: u64 = 30 * 60;   // every 30 min
+const REFRESH_D1_INTERVAL_SECS: u64 = 6 * 3600;  // every 6 hours
+
+/// Return true if the current UTC moment is inside the spot-gold market's
+/// weekly closure (Friday 22:00 UTC → Sunday 22:00 UTC). During closure,
+/// cTrader returns the same bars repeatedly, so we skip API calls.
+fn xauusd_is_market_closed() -> bool {
+    use chrono::{Datelike, Timelike, Weekday};
+    let now = chrono::Utc::now();
+    let h = now.hour();
+    match now.weekday() {
+        Weekday::Sat => true,
+        Weekday::Sun => h < 22,
+        Weekday::Fri => h >= 22,
+        _ => false,
+    }
+}
+
+/// One-shot history backfill. Spawned at session start; walks each TF
+/// backwards in 1000-bar chunks until either the per-TF depth cap is reached
+/// or cTrader's history runs out. Per-TF caps balance "useful coverage" vs.
+/// "bandwidth and time": minute scales only go back a few months (rarely
+/// useful for trading older than that), daily and above stretch to decades.
+///
+/// Smart skipping per TF:
+///   - already complete (tail fresh + head at cap) → skip
+///   - only tail stale → walk forward gap only (1-few chunks)
+///   - head not at cap → walk all the way back
+async fn run_history_backfill(symbol: String, shared_db: SharedDb) {
+    // Wait for the symbol map.
+    let mut symbol_id: Option<i64> = None;
+    for _ in 0..40 {
+        if let Ok(map) = symbol_map().lock() {
+            if let Some(id) = map.get(symbol.as_str()).copied() {
+                symbol_id = Some(id);
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    let symbol_id = match symbol_id {
+        Some(id) => id,
+        None => { println!("[backfill] '{}' not in symbol map — aborting", symbol); return; }
+    };
+
+    // (tf_name, period, minutes_per_bar, depth_days)
+    //
+    // depth_days is set to 50 years for every TF — effectively "as far back
+    // as cTrader has data." The walk will stop when cTrader returns an empty
+    // response (history exhausted) rather than hitting this artificial cap.
+    // Practical result: each TF gets its true maximum history. For XAUUSD that
+    // means D1/W1/MN1 to ~1998, H1/H4/H12 several years back, M1-M30 whatever
+    // the broker retains (varies — typically months for M1, years for M30).
+    // Only the 9 TFs our broker (IC Markets) actually exposes via the cTrader
+    // Open API. M2/M4/M10/M30/H4 are dropped — the broker returned empty
+    // for them, so they were always empty in the DB and just noise in the UI.
+    const FULL_DEPTH_DAYS: i64 = 50 * 365;
+    let targets: Vec<(&str, openapi::ProtoOaTrendbarPeriod, i64, i64)> = vec![
+        ("m1",  openapi::ProtoOaTrendbarPeriod::M1,  1,            FULL_DEPTH_DAYS),
+        ("m3",  openapi::ProtoOaTrendbarPeriod::M3,  3,            FULL_DEPTH_DAYS),
+        ("m5",  openapi::ProtoOaTrendbarPeriod::M5,  5,            FULL_DEPTH_DAYS),
+        ("m15", openapi::ProtoOaTrendbarPeriod::M15, 15,           FULL_DEPTH_DAYS),
+        ("h1",  openapi::ProtoOaTrendbarPeriod::H1,  60,           FULL_DEPTH_DAYS),
+        ("h12", openapi::ProtoOaTrendbarPeriod::H12, 720,          FULL_DEPTH_DAYS),
+        ("d1",  openapi::ProtoOaTrendbarPeriod::D1,  60 * 24,      FULL_DEPTH_DAYS),
+        ("w1",  openapi::ProtoOaTrendbarPeriod::W1,  60 * 24 * 7,  FULL_DEPTH_DAYS),
+        ("mn1", openapi::ProtoOaTrendbarPeriod::Mn1, 60 * 24 * 30, FULL_DEPTH_DAYS),
+    ];
+
+    println!("[backfill] history backfill starting for {} ({} TFs)", symbol, targets.len());
+    let overall_start = std::time::Instant::now();
+
+    // Reset + initialize the global state the UI panel polls.
+    let tfs_total = targets.len();
+    with_backfill_state(|s| {
+        *s = BackfillState {
+            status: "running".into(),
+            started_at_utc: Some(chrono::Utc::now().to_rfc3339()),
+            tfs_total,
+            ..BackfillState::default()
+        };
+    });
+
+    for (tf_name, period, minutes_per_bar, depth_days) in targets {
+        let table = format!("{}_{}", symbol.to_lowercase(), tf_name);
+
+        // Read MIN + MAX from the existing table (or None if empty).
+        let (existing_min, existing_max): (Option<i64>, Option<i64>) = {
+            let db = shared_db.clone();
+            let table_q = table.clone();
+            match tokio::task::spawn_blocking(move || -> (Option<i64>, Option<i64>) {
+                let _lock = match db.lock() { Ok(l) => l, Err(_) => return (None, None) };
+                let conn = match duckdb::Connection::open(DB_PATH) { Ok(c) => c, Err(_) => return (None, None) };
+                let _ = ensure_candle_table(&conn, &table_q);
+                let mn: Option<i64> = conn.query_row(
+                    &format!("SELECT MIN(timestamp) FROM {}", table_q),
+                    [], |row| row.get::<_, Option<i64>>(0)
+                ).ok().flatten();
+                let mx: Option<i64> = conn.query_row(
+                    &format!("SELECT MAX(timestamp) FROM {}", table_q),
+                    [], |row| row.get::<_, Option<i64>>(0)
+                ).ok().flatten();
+                (mn, mx)
+            }).await {
+                Ok(t) => t,
+                Err(_) => (None, None),
+            }
+        };
+
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_secs = now_ms / 1000;
+        let cap_secs = now_secs - depth_days * 86400;
+        let bucket_secs = minutes_per_bar * 60;
+        let tail_fresh = existing_max.map(|m| (now_secs - m) < bucket_secs * 2).unwrap_or(false);
+        let head_at_cap = existing_min.map(|m| m <= cap_secs).unwrap_or(false);
+
+        // Already complete → skip entirely.
+        if tail_fresh && head_at_cap {
+            println!("[backfill] {} already complete (min {} / max age {}s) — skipping",
+                     tf_name, existing_min.unwrap_or(0),
+                     existing_max.map(|m| now_secs - m).unwrap_or(0));
+            let tf_owned = tf_name.to_string();
+            with_backfill_state(|s| s.tfs_skipped.push(tf_owned));
+            continue;
+        }
+
+        // Reset per-TF state. Counters accumulate across BOTH passes
+        // (forward + backward) so the UI shows total work per TF.
+        {
+            let tf_owned = tf_name.to_string();
+            with_backfill_state(|s| {
+                s.current_tf = Some(tf_owned);
+                s.current_mode = None;
+                s.chunks_this_tf = 0;
+                s.bars_this_tf = 0;
+                s.last_chunk_oldest_utc = None;
+            });
+        }
+
+        let mut chunks = 0usize;
+        let mut total_bars = 0usize;
+        let tf_start = std::time::Instant::now();
+
+        // Two-mode per-TF logic:
+        //
+        //   * Empty table (existing_max is None)
+        //     → full first-build walk from `now` backwards to the cap,
+        //       in parallel 10k×4 batches (multi-minute work for M1 etc.).
+        //
+        //   * Has data (existing_max is Some)
+        //     → incremental ONLY: one small request asking cTrader for
+        //       the gap between existing_max and now. No re-walking
+        //       through bars we already have. This is what makes a
+        //       re-click of `XAUUSD_History_Update` cheap (~1-2 sec
+        //       total across all 9 TFs).
+        //
+        // If the user ever wants to RE-extend history deeper (e.g. cTrader
+        // policy now allows older bars), they can drop the affected table
+        // and re-click; the empty-table branch will do the deep walk again.
+        match existing_max {
+            Some(max_secs) => {
+                let gap_secs = now_secs - max_secs;
+                if gap_secs <= bucket_secs {
+                    // Tail already within one bar of now — nothing to do.
+                    println!("[backfill] {} already current (tail {}s old) — skipping", tf_name, gap_secs);
+                } else {
+                    println!("[backfill] {} incremental: gap {}s ({} bars)",
+                             tf_name, gap_secs, gap_secs / bucket_secs);
+                    with_backfill_state(|s| s.current_mode = Some("incremental".to_string()));
+                    let (c, b) = fetch_incremental_gap(
+                        tf_name.to_string(), symbol_id, period, bucket_secs, table.clone(),
+                        shared_db.clone(), max_secs, now_secs,
+                    ).await;
+                    chunks += c;
+                    total_bars += b;
+                }
+            }
+            None => {
+                println!("[backfill] {} first-build: walking from now to cap", tf_name);
+                with_backfill_state(|s| s.current_mode = Some("first-build".to_string()));
+                let (c, b) = walk_backwards_batches(
+                    tf_name.to_string(), symbol_id, period, bucket_secs, table.clone(),
+                    shared_db.clone(), now_ms, cap_secs,
+                ).await;
+                chunks += c;
+                total_bars += b;
+            }
+        }
+        // (Note: head_at_cap / existing_min are still used in the skip check at
+        // the top to short-circuit fully-current TFs without entering this
+        // match. Unused locals would lint but `_ = existing_min;` keeps clippy
+        // happy without bringing back the deep-extend pass.)
+        let _ = existing_min;
+
+        let secs = tf_start.elapsed().as_secs();
+        println!("[backfill] {} done: {} chunks, {} bars, {}s", tf_name, chunks, total_bars, secs);
+
+        let tf_owned = tf_name.to_string();
+        with_backfill_state(|s| {
+            s.tfs_completed.push(tf_owned);
+            s.current_tf = None;
+            s.current_mode = None;
+            s.chunks_this_tf = 0;
+            s.bars_this_tf = 0;
+        });
+    }
+
+    let total_secs = overall_start.elapsed().as_secs();
+    println!("[backfill] complete: {}s wallclock", total_secs);
+    with_backfill_state(|s| {
+        s.status = "complete".into();
+        s.completed_at_utc = Some(chrono::Utc::now().to_rfc3339());
+        s.current_tf = None;
+        s.current_mode = None;
+    });
+}
+
+/// Incremental tail update: one cTrader request for the bars between
+/// `from_secs` (the existing DB max) and `to_secs` (now). No batch walk —
+/// just a single targeted fetch sized to the gap, ~1 RTT total.
+/// Returns `(chunks_added, bars_added)`.
+async fn fetch_incremental_gap(
+    tf_name: String,
+    symbol_id: i64,
+    period: openapi::ProtoOaTrendbarPeriod,
+    bucket_secs: i64,
+    table: String,
+    shared_db: SharedDb,
+    from_secs: i64,
+    to_secs: i64,
+) -> (usize, usize) {
+    let tx = match CHART_REQ_TX.get() { Some(t) => t.clone(), None => return (0, 0) };
+
+    // Ask for `gap_bars + 5` to cover any clock drift / partial bar; cap to
+    // cTrader's max (10_000) and floor to a sensible minimum of 5.
+    let gap_secs = (to_secs - from_secs).max(0);
+    let gap_bars = (gap_secs / bucket_secs) + 5;
+    let count = (gap_bars as u32).clamp(5, 10_000);
+
+    let from_ms = from_secs * 1000;
+    let to_ms = to_secs * 1000;
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    if tx.send(ChartRequest {
+        symbol_id, period, from_ms, to_ms, count, reply: reply_tx,
+    }).await.is_err() {
+        return (0, 0);
+    }
+
+    let bars = match tokio::time::timeout(std::time::Duration::from_secs(30), reply_rx).await {
+        Ok(Ok(Ok(b))) => b,
+        _ => {
+            println!("[backfill] {} incremental fetch failed/timeout", tf_name);
+            return (0, 0);
+        }
+    };
+
+    if bars.is_empty() {
+        println!("[backfill] {} incremental: 0 new bars (cTrader has nothing newer)", tf_name);
+        return (0, 0);
+    }
+
+    let n = bars.len();
+    let oldest_secs = bars.iter().map(|c| c.timestamp).min().unwrap_or(0);
+    let oldest_iso = chrono::DateTime::<chrono::Utc>::from_timestamp(oldest_secs, 0)
+        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string());
+
+    // Upsert.
+    let db = shared_db.clone();
+    let table_w = table.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        if let Ok(_lock) = db.lock() {
+            if let Ok(conn) = duckdb::Connection::open(DB_PATH) {
+                let _ = ensure_candle_table(&conn, &table_w);
+                let _ = upsert_candles(&conn, &table_w, &bars);
+            }
+        }
+    }).await;
+
+    println!("[backfill] {} incremental: +{} bars", tf_name, n);
+
+    with_backfill_state(|s| {
+        s.chunks_this_tf += 1;
+        s.bars_this_tf += n;
+        s.total_bars += n;
+        s.last_chunk_oldest_utc = oldest_iso;
+    });
+
+    (1, n)
+}
+
+/// One parallel-batch walk backwards from `start_cursor_ms` toward `floor_secs`.
+/// Returns `(chunks_added, bars_added)`. Used by `run_history_backfill` for
+/// both the forward-fill pass and the backward-extend pass.
+async fn walk_backwards_batches(
+    tf_name: String,
+    symbol_id: i64,
+    period: openapi::ProtoOaTrendbarPeriod,
+    bucket_secs: i64,
+    table: String,
+    shared_db: SharedDb,
+    start_cursor_ms: i64,
+    floor_secs: i64,
+) -> (usize, usize) {
+    const BATCH_SIZE: usize = 4;
+    let count = 10_000u32;
+    let mut cursor_ms = start_cursor_ms;
+    let mut chunks = 0usize;
+    let mut total_bars = 0usize;
+
+    'tf_walk: loop {
+            // Pre-compute up to BATCH_SIZE adjacent windows, all reaching back
+            // from `cursor_ms` toward the floor. Each window is
+            // `count * bucket_secs` seconds wide.
+            let chunk_span_ms = (count as i64) * bucket_secs * 1000;
+            let mut windows: Vec<(i64, i64)> = Vec::with_capacity(BATCH_SIZE);
+            let mut tentative_cursor = cursor_ms;
+            for _ in 0..BATCH_SIZE {
+                let to_ms = tentative_cursor;
+                let from_ms = tentative_cursor - chunk_span_ms;
+                windows.push((from_ms, to_ms));
+                tentative_cursor = from_ms - 1000;
+                if (tentative_cursor / 1000) <= floor_secs { break; }
+            }
+            if windows.is_empty() { break 'tf_walk; }
+
+            // Fire all windows in parallel.
+            let tx = match CHART_REQ_TX.get() { Some(t) => t.clone(), None => break 'tf_walk };
+            let mut tasks = tokio::task::JoinSet::new();
+            for (from_ms, to_ms) in windows {
+                let tx = tx.clone();
+                tasks.spawn(async move {
+                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                    if tx.send(ChartRequest {
+                        symbol_id, period, from_ms, to_ms, count, reply: reply_tx,
+                    }).await.is_err() {
+                        return Err("send failed".to_string());
+                    }
+                    match tokio::time::timeout(std::time::Duration::from_secs(30), reply_rx).await {
+                        Ok(Ok(Ok(b))) => Ok(b),
+                        Ok(Ok(Err(e))) => Err(format!("chunk error: {}", e)),
+                        _ => Err("chunk timeout".to_string()),
+                    }
+                });
+            }
+
+            // Collect all results. Track the overall oldest_secs for cursor advance.
+            let mut batch_all_empty = true;
+            let mut batch_overall_oldest_secs: Option<i64> = None;
+            while let Some(joined) = tasks.join_next().await {
+                let bars = match joined {
+                    Ok(Ok(b)) => b,
+                    Ok(Err(e)) => { println!("[backfill] {} batch chunk: {}", tf_name, e); continue; }
+                    Err(e) => { println!("[backfill] {} join: {}", tf_name, e); continue; }
+                };
+
+                if bars.is_empty() { continue; }
+                batch_all_empty = false;
+
+                let n = bars.len();
+                let oldest_secs = bars.iter().map(|c| c.timestamp).min().unwrap_or(0);
+                batch_overall_oldest_secs = Some(match batch_overall_oldest_secs {
+                    Some(prev) => prev.min(oldest_secs),
+                    None => oldest_secs,
+                });
+
+                total_bars += n;
+                chunks += 1;
+
+                // Upsert this chunk's bars.
+                let db = shared_db.clone();
+                let table_w = table.clone();
+                let bars_clone = bars.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    if let Ok(_lock) = db.lock() {
+                        if let Ok(conn) = duckdb::Connection::open(DB_PATH) {
+                            let _ = ensure_candle_table(&conn, &table_w);
+                            let _ = upsert_candles(&conn, &table_w, &bars_clone);
+                        }
+                    }
+                }).await;
+
+                println!("[backfill] {} chunk {} ({} bars) oldest_ts={}", tf_name, chunks, n, oldest_secs);
+
+                // Live progress for the UI panel.
+                let oldest_iso = chrono::DateTime::<chrono::Utc>::from_timestamp(oldest_secs, 0)
+                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string());
+                let chunks_snap = chunks;
+                let bars_this_tf_snap = total_bars;
+                with_backfill_state(|s| {
+                    s.chunks_this_tf = chunks_snap;
+                    s.bars_this_tf = bars_this_tf_snap;
+                    s.total_bars += n;
+                    // Only update the displayed "oldest so far" if this chunk
+                    // is actually older — keeps the UI's running min sensible.
+                    if let (Some(curr), Some(new)) = (s.last_chunk_oldest_utc.clone(), oldest_iso.clone()) {
+                        if new < curr { s.last_chunk_oldest_utc = oldest_iso.clone(); }
+                    } else if s.last_chunk_oldest_utc.is_none() {
+                        s.last_chunk_oldest_utc = oldest_iso.clone();
+                    }
+                });
+            }
+
+            // Decide next move.
+            if batch_all_empty {
+                println!("[backfill] {} cTrader returned empty — history exhausted ({} chunks, {} bars)",
+                         tf_name, chunks, total_bars);
+                break 'tf_walk;
+            }
+
+            // Advance cursor past the oldest bar we saw this batch.
+            // If we never got an oldest_secs (shouldn't happen since !batch_all_empty),
+            // bail to avoid infinite loop.
+            let next_oldest_secs = match batch_overall_oldest_secs {
+                Some(v) => v,
+                None => break 'tf_walk,
+            };
+
+            if next_oldest_secs <= floor_secs { break 'tf_walk; }
+            cursor_ms = next_oldest_secs * 1000 - 1000;
+
+            // Tiny inter-batch gap so cTrader sees a small breath between
+            // bursts. 50 ms is small enough that it doesn't dominate time
+            // but prevents any spike-detection on their side.
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    (chunks, total_bars)
+}
+
+/// Background loop: every 30s checks which TFs are due for a refresh, then
+/// requests a small tail window from cTrader via the existing chart channel
+/// and upserts it into the per-TF table. Skips API calls during weekend
+/// closure.
+async fn run_price_refresh_loop(symbol: String, shared_db: SharedDb) {
+    // Wait for the symbol map to populate (SymbolMapping arrives asynchronously
+    // via the price channel after subscribe). Poll up to ~10s.
+    let mut symbol_id: Option<i64> = None;
+    for _ in 0..40 {
+        if let Ok(map) = symbol_map().lock() {
+            if let Some(id) = map.get(symbol.as_str()).copied() {
+                symbol_id = Some(id);
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    let symbol_id = match symbol_id {
+        Some(id) => id,
+        None => { println!("[refresh] '{}' not in symbol map after wait — aborting loop", symbol); return; }
+    };
+    println!("[refresh] background price refresh loop started for {} (id {})", symbol, symbol_id);
+
+    // (tf-name, period enum, minutes per bar, "last refreshed" cursor, interval secs, count to fetch)
+    let mut targets: Vec<(&str, openapi::ProtoOaTrendbarPeriod, i64, tokio::time::Instant, u64, u32)> = vec![
+        ("m1", openapi::ProtoOaTrendbarPeriod::M1, 1,        tokio::time::Instant::now() - std::time::Duration::from_secs(REFRESH_M1_INTERVAL_SECS), REFRESH_M1_INTERVAL_SECS, 120),
+        ("m5", openapi::ProtoOaTrendbarPeriod::M5, 5,        tokio::time::Instant::now() - std::time::Duration::from_secs(REFRESH_M5_INTERVAL_SECS), REFRESH_M5_INTERVAL_SECS, 60),
+        ("h1", openapi::ProtoOaTrendbarPeriod::H1, 60,       tokio::time::Instant::now() - std::time::Duration::from_secs(REFRESH_H1_INTERVAL_SECS), REFRESH_H1_INTERVAL_SECS, 60),
+        ("d1", openapi::ProtoOaTrendbarPeriod::D1, 60 * 24,  tokio::time::Instant::now() - std::time::Duration::from_secs(REFRESH_D1_INTERVAL_SECS), REFRESH_D1_INTERVAL_SECS, 30),
+    ];
+
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(REFRESH_TICK_SECS)).await;
+
+        if xauusd_is_market_closed() {
+            // Skip silently; check again next tick.
+            continue;
+        }
+
+        let tx = match CHART_REQ_TX.get() { Some(t) => t.clone(), None => continue };
+
+        let now = tokio::time::Instant::now();
+        for entry in targets.iter_mut() {
+            let (tf, period, minutes_per_bar, last, interval, count) = (entry.0, entry.1, entry.2, entry.3, entry.4, entry.5);
+            if now.duration_since(last).as_secs() < interval { continue; }
+
+            let end_ms = chrono::Utc::now().timestamp_millis();
+            let from_ms = end_ms - (count as i64) * minutes_per_bar * 60 * 1000;
+            let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+            if tx.send(ChartRequest {
+                symbol_id, period, from_ms, to_ms: end_ms, count, reply: reply_tx,
+            }).await.is_err() {
+                continue;
+            }
+            match tokio::time::timeout(std::time::Duration::from_secs(30), reply_rx).await {
+                Ok(Ok(Ok(bars))) => {
+                    let n = bars.len();
+                    let table = format!("{}_{}", symbol.to_lowercase(), tf);
+                    let db = shared_db.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if let Ok(_lock) = db.lock() {
+                            if let Ok(conn) = duckdb::Connection::open(DB_PATH) {
+                                let _ = ensure_candle_table(&conn, &table);
+                                let _ = upsert_candles(&conn, &table, &bars);
+                            }
+                        }
+                    }).await;
+                    entry.3 = now;
+                    println!("[refresh] {} {} bars upserted", tf, n);
+                }
+                _ => {
+                    // Don't update the cursor on failure — retry next tick.
+                    println!("[refresh] {} fetch failed/timeout — will retry", tf);
+                }
+            }
+        }
+    }
+}
+
+// ── Gold EC events: storage → per-day JSON files ───────────────────────────────
+
+/// Root directory for the per-day EC events archive. Mirrors `news_data/all/`
+/// in layout: `ec_events_data/all/YYYY-MM/YYYY-MM-DD.json`.
+const EC_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/ec_events_data/all");
+
+#[derive(serde::Serialize, Clone)]
+struct EcGoldStorageProgress {
+    files_done: usize,
+    files_total: usize,
+    events_written_so_far: usize,
+    /// YYYY-MM-DD of the file we just finished writing.
+    current_day: String,
+    elapsed_secs: u64,
+}
+
+#[derive(serde::Serialize)]
+struct EcGoldStorageResult {
+    /// True if any disk files existed before this run (i.e. an incremental
+    /// update rather than a fresh bootstrap).
+    incremental: bool,
+    /// `MAX(YYYY-MM-DD)` of the disk archive before this run, null if empty.
+    disk_latest_day_before: Option<String>,
+    /// `MAX(YYYY-MM-DD)` in `xauusd_economic_calendar`, null if table empty.
+    db_latest_day: Option<String>,
+    /// Days inspected this run that already match the DB → no rewrite needed.
+    days_already_current: usize,
+    /// Days actually (re)written this run.
+    files_written: usize,
+    /// Sum of events in the (re)written files.
+    events_written: usize,
+    /// True iff nothing needed updating (disk already matched DB).
+    up_to_date: bool,
+    archive_root: String,
+    duration_ms: u128,
+    error: Option<String>,
+}
+
+/// Tauri command behind the `EC_Gold_events_storage` button.
+///
+/// Diff-aware: on first run, writes one JSON file per day under
+/// `ec_events_data/all/YYYY-MM/YYYY-MM-DD.json` for every day in the DB.
+/// On re-run, walks the existing archive, finds the latest day file, and:
+///   - if the DB has newer days → writes those new days' files,
+///   - if the DB has more events for the latest disk day → rewrites just that day,
+///   - if everything already matches → returns `up_to_date = true` (no work done).
+///
+/// Per-day file format mirrors `news_data/all/YYYY-MM-DD.json`:
+/// ```json
+/// {
+///   "date": "2026-05-26",
+///   "count": 18,
+///   "generated_at": "2026-05-26T12:34:56Z",
+///   "events": [ { event row as object }, ... ]
+/// }
+/// ```
+#[tauri::command]
+async fn store_ec_gold_events(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<EcGoldStorageResult, String> {
+    use tauri::Emitter;
+    let start_clock = std::time::Instant::now();
+
+    // Step 1: find the latest day already on disk.
+    let disk_latest_day_before: Option<String> = tokio::task::spawn_blocking(find_latest_disk_day)
+        .await
+        .map_err(|e| format!("disk-scan task join: {}", e))?;
+    let incremental = disk_latest_day_before.is_some();
+
+    // Step 2: query (day, count) for every day in xauusd_economic_calendar.
+    let db_days: Vec<(String, usize)> = {
+        let db_mutex = state.db_mutex.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<(String, usize)>, String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            let mut stmt = db.prepare(
+                "SELECT substr(timestamp_utc, 1, 10) AS day, COUNT(*) AS n
+                 FROM xauusd_economic_calendar
+                 WHERE length(timestamp_utc) >= 10
+                 GROUP BY day
+                 ORDER BY day ASC"
+            ).map_err(|e| format!("prepare day-counts: {}", e))?;
+            let rows: Vec<(String, usize)> = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+            }).map_err(|e| format!("query day-counts: {}", e))?
+              .flatten().collect();
+            Ok(rows)
+        })
+        .await
+        .map_err(|e| format!("day-counts task join: {}", e))??
+    };
+
+    if db_days.is_empty() {
+        return Ok(EcGoldStorageResult {
+            incremental, disk_latest_day_before, db_latest_day: None,
+            days_already_current: 0,
+            files_written: 0, events_written: 0,
+            up_to_date: false,
+            archive_root: EC_ARCHIVE_ROOT.to_string(),
+            duration_ms: start_clock.elapsed().as_millis(),
+            error: Some("xauusd_economic_calendar is empty — run EC_Gold_Events_Update first.".into()),
+        });
+    }
+
+    let db_latest_day = db_days.last().map(|(d, _)| d.clone());
+
+    // Step 3: decide which days to (re)write.
+    //
+    //   First run (no disk):  every DB day.
+    //   Re-run:               every DB day >= disk-latest whose DB count
+    //                         differs from the on-disk file's count
+    //                         (missing-on-disk counts as count 0).
+    //
+    // Older days are trusted as-is. The rationale: this archive is meant
+    // to be a snapshot of the DB; once a day has been written and its
+    // event count matches what's in the DB, there's no reason to rewrite.
+    let days_to_write: Vec<(String, usize)> = match &disk_latest_day_before {
+        None => db_days.clone(),
+        Some(disk_latest) => db_days.iter()
+            .filter(|(day, db_count)| {
+                if day.as_str() < disk_latest.as_str() { return false; }
+                read_disk_event_count(day) != *db_count
+            })
+            .cloned()
+            .collect(),
+    };
+    let days_already_current = if let Some(disk_latest) = &disk_latest_day_before {
+        db_days.iter()
+            .filter(|(day, _)| day.as_str() >= disk_latest.as_str())
+            .count()
+            .saturating_sub(days_to_write.len())
+    } else { 0 };
+
+    if days_to_write.is_empty() {
+        return Ok(EcGoldStorageResult {
+            incremental, disk_latest_day_before, db_latest_day,
+            days_already_current,
+            files_written: 0, events_written: 0,
+            up_to_date: true,
+            archive_root: EC_ARCHIVE_ROOT.to_string(),
+            duration_ms: start_clock.elapsed().as_millis(),
+            error: None,
+        });
+    }
+
+    // Step 4: group the days-to-write by month so we can pull each month's
+    // events in one DB query (cheaper than 1 query per day for first runs
+    // where days_to_write can be ~5000 entries).
+    let files_total = days_to_write.len();
+    let mut by_month: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for (day, _) in &days_to_write {
+        if day.len() >= 7 {
+            by_month.entry(day[..7].to_string()).or_default().push(day.clone());
+        }
+    }
+    let wanted_days: std::collections::HashSet<String> =
+        days_to_write.iter().map(|(d, _)| d.clone()).collect();
+
+    let mut files_written = 0usize;
+    let mut events_written = 0usize;
+    let mut last_error: Option<String> = None;
+
+    // Fire an initial 0% progress so the UI shows the bar straight away
+    // (without waiting for the first file to land). For fast re-runs of
+    // 1-5 files, the bar would otherwise pop in for ~50 ms at the very end.
+    let first_day = days_to_write.first().map(|(d, _)| d.clone()).unwrap_or_default();
+    let _ = app.emit("ec_gold_storage_progress", &EcGoldStorageProgress {
+        files_done: 0,
+        files_total,
+        events_written_so_far: 0,
+        current_day: first_day,
+        elapsed_secs: start_clock.elapsed().as_secs(),
+    });
+
+    'months: for (month, _) in &by_month {
+        // Pull every event in this month, ordered by timestamp.
+        let db_mutex = state.db_mutex.clone();
+        let month_q = month.clone();
+        let month_events: Vec<(String, serde_json::Value)> = match tokio::task::spawn_blocking(move || -> Result<Vec<(String, serde_json::Value)>, String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            let mut stmt = db.prepare(
+                "SELECT event_date_id, event_id, event_name, currency, country_code,
+                        volatility, timestamp_utc, weekday, hour_utc,
+                        actual_raw, forecast_raw, previous_raw,
+                        actual, forecast, previous, surprise, beats_forecast, unit
+                 FROM xauusd_economic_calendar
+                 WHERE substr(timestamp_utc, 1, 7) = ?
+                 ORDER BY timestamp_utc ASC"
+            ).map_err(|e| format!("prepare month query: {}", e))?;
+            let rows = stmt.query_map([month_q.as_str()], |row| {
+                let ts: String = row.get(6)?;
+                let day = if ts.len() >= 10 { ts[..10].to_string() } else { ts.clone() };
+                let event = serde_json::json!({
+                    "event_date_id":  row.get::<_, String>(0)?,
+                    "event_id":       row.get::<_, String>(1)?,
+                    "event_name":     row.get::<_, String>(2)?,
+                    "currency":       row.get::<_, String>(3)?,
+                    "country_code":   row.get::<_, String>(4)?,
+                    "volatility":     row.get::<_, i32>(5)?,
+                    "timestamp_utc":  ts,
+                    "weekday":        row.get::<_, i32>(7)?,
+                    "hour_utc":       row.get::<_, i32>(8)?,
+                    "actual_raw":     row.get::<_, Option<String>>(9)?,
+                    "forecast_raw":   row.get::<_, Option<String>>(10)?,
+                    "previous_raw":   row.get::<_, Option<String>>(11)?,
+                    "actual":         row.get::<_, Option<f64>>(12)?,
+                    "forecast":       row.get::<_, Option<f64>>(13)?,
+                    "previous":       row.get::<_, Option<f64>>(14)?,
+                    "surprise":       row.get::<_, Option<f64>>(15)?,
+                    "beats_forecast": row.get::<_, Option<i32>>(16)?,
+                    "unit":           row.get::<_, Option<String>>(17)?,
+                });
+                Ok((day, event))
+            }).map_err(|e| format!("query month: {}", e))?;
+            Ok(rows.flatten().collect())
+        }).await.map_err(|e| format!("month task join: {}", e))? {
+            Ok(v) => v,
+            Err(e) => { last_error = Some(format!("{} read failed: {}", month, e)); break 'months; }
+        };
+
+        // Group this month's rows by day, keeping only days_to_write.
+        let mut by_day: std::collections::BTreeMap<String, Vec<serde_json::Value>> =
+            std::collections::BTreeMap::new();
+        for (day, event) in month_events {
+            if wanted_days.contains(&day) {
+                by_day.entry(day).or_default().push(event);
+            }
+        }
+
+        let month_dir = std::path::Path::new(EC_ARCHIVE_ROOT).join(month);
+        if let Err(e) = std::fs::create_dir_all(&month_dir) {
+            last_error = Some(format!("create dir {}: {}", month_dir.display(), e));
+            break 'months;
+        }
+
+        let now_rfc = chrono::Utc::now().to_rfc3339();
+        for (day, events) in &by_day {
+            let path = month_dir.join(format!("{}.json", day));
+            let count = events.len();
+            let payload = serde_json::json!({
+                "date":         day,
+                "count":        count,
+                "generated_at": now_rfc,
+                "events":       events,
+            });
+            let pretty = match serde_json::to_string_pretty(&payload) {
+                Ok(s) => s,
+                Err(e) => { last_error = Some(format!("serialize {}: {}", day, e)); break 'months; }
+            };
+            if let Err(e) = std::fs::write(&path, pretty) {
+                last_error = Some(format!("write {}: {}", path.display(), e));
+                break 'months;
+            }
+            files_written += 1;
+            events_written += count;
+
+            let _ = app.emit("ec_gold_storage_progress", &EcGoldStorageProgress {
+                files_done: files_written,
+                files_total,
+                events_written_so_far: events_written,
+                current_day: day.clone(),
+                elapsed_secs: start_clock.elapsed().as_secs(),
+            });
+        }
+    }
+
+    Ok(EcGoldStorageResult {
+        incremental, disk_latest_day_before, db_latest_day,
+        days_already_current,
+        files_written, events_written,
+        up_to_date: false,
+        archive_root: EC_ARCHIVE_ROOT.to_string(),
+        duration_ms: start_clock.elapsed().as_millis(),
+        error: last_error,
+    })
+}
+
+/// Walk `ec_events_data/all/YYYY-MM/` and return the lexically-largest
+/// `YYYY-MM-DD.json` filename (without the extension), or None if the
+/// archive root doesn't exist or has no day files.
+fn find_latest_disk_day() -> Option<String> {
+    let root = std::path::Path::new(EC_ARCHIVE_ROOT);
+    if !root.exists() { return None; }
+    let mut newest: Option<String> = None;
+    let month_iter = std::fs::read_dir(root).ok()?;
+    for month_entry in month_iter.flatten() {
+        let mp = month_entry.path();
+        if !mp.is_dir() { continue; }
+        let day_iter = match std::fs::read_dir(&mp) { Ok(d) => d, Err(_) => continue };
+        for day_entry in day_iter.flatten() {
+            let p = day_entry.path();
+            let name = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s, None => continue };
+            if name.len() != 15 || !name.ends_with(".json") { continue; }
+            let day = &name[..10];
+            if newest.as_deref().map(|n| day > n).unwrap_or(true) {
+                newest = Some(day.to_string());
+            }
+        }
+    }
+    newest
+}
+
+/// Return the `count` field from `ec_events_data/all/YYYY-MM/{day}.json`,
+/// or 0 if the file is missing / unreadable / malformed.
+fn read_disk_event_count(day: &str) -> usize {
+    if day.len() < 7 { return 0; }
+    let path = std::path::Path::new(EC_ARCHIVE_ROOT)
+        .join(&day[..7])
+        .join(format!("{}.json", day));
+    let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => return 0 };
+    let v: serde_json::Value = match serde_json::from_str(&content) { Ok(v) => v, Err(_) => return 0 };
+    v.get("count").and_then(|c| c.as_u64()).map(|n| n as usize).unwrap_or(0)
+}
+
+// ── Trade Ideas tab: ask local Claude CLI for an XAUUSD trade idea ───────────
+
+#[derive(serde::Serialize)]
+struct TradeIdeaResult {
+    /// Markdown text from Claude (or an error message rendered as markdown).
+    markdown: String,
+    /// True if the Claude call succeeded. False on missing CLI / spawn error.
+    ok: bool,
+    /// Total wallclock from button click to response (ms).
+    duration_ms: u128,
+    /// Model alias actually used (echoed for transparency).
+    model: String,
+}
+
+/// Tauri command behind the `Gold_Trade_Ideas` button.
+///
+/// Shells out to the local `claude` CLI (Claude Code), which uses the user's
+/// existing Claude subscription auth and picks up the `xauusd-trader` subagent
+/// in `.claude/agents/`. This avoids needing an API key — the CLI handles auth.
+///
+/// Emits live `trade_idea_phase` Tauri events at each step so the modal can
+/// show "Reading EC events…", "Loading news…", "Asking Claude…" instead of
+/// just a spinner.
+#[tauri::command]
+async fn get_gold_trade_idea(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<TradeIdeaResult, String> {
+    use tauri::Emitter;
+    let start_clock = std::time::Instant::now();
+    let model = std::env::var("CLAUDE_MODEL").unwrap_or_else(|_| "opus".to_string());
+
+    // Helper closure-ish — emit a one-line status to the modal.
+    let emit_phase = |label: &str| {
+        let _ = app.emit("trade_idea_phase", &serde_json::json!({
+            "label": label,
+            "elapsed_secs": start_clock.elapsed().as_secs(),
+        }));
+    };
+    emit_phase("Reading current price + multi-TF candles + EC events + today's news from DuckDB…");
+
+    // Gather snapshot data from DuckDB. Keep it compact — every byte costs
+    // input tokens.
+    let snapshot = {
+        let db_mutex = state.db_mutex.clone();
+        tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+
+            // 1. Latest M1 close + timestamp.
+            let last_m1: Option<(i64, f64)> = db.query_row(
+                "SELECT timestamp, close FROM xauusd_m1 ORDER BY timestamp DESC LIMIT 1",
+                [], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+            ).ok();
+
+            // 2. Last 30 H1 bars (for ATR + intraday structure).
+            let h1_bars: Vec<serde_json::Value> = {
+                let mut stmt = db.prepare(
+                    "SELECT timestamp, open, high, low, close
+                     FROM xauusd_h1 ORDER BY timestamp DESC LIMIT 30"
+                ).map_err(|e| e.to_string())?;
+                let rows: Vec<serde_json::Value> = stmt.query_map([], |row| {
+                    Ok(serde_json::json!({
+                        "ts": row.get::<_, i64>(0)?,
+                        "o": row.get::<_, f64>(1)?,
+                        "h": row.get::<_, f64>(2)?,
+                        "l": row.get::<_, f64>(3)?,
+                        "c": row.get::<_, f64>(4)?,
+                    }))
+                }).map_err(|e| e.to_string())?
+                  .flatten().collect();
+                // Reverse so oldest-first is more natural for the model.
+                rows.into_iter().rev().collect()
+            };
+
+            // 3. Last 30 D1 bars (HTF context).
+            let d1_bars: Vec<serde_json::Value> = {
+                let mut stmt = db.prepare(
+                    "SELECT timestamp, open, high, low, close
+                     FROM xauusd_d1 ORDER BY timestamp DESC LIMIT 30"
+                ).map_err(|e| e.to_string())?;
+                let rows: Vec<serde_json::Value> = stmt.query_map([], |row| {
+                    Ok(serde_json::json!({
+                        "ts": row.get::<_, i64>(0)?,
+                        "o": row.get::<_, f64>(1)?,
+                        "h": row.get::<_, f64>(2)?,
+                        "l": row.get::<_, f64>(3)?,
+                        "c": row.get::<_, f64>(4)?,
+                    }))
+                }).map_err(|e| e.to_string())?
+                  .flatten().collect();
+                rows.into_iter().rev().collect()
+            };
+
+            // 4. Today's + next 24h vol≥2 EC events.
+            let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+            let tomorrow_plus = (chrono::Utc::now() + chrono::Duration::days(2))
+                .format("%Y-%m-%d").to_string();
+            let ec_events: Vec<serde_json::Value> = {
+                let mut stmt = db.prepare(
+                    "SELECT timestamp_utc, currency, volatility, event_name,
+                            actual, forecast, previous
+                     FROM xauusd_economic_calendar
+                     WHERE substr(timestamp_utc, 1, 10) >= ?
+                       AND substr(timestamp_utc, 1, 10) <  ?
+                       AND volatility >= 2
+                     ORDER BY timestamp_utc ASC"
+                ).map_err(|e| e.to_string())?;
+                let rows: Vec<serde_json::Value> = stmt.query_map(
+                    [today.as_str(), tomorrow_plus.as_str()],
+                    |row| Ok(serde_json::json!({
+                        "ts": row.get::<_, String>(0)?,
+                        "cur": row.get::<_, String>(1)?,
+                        "vol": row.get::<_, i32>(2)?,
+                        "name": row.get::<_, String>(3)?,
+                        "actual": row.get::<_, Option<f64>>(4)?,
+                        "fcst": row.get::<_, Option<f64>>(5)?,
+                        "prev": row.get::<_, Option<f64>>(6)?,
+                    }))
+                ).map_err(|e| e.to_string())?
+                  .flatten().collect();
+                rows
+            };
+
+            // 5. Today's gold-relevant news. Titles + summary for ~15;
+            //    full body for the top 3 by published_utc DESC.
+            let news_titles: Vec<serde_json::Value> = {
+                let mut stmt = db.prepare(
+                    "SELECT published_utc, title, summary
+                     FROM news_historical
+                     WHERE published_utc LIKE ? || '%'
+                       AND (
+                         lower(title) LIKE '%gold%' OR lower(title) LIKE '%xau%'
+                      OR lower(title) LIKE '%fed%'  OR lower(title) LIKE '%powell%'
+                      OR lower(title) LIKE '%dxy%'  OR lower(title) LIKE '%dollar%'
+                      OR lower(title) LIKE '%yield%' OR lower(title) LIKE '%real%'
+                      OR lower(title) LIKE '%cpi%'  OR lower(title) LIKE '%inflation%'
+                      OR lower(title) LIKE '%fomc%' OR lower(title) LIKE '%nfp%'
+                       )
+                     ORDER BY published_utc DESC LIMIT 15"
+                ).map_err(|e| e.to_string())?;
+                let rows: Vec<serde_json::Value> = stmt.query_map([today.as_str()], |row| {
+                    Ok(serde_json::json!({
+                        "ts": row.get::<_, String>(0)?,
+                        "title": row.get::<_, String>(1)?,
+                        "summary": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    }))
+                }).map_err(|e| e.to_string())?
+                  .flatten().collect();
+                rows
+            };
+
+            let news_bodies: Vec<serde_json::Value> = {
+                let mut stmt = db.prepare(
+                    "SELECT published_utc, title, body
+                     FROM news_historical
+                     WHERE published_utc LIKE ? || '%'
+                       AND body IS NOT NULL AND body <> ''
+                       AND (
+                         lower(title) LIKE '%gold%' OR lower(title) LIKE '%xau%'
+                      OR lower(title) LIKE '%fed%'  OR lower(title) LIKE '%powell%'
+                      OR lower(title) LIKE '%dxy%'  OR lower(title) LIKE '%dollar%'
+                      OR lower(title) LIKE '%yield%' OR lower(title) LIKE '%real%'
+                       )
+                     ORDER BY published_utc DESC LIMIT 3"
+                ).map_err(|e| e.to_string())?;
+                let rows: Vec<serde_json::Value> = stmt.query_map([today.as_str()], |row| {
+                    let body: String = row.get::<_, String>(2)?;
+                    // Truncate each body to ~1500 chars to keep prompt size sane.
+                    let truncated = if body.chars().count() > 1500 {
+                        format!("{}…", body.chars().take(1500).collect::<String>())
+                    } else { body };
+                    Ok(serde_json::json!({
+                        "ts": row.get::<_, String>(0)?,
+                        "title": row.get::<_, String>(1)?,
+                        "body": truncated,
+                    }))
+                }).map_err(|e| e.to_string())?
+                  .flatten().collect();
+                rows
+            };
+
+            Ok(serde_json::json!({
+                "now_utc": chrono::Utc::now().to_rfc3339(),
+                "current_price": last_m1.map(|(ts, c)| serde_json::json!({
+                    "close": c,
+                    "ts_unix": ts,
+                    "ts_utc": chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default(),
+                })),
+                "h1_bars_30": h1_bars,
+                "d1_bars_30": d1_bars,
+                "ec_events_next_48h_vol2plus": ec_events,
+                "news_headlines_today": news_titles,
+                "news_bodies_top3": news_bodies,
+            }))
+        })
+        .await
+        .map_err(|e| format!("snapshot task join: {}", e))??
+    };
+
+    // Concise snapshot summary for the live status panel.
+    let summary = {
+        let n_h1 = snapshot.get("h1_bars_30").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+        let n_d1 = snapshot.get("d1_bars_30").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+        let n_ec = snapshot.get("ec_events_next_48h_vol2plus").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+        let n_titles = snapshot.get("news_headlines_today").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+        let n_bodies = snapshot.get("news_bodies_top3").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+        let px = snapshot.get("current_price")
+            .and_then(|v| v.get("close")).and_then(|v| v.as_f64())
+            .map(|p| format!("{:.2}", p)).unwrap_or_else(|| "n/a".to_string());
+        format!("price {} · {} H1 · {} D1 · {} EC events · {} news titles ({} with body)",
+                px, n_h1, n_d1, n_ec, n_titles, n_bodies)
+    };
+    emit_phase(&format!("Snapshot ready — {} · sending to Claude ({})…", summary, model));
+
+    let user_message = format!(
+        "Produce an XAUUSD trade idea using your standard workflow and output \
+         template exactly.\n\n\
+         The starting snapshot below was gathered seconds ago directly from \
+         the DuckDB at `d:/MyProjects/ctrader_rust/Bots_db/Algo_EURUSD.duckdb` \
+         (the price tables `xauusd_m1/m5/m15/h1/h4/d1/w1/mn1` are kept fresh \
+         by a 30s background refresh loop). Every price you cite must come \
+         either from this snapshot OR from an additional DuckDB query you \
+         run yourself via Bash — never invent values.\n\n\
+         **If you need more history** (deeper HTF context, prior swing levels, \
+         pattern lookbacks, ATR over longer windows, etc.) feel free to run \
+         additional DuckDB queries — the schema is in your system prompt. For \
+         example: `xauusd_d1` goes back to 2020 and `xauusd_w1` to 1998.\n\n\
+         Current snapshot (you can use it directly without re-querying for \
+         the immediate state):\n\n```json\n{}\n```",
+        serde_json::to_string_pretty(&snapshot).unwrap_or_default()
+    );
+
+    // Spawn the local claude CLI in print mode with the xauusd-trader subagent.
+    // The CLI handles auth via the user's existing Claude Code session (OAuth)
+    // — no API key needed. `current_dir` set to project root so the agent file
+    // at `.claude/agents/xauusd-trader.md` is discoverable.
+    //
+    // The user_message (containing a JSON snapshot with `[]{}` etc.) is piped
+    // via **stdin** rather than passed as a CLI argument. Reason: Rust 1.77.2+
+    // refuses to spawn .cmd files with "unsafe" argument characters (CVE-2024-
+    // 24576 fix), throwing "batch file arguments are invalid". Stdin sidesteps
+    // the entire argument-quoting layer.
+    let project_root = env!("CARGO_MANIFEST_DIR");
+    let claude_bin = if cfg!(windows) { "claude.cmd" } else { "claude" };
+
+    let mut cmd = tokio::process::Command::new(claude_bin);
+    cmd.args([
+            "-p",                          // print mode (non-interactive, exit after)
+            "--agent", "xauusd-trader",    // use the trader subagent
+            "--model", &model,             // opus / sonnet / haiku alias
+            "--output-format", "text",
+        ])
+        .current_dir(project_root)
+        .stdin(std::process::Stdio::piped())  // ← piped, we'll write the prompt
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        // CREATE_NO_WINDOW so spawning claude doesn't pop a console window.
+        // tokio's Command exposes creation_flags natively on Windows — no
+        // std::os::windows::process::CommandExt import needed.
+        cmd.creation_flags(0x08000000);
+    }
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return Ok(TradeIdeaResult {
+            markdown: format!(
+                "### Couldn't spawn the `claude` CLI\n\n```\n{}\n```\n\n\
+                 Make sure Claude Code is installed and on your PATH \
+                 (`npm i -g @anthropic-ai/claude-code` or similar) and \
+                 that you've logged in at least once (`claude` interactively).",
+                e
+            ),
+            ok: false,
+            duration_ms: start_clock.elapsed().as_millis(),
+            model,
+        }),
+    };
+
+    // Write the prompt to stdin and close it (signals EOF so claude starts).
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        if let Err(e) = stdin.write_all(user_message.as_bytes()).await {
+            return Ok(TradeIdeaResult {
+                markdown: format!("### Couldn't write prompt to claude stdin\n\n```\n{}\n```", e),
+                ok: false,
+                duration_ms: start_clock.elapsed().as_millis(),
+                model,
+            });
+        }
+        let _ = stdin.shutdown().await;
+        drop(stdin);
+    }
+
+    // 5-minute timeout. Opus 4.7 with the xauusd-trader subagent often runs
+    // a handful of Bash DuckDB queries before answering (the agent's prompt
+    // tells it to query additional history when useful), which adds up — 3
+    // minutes wasn't always enough. 5 minutes is generous without papering
+    // over a real hang.
+    emit_phase("Claude is thinking — running tool calls and synthesising the trade idea…");
+    let output = match tokio::time::timeout(
+        std::time::Duration::from_secs(300),
+        child.wait_with_output(),
+    ).await {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => return Ok(TradeIdeaResult {
+            markdown: format!("### claude CLI exited with IO error\n\n```\n{}\n```", e),
+            ok: false,
+            duration_ms: start_clock.elapsed().as_millis(),
+            model,
+        }),
+        Err(_) => return Ok(TradeIdeaResult {
+            markdown: "### Claude CLI timed out\n\nThe CLI didn't respond within 5 minutes. \
+                       Try again, or try a faster model with `CLAUDE_MODEL=sonnet` in `.env`.".into(),
+            ok: false,
+            duration_ms: start_clock.elapsed().as_millis(),
+            model,
+        }),
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        return Ok(TradeIdeaResult {
+            markdown: format!(
+                "### Claude CLI returned non-zero exit\n\n**stderr:**\n```\n{}\n```\n\n\
+                 **stdout (first chars):**\n```\n{}\n```",
+                stderr.trim(),
+                stdout.chars().take(2000).collect::<String>().trim(),
+            ),
+            ok: false,
+            duration_ms: start_clock.elapsed().as_millis(),
+            model,
+        });
+    }
+
+    let markdown = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if markdown.is_empty() {
+        return Ok(TradeIdeaResult {
+            markdown: "### Claude CLI returned empty output\n\nNo error, but no content either. \
+                       Try running `claude -p \"hello\"` in your terminal to confirm the CLI is working.".into(),
+            ok: false,
+            duration_ms: start_clock.elapsed().as_millis(),
+            model,
+        });
+    }
+
+    Ok(TradeIdeaResult {
+        markdown,
+        ok: true,
+        duration_ms: start_clock.elapsed().as_millis(),
+        model,
+    })
+}
+
 /// Best-effort: terminate a child process tree by PID. Used at shutdown.
 fn kill_process_tree(pid: u32, label: &str) {
     if pid == 0 { return; }
@@ -1369,6 +3008,12 @@ fn main() {
             fetch_article_body_on_demand,
             get_trendbars,
             update_news_archive,
+            update_ec_gold_events,
+            store_ec_gold_events,
+            get_gold_trade_idea,
+            get_xauusd_tf_stats,
+            get_history_backfill_state,
+            start_history_backfill,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
@@ -1761,6 +3406,23 @@ async fn run_session(
                                         break;
                                     }
                                 }
+
+                                // (Note: the one-shot history backfill is NOT auto-spawned
+                                // anymore — it's triggered manually by the
+                                // `XAUUSD_History_Update` button in the Archives tab. The
+                                // backfill function is the same; only the trigger changed.)
+
+                                // Spawn the background price-refresh loop so the chart-cache
+                                // tables (xauusd_m1/m5/h1/d1) stay fresh even when the user
+                                // doesn't have the chart open. The Trade Ideas agent reads
+                                // from these tables and needs current data on every click.
+                                {
+                                    let sym = target_symbol.clone();
+                                    let db = shared_db.clone();
+                                    tokio::spawn(async move {
+                                        run_price_refresh_loop(sym, db).await;
+                                    });
+                                }
                             } else {
                                 println!("Error: No symbols found in account symbol list.");
                                 break;
@@ -1804,7 +3466,11 @@ async fn run_session(
                                         "FARTCOINUSD" => 6,
                                         _ => 5, // Default to 5 decimals
                                     };
-                                    println!("LIVE {} | Bid: {:.prec$} | Ask: {:.prec$}", symbol_name, bid, ask, prec = decimals);
+                                    // Suppressed live-tick log (was: "LIVE XAUUSD | Bid: X | Ask: Y")
+                                    // — ran on every spot event and flooded the terminal.
+                                    // Decimals var still used below for formatting elsewhere
+                                    // if needed; keep the computation in case future code wants it.
+                                    let _ = decimals;
                                     tx.send(PriceUpdate::InstrumentPrice {
                                         symbol: symbol_name.clone(),
                                         bid,

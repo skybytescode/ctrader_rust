@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import './App.css'
 
 type Tick = { type: 'tick'; symbol: string; bid: number; ask: number }
@@ -33,7 +36,14 @@ type NewsTodayMsg = { type: 'news_today'; articles: NewsArticle[] }
 type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTodayMsg
 
 type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error'
-type Tab = 'dashboard' | 'calendar' | 'news' | 'archive'
+type Tab = 'dashboard' | 'calendar' | 'news' | 'archive' | 'trade-ideas'
+
+type TradeIdeaResult = {
+  markdown: string
+  ok: boolean
+  duration_ms: number
+  model: string
+}
 
 type NewsUpdateResult = {
   last_archive_day: string | null
@@ -45,6 +55,83 @@ type NewsUpdateResult = {
   rate_limited: boolean
   days_written: [string, number][]
   message: string | null
+}
+
+type EcGoldUpdateResult = {
+  table_existed: boolean
+  cursor_before: string | null
+  walk_start: string
+  walk_end: string
+  chunks_processed: number
+  rows_added_this_call: number
+  total_rows: number
+  oldest_in_db: string | null
+  newest_in_db: string | null
+  duration_ms: number
+  error: string | null
+}
+
+type EcGoldProgress = {
+  chunks_done: number
+  chunks_total: number
+  rows_added_so_far: number
+  current_chunk_start: string
+  current_chunk_end: string
+  elapsed_secs: number
+}
+
+type EcGoldStorageResult = {
+  incremental: boolean
+  disk_latest_day_before: string | null
+  db_latest_day: string | null
+  days_already_current: number
+  files_written: number
+  events_written: number
+  up_to_date: boolean
+  archive_root: string
+  duration_ms: number
+  error: string | null
+}
+
+type EcGoldStorageProgress = {
+  files_done: number
+  files_total: number
+  events_written_so_far: number
+  current_day: string
+  elapsed_secs: number
+}
+
+type TfStats = {
+  timeframe: string
+  table: string
+  rows: number
+  oldest: string | null
+  newest: string | null
+  coverage_days: number | null
+  tail_age_secs: number | null
+  bar_secs: number
+}
+
+type XauusdStatsResult = {
+  timeframes: TfStats[]
+  market_state: 'live' | 'weekend-closed' | string
+  queried_at_utc: string
+}
+
+type BackfillState = {
+  status: 'idle' | 'running' | 'complete' | 'error' | string
+  started_at_utc: string | null
+  completed_at_utc: string | null
+  current_tf: string | null
+  current_mode: string | null
+  chunks_this_tf: number
+  bars_this_tf: number
+  total_bars: number
+  last_chunk_oldest_utc: string | null
+  tfs_completed: string[]
+  tfs_skipped: string[]
+  tfs_total: number
+  last_error: string | null
 }
 
 function App() {
@@ -173,6 +260,9 @@ function App() {
           <button className={tab === 'archive' ? 'tab active' : 'tab'} onClick={() => setTab('archive')}>
             Archives
           </button>
+          <button className={tab === 'trade-ideas' ? 'tab active' : 'tab'} onClick={() => setTab('trade-ideas')}>
+            Trade Ideas
+          </button>
         </nav>
 
         <section className="panel">
@@ -186,6 +276,7 @@ function App() {
             <NewsView articles={newsArticles} status={newsStatus} onOpen={setOpenArticle} />
           )}
           {tab === 'archive' && <ArchiveView />}
+          {tab === 'trade-ideas' && <TradeIdeasView />}
         </section>
 
         {openArticle && (
@@ -198,20 +289,22 @@ function App() {
 
 type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number }
 
-type Timeframe = 'M1'|'M2'|'M3'|'M4'|'M5'|'M10'|'M15'|'M30'|'H1'|'H4'|'H12'|'D1'|'W1'|'MN1'
+// Only the 9 TFs the broker (IC Markets) actually exposes via the
+// cTrader Open API. M2/M4/M10/M30/H4 dropped — they were always empty.
+type Timeframe = 'M1'|'M3'|'M5'|'M15'|'H1'|'H12'|'D1'|'W1'|'MN1'
 
-const TIMEFRAMES: Timeframe[] = ['M1','M2','M3','M4','M5','M10','M15','M30','H1','H4','H12','D1','W1','MN1']
+const TIMEFRAMES: Timeframe[] = ['M1','M3','M5','M15','H1','H12','D1','W1','MN1']
 
 const SECONDS_PER_BAR: Record<Timeframe, number> = {
-  M1: 60, M2: 120, M3: 180, M4: 240, M5: 300, M10: 600, M15: 900, M30: 1800,
-  H1: 3600, H4: 14400, H12: 43200, D1: 86400, W1: 604800, MN1: 2592000,
+  M1: 60, M3: 180, M5: 300, M15: 900,
+  H1: 3600, H12: 43200, D1: 86400, W1: 604800, MN1: 2592000,
 }
 
 // How many bars to request per timeframe — keep wider TFs to fewer bars so the
 // from_timestamp stays within cTrader's per-period range limit.
 const BARS_PER_TF: Record<Timeframe, number> = {
-  M1: 1000, M2: 1000, M3: 1000, M4: 1000, M5: 1000, M10: 1000, M15: 1000, M30: 1000,
-  H1: 1000, H4: 500, H12: 500, D1: 500, W1: 300, MN1: 200,
+  M1: 1000, M3: 1000, M5: 1000, M15: 1000,
+  H1: 1000, H12: 500, D1: 500, W1: 300, MN1: 200,
 }
 
 function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
@@ -804,16 +897,480 @@ function ArticleModal({ article, onClose }: { article: NewsArticle; onClose: () 
 }
 
 function ArchiveView() {
+  // News_Updates state
+  const [newsBusy, setNewsBusy] = useState(false)
+  const [newsResult, setNewsResult] = useState<NewsUpdateResult | null>(null)
+  const [newsError, setNewsError] = useState<string | null>(null)
+
+  // EC_Gold_Events_Update state
+  const [ecBusy, setEcBusy] = useState(false)
+  const [ecResult, setEcResult] = useState<EcGoldUpdateResult | null>(null)
+  const [ecError, setEcError] = useState<string | null>(null)
+  const [ecProgress, setEcProgress] = useState<EcGoldProgress | null>(null)
+
+  // EC_Gold_events_storage state
+  const [ecStoreBusy, setEcStoreBusy] = useState(false)
+  const [ecStoreResult, setEcStoreResult] = useState<EcGoldStorageResult | null>(null)
+  const [ecStoreError, setEcStoreError] = useState<string | null>(null)
+  const [ecStoreProgress, setEcStoreProgress] = useState<EcGoldStorageProgress | null>(null)
+
+  // Gold DB timeframe stats (auto-loads on tab mount + refresh button)
+  const [tfStats, setTfStats] = useState<XauusdStatsResult | null>(null)
+  const [tfStatsBusy, setTfStatsBusy] = useState(false)
+  const [tfStatsError, setTfStatsError] = useState<string | null>(null)
+
+  const loadTfStats = async () => {
+    setTfStatsBusy(true); setTfStatsError(null)
+    try { setTfStats(await invoke<XauusdStatsResult>('get_xauusd_tf_stats')) }
+    catch (e) { setTfStatsError(String(e)) }
+    finally { setTfStatsBusy(false) }
+  }
+  useEffect(() => { loadTfStats() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
+
+  // Live backfill state: poll every 500 ms while the tab is open so the
+  // user sees the chunk-by-chunk progress of the background history backfill
+  // in near real-time. Auto-refreshes the TF stats panel too once backfill
+  // status flips to "complete" so the new row counts appear without a
+  // manual Refresh click.
+  const [backfill, setBackfill] = useState<BackfillState | null>(null)
+  const prevStatusRef = useRef<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const s = await invoke<BackfillState>('get_history_backfill_state')
+        if (cancelled) return
+        setBackfill(s)
+        // When backfill flips from running → complete, refresh the TF stats
+        // panel so the user sees the final row counts immediately.
+        if (prevStatusRef.current === 'running' && s.status === 'complete') {
+          loadTfStats()
+        }
+        prevStatusRef.current = s.status
+      } catch { /* ignore — backend may be starting up */ }
+    }
+    tick()
+    const id = window.setInterval(tick, 500)
+    return () => { cancelled = true; window.clearInterval(id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const runNewsUpdate = async () => {
+    setNewsBusy(true); setNewsError(null); setNewsResult(null)
+    try { setNewsResult(await invoke<NewsUpdateResult>('update_news_archive')) }
+    catch (e) { setNewsError(String(e)) }
+    finally { setNewsBusy(false) }
+  }
+
+  const runEcGoldUpdate = async () => {
+    setEcBusy(true); setEcError(null); setEcResult(null); setEcProgress(null)
+    // Subscribe to chunk-by-chunk progress events from the Rust side
+    // BEFORE we invoke, so we never miss the first chunk's event.
+    let unlisten: UnlistenFn | null = null
+    try {
+      unlisten = await listen<EcGoldProgress>('ec_gold_progress', (e) => {
+        setEcProgress(e.payload)
+      })
+      setEcResult(await invoke<EcGoldUpdateResult>('update_ec_gold_events'))
+    } catch (e) {
+      setEcError(String(e))
+    } finally {
+      if (unlisten) unlisten()
+      setEcBusy(false)
+      setEcProgress(null)  // hide the live bar — the result panel takes over
+    }
+  }
+
+  const runEcGoldStorage = async () => {
+    setEcStoreBusy(true); setEcStoreError(null); setEcStoreResult(null); setEcStoreProgress(null)
+    let unlisten: UnlistenFn | null = null
+    try {
+      unlisten = await listen<EcGoldStorageProgress>('ec_gold_storage_progress', (e) => {
+        setEcStoreProgress(e.payload)
+      })
+      setEcStoreResult(await invoke<EcGoldStorageResult>('store_ec_gold_events'))
+    } catch (e) {
+      setEcStoreError(String(e))
+    } finally {
+      if (unlisten) unlisten()
+      setEcStoreBusy(false)
+      setEcStoreProgress(null)
+    }
+  }
+
+  // Derived: percent + simple ETA from the latest progress event.
+  const ecPct = ecProgress
+    ? Math.min(100, Math.round((ecProgress.chunks_done / ecProgress.chunks_total) * 100))
+    : 0
+  const ecEtaSecs = ecProgress && ecProgress.chunks_done > 0
+    ? Math.round(ecProgress.elapsed_secs / ecProgress.chunks_done * (ecProgress.chunks_total - ecProgress.chunks_done))
+    : null
+
+  const ecStorePct = ecStoreProgress
+    ? Math.min(100, Math.round((ecStoreProgress.files_done / ecStoreProgress.files_total) * 100))
+    : 0
+  const ecStoreEtaSecs = ecStoreProgress && ecStoreProgress.files_done > 0
+    ? Math.round(ecStoreProgress.elapsed_secs / ecStoreProgress.files_done
+                 * (ecStoreProgress.files_total - ecStoreProgress.files_done))
+    : null
+
+  return (
+    <div className="archive">
+      <h3>Gold DB timeframe states</h3>
+      <p className="muted">
+        One row per <code>xauusd_&lt;tf&gt;</code> table — bars stored, coverage span,
+        and how stale the newest bar is. Tail freshness is colour-coded against the
+        bar width: green if &lt; 2 bars old, amber if &lt; 10, red otherwise. The market
+        state is shown above the table since "stale" is expected during weekend closure.
+      </p>
+
+      <div className="archive-actions">
+        <button className="btn" onClick={loadTfStats} disabled={tfStatsBusy}>
+          {tfStatsBusy ? 'Loading…' : 'Refresh DB stats'}
+        </button>
+        <button
+          className="btn"
+          onClick={async () => {
+            try { await invoke<string>('start_history_backfill') }
+            catch (e) { alert('Start failed: ' + String(e)) }
+          }}
+          disabled={backfill?.status === 'running'}
+        >
+          {backfill?.status === 'running'
+            ? `Updating… (${backfill.current_tf?.toUpperCase() ?? '...'} in progress)`
+            : 'XAUUSD_History_Update'}
+        </button>
+      </div>
+
+      {tfStatsError && <div className="archive-result err">Error: {tfStatsError}</div>}
+
+      {tfStats && (
+        <div className="tf-stats-panel">
+          <div className="tf-stats-meta muted small">
+            Market: <strong className={tfStats.market_state === 'live' ? 'ok' : 'err'}>
+              {tfStats.market_state}
+            </strong>
+            {' · queried at '}
+            {tfStats.queried_at_utc.slice(11, 19)} UTC
+          </div>
+          <table className="tf-stats">
+            <thead>
+              <tr>
+                <th>TF</th>
+                <th className="right">Bars</th>
+                <th>Oldest (UTC)</th>
+                <th>Newest (UTC)</th>
+                <th className="right">Coverage</th>
+                <th className="right">Tail age</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tfStats.timeframes.map(s => {
+                const ageClass =
+                  s.tail_age_secs == null   ? 'tail-empty' :
+                  s.tail_age_secs < s.bar_secs * 2  ? 'tail-fresh' :
+                  s.tail_age_secs < s.bar_secs * 10 ? 'tail-amber' :
+                                                     'tail-stale'
+                return (
+                  <tr key={s.timeframe}>
+                    <td><strong>{s.timeframe}</strong></td>
+                    <td className="right">{s.rows.toLocaleString()}</td>
+                    <td>{s.oldest ? s.oldest.replace('T', ' ') : '—'}</td>
+                    <td>{s.newest ? s.newest.replace('T', ' ') : '—'}</td>
+                    <td className="right">
+                      {s.coverage_days != null
+                        ? (s.coverage_days >= 365
+                            ? `${(s.coverage_days / 365).toFixed(1)}y`
+                            : `${s.coverage_days.toFixed(1)}d`)
+                        : '—'}
+                    </td>
+                    <td className={`right ${ageClass}`}>
+                      {s.tail_age_secs == null ? '—' : formatAge(s.tail_age_secs)}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h3 style={{ marginTop: 28 }}>Current fetching state</h3>
+      <p className="muted">
+        Live snapshot of the background history-backfill loop (auto-refreshed
+        every 500 ms). Shows which timeframe it's currently walking, how many
+        chunks have landed for that TF, and the cumulative bars across the
+        whole run.
+      </p>
+
+      {backfill && (
+        <div className="archive-result">
+          <div>
+            <strong>Status:</strong>{' '}
+            <span className={
+              backfill.status === 'running'  ? 'tail-amber' :
+              backfill.status === 'complete' ? 'tail-fresh' :
+              backfill.status === 'error'    ? 'tail-stale' : ''
+            }>
+              {backfill.status === 'running' && (backfill.current_tf
+                ? `running — ${backfill.current_tf.toUpperCase()} (mode: ${backfill.current_mode ?? '?'})`
+                : 'running — waiting to start next TF')}
+              {backfill.status === 'complete' && '✓ complete'}
+              {backfill.status === 'error' && `error: ${backfill.last_error ?? 'unknown'}`}
+              {backfill.status === 'idle' && 'idle (no backfill in progress)'}
+            </span>
+          </div>
+
+          {backfill.current_tf && (
+            <>
+              <div>
+                <strong>Current TF chunks:</strong>{' '}
+                {backfill.chunks_this_tf.toLocaleString()} chunks ·{' '}
+                {backfill.bars_this_tf.toLocaleString()} bars
+                {backfill.last_chunk_oldest_utc &&
+                  ` · oldest bar so far: ${backfill.last_chunk_oldest_utc.replace('T', ' ')} UTC`}
+              </div>
+            </>
+          )}
+
+          <div>
+            <strong>Overall progress:</strong>{' '}
+            {backfill.tfs_completed.length + backfill.tfs_skipped.length} / {backfill.tfs_total} TFs
+            {backfill.tfs_skipped.length > 0 &&
+              ` (${backfill.tfs_skipped.length} skipped as already complete)`}
+          </div>
+
+          <div>
+            <strong>Total bars added this run:</strong>{' '}
+            {backfill.total_bars.toLocaleString()}
+          </div>
+
+          {backfill.tfs_completed.length > 0 && (
+            <div className="muted small" style={{ marginTop: 4 }}>
+              Completed: {backfill.tfs_completed.map(t => t.toUpperCase()).join(', ')}
+            </div>
+          )}
+          {backfill.tfs_skipped.length > 0 && (
+            <div className="muted small">
+              Skipped: {backfill.tfs_skipped.map(t => t.toUpperCase()).join(', ')}
+            </div>
+          )}
+
+          {backfill.started_at_utc && (
+            <div className="muted small" style={{ marginTop: 6 }}>
+              Started: {backfill.started_at_utc.slice(0, 19).replace('T', ' ')} UTC
+              {backfill.completed_at_utc &&
+                ` · Finished: ${backfill.completed_at_utc.slice(0, 19).replace('T', ' ')} UTC`}
+            </div>
+          )}
+        </div>
+      )}
+
+      <h3 style={{ marginTop: 28 }}>News Archives</h3>
+      <p className="muted">
+        Detects the newest day file under <code>news_data/all/</code>, reads its latest
+        article time, then fetches every newer article from FXStreet and (re)writes
+        one JSON file per affected day up to today.
+      </p>
+
+      <div className="archive-actions">
+        <button className="btn" onClick={runNewsUpdate} disabled={newsBusy}>
+          {newsBusy ? 'Updating… (this can take a minute)' : 'News_Updates'}
+        </button>
+      </div>
+
+      {newsError && <div className="archive-result err">Error: {newsError}</div>}
+
+      {newsResult && (
+        <div className={`archive-result ${newsResult.rate_limited ? 'err' : 'ok'}`}>
+          <div>
+            <strong>Last archive day:</strong> {newsResult.last_archive_day ?? '(none — first run)'}
+          </div>
+          <div>
+            <strong>Cutoff used:</strong> {newsResult.cutoff}
+          </div>
+          <div>
+            <strong>Articles fetched:</strong> {newsResult.articles_fetched}
+          </div>
+          <div>
+            <strong>Bodies:</strong> {newsResult.bodies_fetched} fetched
+            {newsResult.bodies_empty > 0 && `, ${newsResult.bodies_empty} empty`}
+            {newsResult.bodies_failed > 0 && `, ${newsResult.bodies_failed} failed`}
+          </div>
+          <div>
+            <strong>Day files written:</strong> {newsResult.days_written.length}
+          </div>
+          {newsResult.days_written.length > 0 && (
+            <ul className="archive-days">
+              {newsResult.days_written.map(([day, count]) => (
+                <li key={day}><code>{day}.json</code> — {count} articles</li>
+              ))}
+            </ul>
+          )}
+          {newsResult.message && <div className="muted small">{newsResult.message}</div>}
+        </div>
+      )}
+
+      <h3 style={{ marginTop: 28 }}>Gold EC Events</h3>
+      <p className="muted">
+        Creates <code>xauusd_economic_calendar</code> if it doesn't exist and walks
+        FXStreet from 2009-01-01 → today, upserting every event for
+        <strong> USD, EUR, GBP, JPY, CHF, AUD, CNY</strong> (all impact levels: low,
+        medium, high). On a re-click, resumes from the last stored timestamp + 1 day.
+        First run takes ~2 minutes; subsequent clicks are near-instant.
+      </p>
+
+      <div className="archive-actions">
+        <button className="btn" onClick={runEcGoldUpdate} disabled={ecBusy || ecStoreBusy}>
+          {ecBusy ? 'Updating… (first run takes ~2 min)' : 'EC_Gold_Events_Update'}
+        </button>
+        <button className="btn" onClick={runEcGoldStorage} disabled={ecBusy || ecStoreBusy}>
+          {ecStoreBusy ? 'Writing files…' : 'EC_Gold_events_storage'}
+        </button>
+      </div>
+
+      {ecBusy && ecProgress && (
+        <div className="archive-result">
+          <div>
+            <strong>Chunk {ecProgress.chunks_done} / {ecProgress.chunks_total}</strong>
+            {' — '}{ecProgress.current_chunk_start} → {ecProgress.current_chunk_end}
+          </div>
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${ecPct}%` }} />
+            <div className="progress-label">{ecPct}%</div>
+          </div>
+          <div className="muted small">
+            {ecProgress.rows_added_so_far.toLocaleString()} rows added · {ecProgress.elapsed_secs}s elapsed
+            {ecEtaSecs != null && ` · ~${ecEtaSecs}s remaining`}
+          </div>
+        </div>
+      )}
+
+      {ecError && <div className="archive-result err">Error: {ecError}</div>}
+
+      {ecResult && (
+        <div className={`archive-result ${ecResult.error ? 'err' : 'ok'}`}>
+          <div>
+            <strong>Table existed before run:</strong> {ecResult.table_existed ? 'yes' : 'no — created this run'}
+          </div>
+          <div>
+            <strong>Walked:</strong> {ecResult.walk_start} → {ecResult.walk_end}
+          </div>
+          <div>
+            <strong>Chunks processed:</strong> {ecResult.chunks_processed}
+            {' '}({(ecResult.duration_ms / 1000).toFixed(1)}s wallclock)
+          </div>
+          <div>
+            <strong>Rows added this click:</strong> {ecResult.rows_added_this_call.toLocaleString()}
+          </div>
+          <div>
+            <strong>Total rows in table:</strong> {ecResult.total_rows.toLocaleString()}
+          </div>
+          {ecResult.oldest_in_db && (
+            <div>
+              <strong>Coverage:</strong> {ecResult.oldest_in_db.slice(0, 10)} → {ecResult.newest_in_db?.slice(0, 10)}
+            </div>
+          )}
+          {ecResult.error && <div className="muted small">⚠ Partial: {ecResult.error}</div>}
+        </div>
+      )}
+
+      {ecStoreBusy && ecStoreProgress && (
+        <div className="archive-result">
+          <div>
+            <strong>Writing file {ecStoreProgress.files_done} / {ecStoreProgress.files_total}</strong>
+            {' — '}{ecStoreProgress.current_day}.json
+          </div>
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${ecStorePct}%` }} />
+            <div className="progress-label">{ecStorePct}%</div>
+          </div>
+          <div className="muted small">
+            {ecStoreProgress.events_written_so_far.toLocaleString()} events ·
+            {' '}{ecStoreProgress.elapsed_secs}s elapsed
+            {ecStoreEtaSecs != null && ecStoreEtaSecs > 0 && ` · ~${ecStoreEtaSecs}s remaining`}
+          </div>
+        </div>
+      )}
+
+      {ecStoreError && <div className="archive-result err">Error: {ecStoreError}</div>}
+
+      {ecStoreResult && (
+        <div className={`archive-result ${ecStoreResult.error ? 'err' : 'ok'}`}>
+          <div>
+            <strong>Mode:</strong> {ecStoreResult.incremental ? 'incremental update' : 'first run (full archive)'}
+            {ecStoreResult.up_to_date && ' — all files already current ✓'}
+          </div>
+          {ecStoreResult.disk_latest_day_before && (
+            <div>
+              <strong>Latest day on disk before run:</strong> {ecStoreResult.disk_latest_day_before}
+            </div>
+          )}
+          {ecStoreResult.db_latest_day && (
+            <div>
+              <strong>Latest day in DB:</strong> {ecStoreResult.db_latest_day}
+            </div>
+          )}
+          <div>
+            <strong>Files written this click:</strong> {ecStoreResult.files_written.toLocaleString()}
+            {ecStoreResult.events_written > 0 &&
+              ` (${ecStoreResult.events_written.toLocaleString()} events)`}
+          </div>
+          {ecStoreResult.incremental && (
+            <div>
+              <strong>Days already current (skipped):</strong> {ecStoreResult.days_already_current.toLocaleString()}
+            </div>
+          )}
+          <div>
+            <strong>Duration:</strong> {(ecStoreResult.duration_ms / 1000).toFixed(2)}s
+          </div>
+          <div>
+            <strong>Archive root:</strong> <code>{ecStoreResult.archive_root}</code>
+          </div>
+          {ecStoreResult.error && <div className="muted small">⚠ Partial: {ecStoreResult.error}</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TradeIdeasView() {
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<NewsUpdateResult | null>(null)
+  const [result, setResult] = useState<TradeIdeaResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+
+  // Poll the global backfill state so we can show a small live indicator and
+  // disable Gold_Trade_Ideas while a backfill is mid-flight (avoids racing
+  // a Claude call against an in-progress DB update).
+  const [backfill, setBackfill] = useState<BackfillState | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const s = await invoke<BackfillState>('get_history_backfill_state')
+        if (!cancelled) setBackfill(s)
+      } catch { /* ignore */ }
+    }
+    tick()
+    const id = window.setInterval(tick, 500)
+    return () => { cancelled = true; window.clearInterval(id) }
+  }, [])
+
+  const backfillRunning = backfill?.status === 'running'
 
   const runUpdate = async () => {
-    setBusy(true)
-    setError(null)
-    setResult(null)
     try {
-      const r = await invoke<NewsUpdateResult>('update_news_archive')
+      await invoke<string>('start_history_backfill')
+    } catch (e) {
+      alert('Update failed to start: ' + String(e))
+    }
+  }
+
+  const runIdea = async () => {
+    setBusy(true); setError(null); setResult(null); setOpen(true)
+    try {
+      const r = await invoke<TradeIdeaResult>('get_gold_trade_idea')
       setResult(r)
     } catch (e) {
       setError(String(e))
@@ -824,52 +1381,167 @@ function ArchiveView() {
 
   return (
     <div className="archive">
-      <h3>News Archives</h3>
+      <h3>XAUUSD Trade Ideas</h3>
       <p className="muted">
-        Detects the newest day file under <code>news_data/all/</code>, reads its latest
-        article time, then fetches every newer article from FXStreet and (re)writes
-        one JSON file per affected day up to today.
+        Snapshots your current price, multi-timeframe candles, today's high-impact
+        EC events, and today's gold-relevant news (with article bodies), then asks
+        Claude for a structured trade idea: bias / entry / stop / target / rationale.
+        Read-only — no orders are placed.
+      </p>
+      <p className="muted small">
+        <strong>Tip:</strong> click <em>XAUUSD_History_Update</em> first to top up
+        the price tables with the latest bars from cTrader, then ask Claude.
       </p>
 
       <div className="archive-actions">
-        <button className="btn" onClick={runUpdate} disabled={busy}>
-          {busy ? 'Updating… (this can take a minute)' : 'News_Updates'}
+        <button
+          className="btn"
+          onClick={runUpdate}
+          disabled={backfillRunning || busy}
+        >
+          {backfillRunning
+            ? `Updating… (${backfill?.current_tf?.toUpperCase() ?? '...'}${backfill?.current_mode ? ` · ${backfill.current_mode}` : ''})`
+            : 'XAUUSD_History_Update'}
+        </button>
+        <button
+          className="btn"
+          onClick={runIdea}
+          disabled={busy || backfillRunning}
+        >
+          {busy ? 'Asking Claude…' : 'Gold_Trade_Ideas'}
         </button>
       </div>
 
-      {error && <div className="archive-result err">Error: {error}</div>}
-
-      {result && (
-        <div className={`archive-result ${result.rate_limited ? 'err' : 'ok'}`}>
-          <div>
-            <strong>Last archive day:</strong> {result.last_archive_day ?? '(none — first run)'}
+      {backfillRunning && backfill && (
+        <div className="archive-result">
+          <div className="muted small">
+            <strong>Live update in progress.</strong>
+            {' '}
+            {backfill.tfs_completed.length + backfill.tfs_skipped.length} / {backfill.tfs_total} TFs · {' '}
+            +{backfill.total_bars.toLocaleString()} bars this run
+            {backfill.current_tf && backfill.bars_this_tf > 0 &&
+              ` · current TF: ${backfill.current_tf.toUpperCase()} (+${backfill.bars_this_tf.toLocaleString()})`}
           </div>
-          <div>
-            <strong>Cutoff used:</strong> {result.cutoff}
-          </div>
-          <div>
-            <strong>Articles fetched:</strong> {result.articles_fetched}
-          </div>
-          <div>
-            <strong>Bodies:</strong> {result.bodies_fetched} fetched
-            {result.bodies_empty > 0 && `, ${result.bodies_empty} empty`}
-            {result.bodies_failed > 0 && `, ${result.bodies_failed} failed`}
-          </div>
-          <div>
-            <strong>Day files written:</strong> {result.days_written.length}
-          </div>
-          {result.days_written.length > 0 && (
-            <ul className="archive-days">
-              {result.days_written.map(([day, count]) => (
-                <li key={day}><code>{day}.json</code> — {count} articles</li>
-              ))}
-            </ul>
-          )}
-          {result.message && <div className="muted small">{result.message}</div>}
         </div>
+      )}
+
+      {open && (
+        <TradeIdeaModal
+          busy={busy}
+          result={result}
+          error={error}
+          onClose={() => setOpen(false)}
+        />
       )}
     </div>
   )
+}
+
+function TradeIdeaModal({
+  busy, result, error, onClose,
+}: { busy: boolean; result: TradeIdeaResult | null; error: string | null; onClose: () => void }) {
+  // Close on Esc
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose, busy])
+
+  // Live phase updates from the backend (DuckDB snapshot → Claude call → result).
+  // Backend emits `trade_idea_phase` with { label, elapsed_secs } at each step.
+  const [phase, setPhase] = useState<{ label: string; elapsed: number } | null>(null)
+  const [phaseLog, setPhaseLog] = useState<{ label: string; elapsed: number }[]>([])
+  const [elapsedSecs, setElapsedSecs] = useState(0)
+  useEffect(() => {
+    if (!busy) return
+    setPhase(null)
+    setPhaseLog([])
+    setElapsedSecs(0)
+    const startedAt = Date.now()
+    let unlisten: UnlistenFn | null = null
+    let cancelled = false
+    ;(async () => {
+      const fn = await listen<{ label: string; elapsed_secs: number }>('trade_idea_phase', (e) => {
+        const entry = { label: e.payload.label, elapsed: e.payload.elapsed_secs }
+        setPhase(entry)
+        setPhaseLog((prev) => [...prev, entry])
+      })
+      if (cancelled) fn(); else unlisten = fn
+    })()
+    // Local 1s stopwatch — independent of backend emits so the clock keeps moving.
+    const id = window.setInterval(() => {
+      setElapsedSecs(Math.floor((Date.now() - startedAt) / 1000))
+    }, 1000)
+    return () => {
+      cancelled = true
+      if (unlisten) unlisten()
+      window.clearInterval(id)
+    }
+  }, [busy])
+
+  const mm = Math.floor(elapsedSecs / 60)
+  const ss = elapsedSecs % 60
+  const elapsedStr = `${mm}:${ss.toString().padStart(2, '0')}`
+
+  return (
+    <div className="modal-backdrop" onClick={busy ? undefined : onClose}>
+      <div className="modal trade-idea-modal" onClick={(e) => e.stopPropagation()}>
+        {!busy && (
+          <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+        )}
+        {busy && (
+          <div className="trade-idea-loading">
+            <div className="spinner" />
+            <div className="trade-idea-loading-text">
+              <strong>Asking Claude for an XAUUSD trade idea… ({elapsedStr})</strong>
+              <div className="muted small">
+                {phase?.label ?? 'Starting up — gathering snapshot from DuckDB…'}
+              </div>
+              {phaseLog.length > 1 && (
+                <ul className="phase-log">
+                  {phaseLog.slice(0, -1).map((p, i) => (
+                    <li key={i} className="muted small">
+                      <span className="phase-check">✓</span> {p.label}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+        {!busy && error && (
+          <div className="trade-idea-body">
+            <h2 className="modal-title">Error</h2>
+            <pre className="err" style={{ whiteSpace: 'pre-wrap' }}>{error}</pre>
+          </div>
+        )}
+        {!busy && result && (
+          <div className="trade-idea-body markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {result.markdown}
+            </ReactMarkdown>
+            <div className="muted small trade-idea-footer">
+              {result.ok
+                ? `Model: ${result.model} · ${(result.duration_ms / 1000).toFixed(1)}s`
+                : 'Failed — see message above'}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function formatAge(secs: number): string {
+  if (secs < 0) return 'future?'
+  if (secs < 60) return `${secs}s`
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`
+  if (secs < 86400) {
+    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60)
+    return `${h}h${m ? ` ${m}m` : ''}`
+  }
+  const d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600)
+  return `${d}d${h ? ` ${h}h` : ''}`
 }
 
 function formatTime(isoUtc: string): string {

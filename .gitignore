@@ -39,5 +39,8 @@ econcal_comparison_*.txt
 FXSTREET_CONTEXT.md
 nul
 
-# Generated news archive (rebuilt from DB via Archive tab)
+# Generated news archive (rebuilt from DB via Archives tab)
 news_data/
+
+# Generated EC events archive (rebuilt from DB via Archives tab)
+ec_events_data/

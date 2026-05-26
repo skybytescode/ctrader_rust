@@ -555,3 +555,198 @@ html, body, #root {
 .archive-days code {
   background: #1a1c22; padding: 1px 5px; border-radius: 3px; color: #b8860b;
 }
+
+/* Live progress bar for long-running Archives tasks (EC_Gold_Events_Update). */
+.progress-bar {
+  position: relative;
+  height: 18px;
+  margin: 8px 0 6px;
+  background: #1a1c22;
+  border: 1px solid #2a2d35;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #b8860b 0%, #d4a017 100%);
+  transition: width 0.25s ease-out;
+}
+.progress-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #f4f4f5;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+}
+
+/* Trade Ideas modal — Claude's structured trade idea popup. */
+.trade-idea-modal {
+  max-width: 820px;
+  width: calc(100% - 80px);
+  max-height: calc(100% - 80px);
+}
+.trade-idea-loading {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 40px 24px;
+}
+.trade-idea-loading-text {
+  flex: 1;
+  min-width: 0;
+}
+.phase-log {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  border-top: 1px solid #25272d;
+  padding-top: 10px;
+}
+.phase-log li {
+  padding: 3px 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.phase-check {
+  color: #4ade80;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #2a2d35;
+  border-top-color: #b8860b;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.trade-idea-body {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.trade-idea-footer {
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid #25272d;
+  text-align: right;
+}
+
+/* Markdown rendering inside the trade-idea modal. */
+.markdown-body {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #d4d4d8;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  color: #f4f4f5;
+  margin: 18px 0 10px;
+  font-weight: 600;
+}
+.markdown-body h1 { font-size: 18px; border-bottom: 1px solid #25272d; padding-bottom: 6px; margin-top: 0; }
+.markdown-body h2 { font-size: 15px; color: #b8860b; }
+.markdown-body h3 { font-size: 13px; }
+.markdown-body p  { margin: 8px 0; }
+.markdown-body ul, .markdown-body ol { padding-left: 20px; margin: 6px 0; }
+.markdown-body li { margin: 2px 0; }
+.markdown-body strong { color: #f4f4f5; }
+.markdown-body code {
+  background: #1a1c22;
+  color: #b8860b;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+.markdown-body pre {
+  background: #131418;
+  border: 1px solid #25272d;
+  border-radius: 6px;
+  padding: 10px 14px;
+  overflow-x: auto;
+  font-size: 11.5px;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  color: #d4d4d8;
+}
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 12.5px;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid #25272d;
+  padding: 6px 10px;
+  text-align: left;
+}
+.markdown-body th {
+  background: #1a1c22;
+  color: #f4f4f5;
+  font-weight: 600;
+}
+.markdown-body blockquote {
+  border-left: 3px solid #b8860b;
+  padding-left: 12px;
+  color: #a1a1aa;
+  margin: 8px 0;
+}
+
+/* Gold DB timeframe stats panel (Archives tab) */
+.tf-stats-panel {
+  margin-top: 12px;
+}
+.tf-stats-meta {
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: #131418;
+  border: 1px solid #25272d;
+  border-radius: 4px;
+  display: inline-block;
+}
+.tf-stats-meta .ok { color: #2dd47b; }
+.tf-stats-meta .err { color: #f87171; }
+table.tf-stats {
+  width: 100%;
+  max-width: 720px;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+table.tf-stats th {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b7280;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-bottom: 1px solid #25272d;
+}
+table.tf-stats td {
+  padding: 5px 10px;
+  border-bottom: 1px solid #1a1c22;
+  color: #d4d4d8;
+}
+table.tf-stats td.right, table.tf-stats th.right { text-align: right; }
+table.tf-stats td .tail-fresh,
+table.tf-stats td.tail-fresh { color: #2dd47b; font-weight: 600; }
+table.tf-stats td .tail-amber,
+table.tf-stats td.tail-amber { color: #f59e0b; font-weight: 600; }
+table.tf-stats td .tail-stale,
+table.tf-stats td.tail-stale { color: #f87171; font-weight: 600; }
+table.tf-stats td .tail-empty,
+table.tf-stats td.tail-empty { color: #6b7280; }

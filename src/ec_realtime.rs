@@ -112,7 +112,13 @@ pub async fn fetch_events_for_date(start: &str, end: &str) -> Result<Vec<EcRow>,
 fn parse_event(ev: EcEvent) -> Option<EcRow> {
     let inner = ev.event.as_ref()?;
     let currency = inner.currency_id.as_deref().unwrap_or("");
-    if currency != "EUR" && currency != "USD" {
+    // No source-side currency filter — the parser returns every event the
+    // proxy gives us. Downstream writers apply their own filters:
+    //   - `write_ec_to_db` keeps only EUR + USD (legacy eurusd_* tables,
+    //     Calendar tab behavior unchanged)
+    //   - `upsert_xauusd_ec` keeps USD/EUR/GBP/JPY/CHF/AUD/CNY (gold-focused
+    //     xauusd_economic_calendar)
+    if currency.is_empty() {
         return None;
     }
 
@@ -208,7 +214,11 @@ pub fn write_ec_to_db(db: &duckdb::Connection, rows: &[EcRow]) -> Result<usize, 
     let insert_today = "INSERT INTO eurusd_ec_today VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     let mut inserted = 0usize;
 
-    for r in rows {
+    // The parser used to drop non-EUR/USD events at source. It now returns
+    // every currency (so the gold bootstrap can see GBP/JPY/CHF/AUD/CNY)
+    // and the EUR/USD filter moved here — the Calendar tab's source tables
+    // stay EUR/USD-only.
+    for r in rows.iter().filter(|r| r.currency == "EUR" || r.currency == "USD") {
         let params = duckdb::params![
             r.event_date_id,
             r.event_id,
@@ -255,7 +265,7 @@ pub fn write_ec_to_db(db: &duckdb::Connection, rows: &[EcRow]) -> Result<usize, 
         println!("EC: {} events in today table", inserted);
         return Ok(inserted);
     }
-    for r in rows {
+    for r in rows.iter().filter(|r| r.currency == "EUR" || r.currency == "USD") {
         // Try INSERT, on conflict UPDATE actual/forecast/previous/surprise/beats
         let upsert = "
             INSERT INTO eurusd_economic_calendar
@@ -301,25 +311,38 @@ pub fn write_ec_to_db(db: &duckdb::Connection, rows: &[EcRow]) -> Result<usize, 
         }
     }
 
-    println!("EC: {} events in today table, {} upserted to historical", inserted, historical_updated);
+    // Also keep `xauusd_economic_calendar` current with today's gold-relevant
+    // events. The Calendar tab reads from this table now (filtered to today),
+    // so it must be refreshed on every live EC cycle alongside the legacy
+    // EUR/USD tables above. Filters to the gold currency set internally.
+    let xau_written = upsert_xauusd_ec(db, rows).unwrap_or(0);
+
+    println!("EC: {} events in today table, {} upserted to historical, {} to xauusd_economic_calendar",
+             inserted, historical_updated, xau_written);
     Ok(inserted)
 }
 
-/// Read raw event data from `eurusd_ec_today` for client-side countdown.
+/// Read today's event data from `xauusd_economic_calendar` for the Calendar
+/// tab. The tab now sources from the gold-focused historical table (filtered
+/// to today's UTC date), which covers all 7 gold-relevant currencies
+/// (USD/EUR/GBP/JPY/CHF/AUD/CNY) instead of just EUR + USD. The wire format
+/// is unchanged — same 8-tuple per row, same WS message type, same UI.
 pub fn read_ec_today_raw(db: &duckdb::Connection)
     -> Vec<(String, String, i32, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>)>
 {
+    let today = Utc::now().format("%Y-%m-%d").to_string();
     let query = "
         SELECT timestamp_utc, currency, volatility, event_name,
                actual, forecast, previous, surprise
-        FROM eurusd_ec_today
+        FROM xauusd_economic_calendar
+        WHERE substr(timestamp_utc, 1, 10) = ?
         ORDER BY timestamp_utc
     ";
     let mut stmt = match db.prepare(query) {
         Ok(s) => s,
         Err(_) => return Vec::new(),
     };
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map([today.as_str()], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -548,4 +571,97 @@ pub fn read_ec_today(db: &duckdb::Connection) -> Vec<String> {
         lines.push("No EC events for today".to_string());
     }
     lines
+}
+
+// ── Gold-focused historical EC table ──────────────────────────────────────────
+//
+// Sibling of `eurusd_economic_calendar` filtered to currencies that move
+// XAUUSD: USD (Fed/inflation/jobs), the major DXY components
+// (EUR/GBP/JPY/CHF), AUD (#2 gold producer, AUD/gold correlation), and CNY
+// (#1 physical gold consumer). All impact levels (low + medium + high) are
+// kept — even low-impact prints sometimes shift gold via flow effects, and
+// the full set is useful for downstream feature engineering.
+
+pub const XAUUSD_EC_TABLE: &str = "xauusd_economic_calendar";
+pub const XAUUSD_EC_CURRENCIES: &[&str] = &["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "CNY"];
+
+const CREATE_XAUUSD_EC: &str = "
+CREATE TABLE IF NOT EXISTS xauusd_economic_calendar (
+    event_date_id   VARCHAR PRIMARY KEY,
+    event_id        VARCHAR NOT NULL,
+    event_name      VARCHAR NOT NULL,
+    currency        VARCHAR NOT NULL,
+    country_code    VARCHAR NOT NULL,
+    volatility      TINYINT NOT NULL,
+    timestamp_utc   VARCHAR NOT NULL,
+    weekday         TINYINT NOT NULL,
+    hour_utc        TINYINT NOT NULL,
+    actual_raw      VARCHAR,
+    forecast_raw    VARCHAR,
+    previous_raw    VARCHAR,
+    actual          DOUBLE,
+    forecast        DOUBLE,
+    previous        DOUBLE,
+    surprise        DOUBLE,
+    beats_forecast  TINYINT,
+    unit            VARCHAR
+)
+";
+
+/// Create the gold-EC table if it doesn't exist. Idempotent.
+pub fn create_xauusd_ec_table(db: &duckdb::Connection) -> Result<(), String> {
+    db.execute_batch(CREATE_XAUUSD_EC).map_err(|e| format!("create xauusd_economic_calendar: {}", e))
+}
+
+/// Filter a batch of EcRows down to the gold-relevant currency set
+/// (USD/EUR/GBP/JPY/CHF/AUD/CNY — every impact level kept) and upsert
+/// them into `xauusd_economic_calendar`. Returns rows actually written.
+pub fn upsert_xauusd_ec(db: &duckdb::Connection, rows: &[EcRow]) -> Result<usize, String> {
+    create_xauusd_ec_table(db)?;
+
+    let upsert = "
+        INSERT INTO xauusd_economic_calendar
+            (event_date_id, event_id, event_name, currency, country_code,
+             volatility, timestamp_utc, weekday, hour_utc,
+             actual_raw, forecast_raw, previous_raw,
+             actual, forecast, previous, surprise, beats_forecast, unit)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT (event_date_id) DO UPDATE SET
+            actual_raw     = EXCLUDED.actual_raw,
+            forecast_raw   = EXCLUDED.forecast_raw,
+            previous_raw   = EXCLUDED.previous_raw,
+            actual         = EXCLUDED.actual,
+            forecast       = EXCLUDED.forecast,
+            previous       = EXCLUDED.previous,
+            surprise       = EXCLUDED.surprise,
+            beats_forecast = EXCLUDED.beats_forecast
+    ";
+
+    let mut written = 0usize;
+    for r in rows.iter().filter(|r| XAUUSD_EC_CURRENCIES.contains(&r.currency.as_str())) {
+        let params = duckdb::params![
+            r.event_date_id,
+            r.event_id,
+            r.event_name,
+            r.currency,
+            r.country_code,
+            r.volatility as i32,
+            r.timestamp_utc,
+            r.weekday as i32,
+            r.hour_utc as i32,
+            r.actual_raw,
+            r.forecast_raw,
+            r.previous_raw,
+            r.actual,
+            r.forecast,
+            r.previous,
+            r.surprise,
+            r.beats_forecast.map(|v| v as i32),
+            None::<String>,
+        ];
+        if db.execute(upsert, params).is_ok() {
+            written += 1;
+        }
+    }
+    Ok(written)
 }
