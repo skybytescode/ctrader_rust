@@ -7,11 +7,11 @@ local cache, economic calendar, and news pipeline — all in one desktop app.
 ## Live Data Pipelines
 
 The frontend exposes four tabs — **Dashboard** (XAUUSD chart), **Calendar**
-(EC events), **News** (today's headlines), and **Archives** (per-day news
-JSON dump). Two of these are backed by always-on Rust loops that ingest from
-FXStreet via the bundled econcal proxy on `localhost:6000` (auto-spawned
-on app start). The Dashboard chart is fed by a per-(symbol, timeframe)
-DuckDB cache plus live spot ticks from cTrader.
+(EC events), **News** (today's headlines), and **Trade Ideas** (Claude-powered
+XAUUSD trade plan). The Calendar and News tabs are backed by always-on Rust
+loops that ingest from FXStreet via the bundled econcal proxy on
+`localhost:6000` (auto-spawned on app start). The Dashboard chart is fed
+live from the cTrader OpenAPI on every request.
 
 ---
 
@@ -87,13 +87,11 @@ on startup.
 ### 2. News
 
 Fetches FXStreet's general news feed via the econcal proxy (`localhost:6000`),
-stores metadata + plain-text bodies in DuckDB, exposes a live **News** tab
-in the UI, and (on demand via the **Archives** tab) dumps one JSON file per
-UTC day under `news_data/all/YYYY-MM/YYYY-MM-DD.json` for downstream readers
-(model summaries, RAG, future ML training).
+stores metadata + plain-text bodies in DuckDB, and exposes a live **News** tab
+in the UI.
 
-The same DuckDB row is the source of truth for the live UI, the on-demand
-article modal, and the per-day JSON archive — there is no separate news state.
+The DuckDB row is the source of truth for the live UI and the on-demand
+article modal — there is no separate news state.
 
 **How it works:**
 
@@ -143,52 +141,6 @@ to ~133 days (the 200-page × 50-article ceiling).
 | `weekday` | TINYINT | 0 = Mon … 6 = Sun |
 | `body` | VARCHAR | `NULL` = never fetched, `''` = FXStreet had no body, otherwise full plain text |
 
-**Archives tab — `News_Updates` button**
-
-A single-button workflow that takes whatever's in `news_historical` and
-produces / refreshes the per-day JSON files on disk, fetching missing
-bodies in the process:
-
-1. Walk `news_data/all/YYYY-MM/` to find the newest `YYYY-MM-DD.json`.
-2. Parse it, read `max(article.published_utc)` → that's the cutoff. (If no
-   archive file exists yet, cutoff defaults to 7 days ago.)
-3. `ensure_econcal_alive()` — respawn the proxy if it's down.
-4. `fetch_news_since(cutoff)` → upsert metadata for everything newer.
-5. For every article in the affected days that still has `body IS NULL`
-   (whether it landed via the 5-min loop or this fetch), call the
-   per-article body fetcher **sequentially** (concurrency 1 — the puppeteer
-   proxy serialises requests internally; higher concurrency confuses its
-   shared page state).
-6. `UPDATE news_historical SET body = ?` for each result. Failures leave
-   `body=NULL` so the next click retries. HTTP 429 aborts the body loop
-   gracefully — the day files still get written with whatever bodies we
-   already had, and the UI shows the retry-after time.
-7. Regenerate one JSON file per affected day from `news_historical`.
-
-**Per-day JSON file format** (`news_data/all/YYYY-MM/YYYY-MM-DD.json`):
-
-```json
-{
-  "date": "2026-05-22",
-  "count": 102,
-  "generated_at": "2026-05-22T15:08:50.696Z",
-  "articles": [
-    {
-      "article_id": "e91769a6-…",
-      "title": "…",
-      "published_utc": "2026-05-22T07:14:00",
-      "summary": "…",
-      "url": "https://www.fxstreet.com/news/…",
-      "author": "…",
-      "tags": "Currencies,Commodities,…",
-      "hour_utc": 7,
-      "weekday": 4,
-      "body": "Full plain text article body…"
-    }
-  ]
-}
-```
-
 **Data flow:**
 
 ```
@@ -201,14 +153,9 @@ DuckDB news_historical  (upsert; bodies preserved across upserts)
     +--> read_news_today() --> WS "news_today" --> React <NewsView/>
     |
     +--> ArticleModal (on click) --> fetch_article_body_on_demand
-    |        |                              |
-    |        v                              v
-    |   shows body                  UPDATE news_historical.body
-    |
-    +--> Archives tab "News_Updates" button:
-              find archive cutoff -> fetch_news_since(cutoff)
-              -> UPDATE news_historical (metadata + bodies)
-              -> regenerate news_data/all/YYYY-MM/YYYY-MM-DD.json per affected day
+             |                              |
+             v                              v
+        shows body                  UPDATE news_historical.body
 ```
 
 **Requires:** econcal proxy running on `:6000` (`cd econcal && node econcal.js`),
@@ -223,9 +170,8 @@ auto-spawned by the Rust app on startup.
 - **cTrader OpenAPI credentials** in a `.env` file at the project root:
   `CTRADER_CLIENT_ID`, `CTRADER_SECRET`, `CTRADER_ACCESS_TOKEN`,
   `CTRADER_ACCOUNT_ID`, and optionally `CTRADER_SYMBOL` (defaults to XAUUSD)
-- **DuckDB database** at `Bots_db/Algo_EURUSD.duckdb` — created on first run.
-  Path is hard-coded; the filename is historical (from the EUR/USD era)
-  but the DB is symbol-agnostic.
+- **DuckDB database** at `Bots_db/xauusd.duckdb` — created on first run.
+  Holds `news_historical` for the News tab.
 
 Run with `cargo run` — the Rust app boots the Tauri webview, auto-spawns
 the econcal Node proxy on `:6000` and the Vite dev server on `:5173`,

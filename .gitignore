@@ -5,6 +5,7 @@ run_production.sh
 
 # Environment variables with sensitive credentials
 .env
+.env.*
 
 # Python bytecode cache
 __pycache__/

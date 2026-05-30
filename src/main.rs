@@ -3,7 +3,7 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
-const DB_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/Bots_db/Algo_EURUSD.duckdb");
+const DB_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/Bots_db/xauusd.duckdb");
 
 /// Mutex that serializes ALL DuckDB file access. Each caller opens/closes its own
 /// connection while holding the lock, ensuring only one connection exists at a time.
@@ -62,6 +62,13 @@ pub enum PriceUpdate {
     NewsStatus(String),
     /// News capture status (for the button)
     NewsCaptureActive(bool),
+    /// Full snapshot of open positions + pending orders (pushed on reconcile and
+    /// after every execution event). JSON: { positions: [...], orders: [...] }.
+    PositionsSnapshot(serde_json::Value),
+    /// A one-off trade notice (e.g. SL/TP hit, position closed) for a UI banner.
+    TradeNotice(serde_json::Value),
+    /// Auto-trade loop status for the UI: { enabled, oz, status }.
+    AutoStatus(serde_json::Value),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -77,6 +84,11 @@ enum AuthState {
 /// 0 = slot not in use.
 static ECONCAL_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 static VITE_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Latest live XAUUSD bid, stored as f64 bits (0 = none yet). Updated on every
+/// tick in the WS bridge so commands like the Trade Idea can read a true
+/// current price instead of relying on the last (up-to-5-min-old) M5 close.
+static LATEST_XAUUSD_BID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Latest broadcast JSON message keyed by `type` field. Sent to every newly-connected
 /// WS client so a client joining after a one-shot event (e.g. ec_today) still sees
@@ -106,6 +118,97 @@ pub struct ChartRequest {
 /// ChartRequest to the session loop.
 static CHART_REQ_TX: std::sync::OnceLock<tokio::sync::mpsc::Sender<ChartRequest>>
     = std::sync::OnceLock::new();
+
+// ── Order placement requests ────────────────────────────────────────────────
+
+/// A request from a Tauri command to place a LIVE market order. The session
+/// generates a unique `client_msg_id`, sends ProtoOANewOrderReq, and replies via
+/// the oneshot when the ExecutionEvent / error arrives.
+pub struct OrderRequest {
+    pub symbol_id: i64,
+    pub trade_side: openapi::ProtoOaTradeSide,
+    pub order_type: openapi::ProtoOaOrderType,
+    /// Volume in cTrader cents (0.01 of a unit). For XAUUSD: oz × 100.
+    pub volume: i64,
+    /// Entry price for a LIMIT order (None for MARKET / STOP).
+    pub limit_price: Option<f64>,
+    /// Entry price for a STOP order (None for MARKET / LIMIT).
+    pub stop_price: Option<f64>,
+    /// Absolute SL / TP prices — used by pending (LIMIT/STOP) orders.
+    pub stop_loss: Option<f64>,
+    pub take_profit: Option<f64>,
+    /// Relative SL / TP in 1/100000 of a price unit — used by MARKET orders
+    /// (which don't accept absolute SL/TP).
+    pub rel_sl: Option<i64>,
+    pub rel_tp: Option<i64>,
+    pub label: String,
+    pub reply: tokio::sync::oneshot::Sender<Result<String, String>>,
+}
+
+static ORDER_REQ_TX: std::sync::OnceLock<tokio::sync::mpsc::Sender<OrderRequest>>
+    = std::sync::OnceLock::new();
+
+/// A request to cancel a resting pending order. Reply carries the broker's
+/// outcome string (e.g. "ORDER_CANCELLED") or an error.
+pub struct CancelRequest {
+    pub order_id: i64,
+    pub reply: tokio::sync::oneshot::Sender<Result<String, String>>,
+}
+
+static CANCEL_REQ_TX: std::sync::OnceLock<tokio::sync::mpsc::Sender<CancelRequest>>
+    = std::sync::OnceLock::new();
+
+/// An action on an existing open position (close, or amend SL/TP).
+pub enum PositionAction {
+    Close { position_id: i64, volume: i64 },
+    AmendSltp { position_id: i64, stop_loss: Option<f64>, take_profit: Option<f64> },
+}
+pub struct PositionActionRequest {
+    pub action: PositionAction,
+    pub reply: tokio::sync::oneshot::Sender<Result<String, String>>,
+}
+
+static POS_ACTION_TX: std::sync::OnceLock<tokio::sync::mpsc::Sender<PositionActionRequest>>
+    = std::sync::OnceLock::new();
+
+// ── Auto-trade ──────────────────────────────────────────────────────────────
+
+/// Whether the auto-trade loop is active.
+static AUTO_TRADE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Fixed size (oz) per auto trade.
+static AUTO_OZ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+/// Current XAUUSD account state, refreshed by the session on every reconcile so
+/// the auto-trade loop can tell whether we're flat / pending / in a position.
+#[derive(Default, Clone)]
+pub struct XauAccountState {
+    pub positions: usize,
+    pub pending_order_ids: Vec<i64>,
+}
+static XAU_ACCOUNT_STATE: std::sync::OnceLock<std::sync::Mutex<XauAccountState>>
+    = std::sync::OnceLock::new();
+fn xau_account_state() -> &'static std::sync::Mutex<XauAccountState> {
+    XAU_ACCOUNT_STATE.get_or_init(|| std::sync::Mutex::new(XauAccountState::default()))
+}
+
+/// Cached trading spec for XAUUSD, fetched once via ProtoOASymbolByIdReq after
+/// the symbols list arrives. Needed to size and price orders safely — orders are
+/// refused if this is absent.
+#[derive(Clone, Copy, Debug)]
+pub struct SymbolSpec {
+    pub symbol_id: i64,
+    pub digits: i32,
+    pub min_volume: i64,
+    pub step_volume: i64,
+    pub max_volume: i64,
+}
+
+static XAUUSD_SPEC: std::sync::OnceLock<std::sync::Mutex<Option<SymbolSpec>>>
+    = std::sync::OnceLock::new();
+
+fn xauusd_spec() -> &'static std::sync::Mutex<Option<SymbolSpec>> {
+    XAUUSD_SPEC.get_or_init(|| std::sync::Mutex::new(None))
+}
 
 /// Cache of symbol name → cTrader symbol_id, populated by the bridge task each
 /// time the session emits a SymbolMapping. Tauri commands resolve names here.
@@ -199,10 +302,6 @@ async fn start_history_backfill(state: tauri::State<'_, AppState>) -> Result<Str
 struct AppState {
     db_mutex: SharedDb,
 }
-
-/// Root directory for per-day news archive JSON files.
-/// Layout: news_data/all/YYYY-MM/YYYY-MM-DD.json
-const ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/news_data/all");
 
 /// Extract the FXStreet article body from a JSON-LD `<script>` block in the page HTML.
 /// FXStreet embeds the article content as a NewsArticle schema for SEO; we parse
@@ -425,26 +524,20 @@ struct CandleJson {
 }
 
 /// Tauri command: fetch historical OHLC candles for `symbol` at `timeframe`
-/// (M1/M5/M15/M30/H1/H4/D1). Goes through the cTrader session via the chart
+/// (M1/M5/M15/M30/H1/H4/D1). Always goes live to cTrader via the chart
 /// request channel; resolves to the most recent `count` bars ending now.
 /// `to_ms` (optional): fetch `count` bars ending at this unix-ms instant. If
 /// absent, ends at "now". Used by the chart's lazy-load-on-pan to walk backward.
-/// `force_refresh` (optional): skip the cache hit check and always go to the
-/// cTrader API. Used by the Dashboard "Load Gold" button to ensure freshness.
-///
-/// Caching strategy:
-/// 1. Check the per-(symbol, timeframe) DuckDB table for bars in [from, to].
-/// 2. If the table already has data older than our `from` boundary, return the
-///    cached slice — no API call.
-/// 3. Otherwise hit cTrader, store the response in the cache table, return.
+/// `_force_refresh` is accepted for back-compat but ignored — every call hits
+/// the API.
 #[tauri::command]
 async fn get_trendbars(
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     symbol: String,
     timeframe: String,
     count: u32,
     to_ms: Option<i64>,
-    force_refresh: Option<bool>,
+    _force_refresh: Option<bool>,
 ) -> Result<Vec<CandleJson>, String> {
     let symbol_id = {
         let map = symbol_map().lock().map_err(|e| e.to_string())?;
@@ -475,112 +568,7 @@ async fn get_trendbars(
     let end_ms = to_ms.unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
     let count_i64 = count as i64;
     let from_ms = end_ms - count_i64 * minutes_per_bar * 60 * 1000;
-    let from_sec = from_ms / 1000;
-    let to_sec = end_ms / 1000;
 
-    let table = format!("{}_{}", symbol.to_lowercase(), timeframe.to_lowercase());
-
-    // Step 1: try the cache.
-    //
-    // Match cTrader's `count` semantics: return the most recent N bars at or
-    // before to_sec, regardless of whether they fall inside [from_sec, to_sec).
-    // The naive WHERE timestamp >= from_sec AND timestamp < to_sec query
-    // under-selects on weekends/holidays (e.g. on Saturday for M1 it would
-    // only return the ~40 minute-bars between Friday 21:20 UTC and Friday
-    // 22:00 UTC even though the cache holds the full 1000 bars cTrader
-    // returned during the first fetch).
-    let count_for_query = count as i64;
-    let db_mutex = state.db_mutex.clone();
-    let table_q = table.clone();
-    let (cached, oldest_in_table, newest_in_cached): (Vec<CandleJson>, Option<i64>, Option<i64>) =
-        tokio::task::spawn_blocking(move || -> Result<(Vec<CandleJson>, Option<i64>, Option<i64>), String> {
-            let _lock = db_mutex.lock().map_err(|e| e.to_string())?;
-            let db = duckdb::Connection::open(DB_PATH).map_err(|e| e.to_string())?;
-            ensure_candle_table(&db, &table_q)?;
-            let q = format!(
-                "SELECT timestamp, open, high, low, close, volume FROM (
-                     SELECT timestamp, open, high, low, close, volume FROM {}
-                     WHERE timestamp < ? ORDER BY timestamp DESC LIMIT ?
-                 ) ORDER BY timestamp ASC",
-                table_q
-            );
-            let mut stmt = db.prepare(&q).map_err(|e| e.to_string())?;
-            let bars: Vec<CandleJson> = stmt.query_map(
-                duckdb::params![to_sec, count_for_query],
-                |row| Ok(CandleJson {
-                    time:   row.get(0)?, open:  row.get(1)?, high:   row.get(2)?,
-                    low:    row.get(3)?, close: row.get(4)?, volume: row.get(5)?,
-                })
-            ).map_err(|e| e.to_string())?.flatten().collect();
-            let oldest: Option<i64> = bars.first().map(|b| b.time);
-            let newest_in_cached = bars.last().map(|b| b.time);
-            Ok((bars, oldest, newest_in_cached))
-        }).await.map_err(|e| e.to_string())??;
-
-    // Coverage check:
-    //   (a) oldest cached ts is at or before our `from` boundary
-    //   (b) we have at least *some* bars in the requested window (the 70%-of-1000
-    //       threshold used to fail on weekends/holidays when cTrader returns far
-    //       fewer bars than `count` simply because the market was closed for half
-    //       the window)
-    //   (c) if the request was for the *current* window (to_ms unset → end_ms = now),
-    //       also require the newest cached bar to be within ~2 buckets of now.
-    //       For lazy-load (explicit older `to_ms`), skip this freshness check —
-    //       the user is panning into the past and doesn't need an up-to-date tail.
-    let asking_for_now = to_ms.is_none();
-    let tail_tolerance = minutes_per_bar * 60 * 2;
-    let tail_fresh = !asking_for_now
-        || matches!(newest_in_cached, Some(n) if to_sec - n <= tail_tolerance);
-    let has_coverage = matches!(oldest_in_table, Some(o) if o <= from_sec)
-        && cached.len() >= 10;
-    let cache_covers = has_coverage && tail_fresh;
-    let force = force_refresh.unwrap_or(false);
-    if cache_covers && !force {
-        println!("[chart] cache hit: {} {} {} bars (range {}..{})",
-                 symbol, timeframe, cached.len(), from_sec, to_sec);
-        return Ok(cached);
-    }
-    // Tail-stale but coverage OK → serve cache instantly + refresh in the
-    // background. The user sees the chart immediately; the next open or pan
-    // sees fresh data. The live-tick handler in the frontend keeps the
-    // in-progress bar tracking the current price.
-    if has_coverage && !tail_fresh && !force {
-        let stale_secs = newest_in_cached.map(|n| to_sec - n).unwrap_or(0);
-        println!("[chart] cache hit (stale tail by {}s): {} {} {} bars — bg refresh",
-                 symbol, timeframe, stale_secs, cached.len());
-        if let Some(tx_bg) = CHART_REQ_TX.get().cloned() {
-            let db_mutex_bg = state.db_mutex.clone();
-            let table_bg = table.clone();
-            let symbol_bg = symbol.clone();
-            let tf_bg = timeframe.clone();
-            tokio::spawn(async move {
-                let (rt, rr) = tokio::sync::oneshot::channel();
-                if tx_bg.send(ChartRequest {
-                    symbol_id, period, from_ms, to_ms: end_ms, count, reply: rt,
-                }).await.is_err() { return; }
-                let timeout = tokio::time::timeout(std::time::Duration::from_secs(30), rr).await;
-                if let Ok(Ok(Ok(fresh))) = timeout {
-                    let n = fresh.len();
-                    let _ = tokio::task::spawn_blocking(move || {
-                        if let Ok(_lock) = db_mutex_bg.lock() {
-                            if let Ok(db) = duckdb::Connection::open(DB_PATH) {
-                                let _ = upsert_candles(&db, &table_bg, &fresh);
-                            }
-                        }
-                    }).await;
-                    println!("[chart] bg refresh done: {} {} {} bars", symbol_bg, tf_bg, n);
-                }
-            });
-        }
-        return Ok(cached);
-    }
-    if !cached.is_empty() {
-        let stale_secs = newest_in_cached.map(|n| to_sec - n).unwrap_or(0);
-        println!("[chart] cache partial: {} {} {} bars (tail stale by {}s) — refetching",
-                 symbol, timeframe, cached.len(), stale_secs);
-    }
-
-    // Step 2: cache miss → fetch from cTrader.
     let tx = CHART_REQ_TX.get().ok_or("chart channel not initialised")?;
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     tx.send(ChartRequest { symbol_id, period, from_ms, to_ms: end_ms, count, reply: reply_tx })
@@ -593,22 +581,8 @@ async fn get_trendbars(
         Ok(Err(_))     => return Err("chart request was cancelled".into()),
         Err(_)         => return Err("cTrader response timeout".into()),
     };
-    let fetched_count = fetched.len();
 
-    // Step 3: persist (best-effort; don't fail the call if upsert fails).
-    let db_mutex = state.db_mutex.clone();
-    let table_w = table.clone();
-    let candles_to_store = fetched.clone();
-    tokio::task::spawn_blocking(move || {
-        if let Ok(_lock) = db_mutex.lock() {
-            if let Ok(db) = duckdb::Connection::open(DB_PATH) {
-                let _ = upsert_candles(&db, &table_w, &candles_to_store);
-            }
-        }
-    }).await.ok();
-
-    println!("[chart] API fetch: {} {} {} bars stored to `{}`",
-             symbol, timeframe, fetched_count, table);
+    println!("[chart] live fetch: {} {} {} bars", symbol, timeframe, fetched.len());
     Ok(fetched.into_iter().map(|c| CandleJson {
         time: c.timestamp,
         open: c.open, high: c.high, low: c.low, close: c.close,
@@ -696,704 +670,6 @@ async fn fetch_article_body_on_demand(
         _ => None,
     };
     Ok(ArticleBodyResult { article_id, body: returned_body, status: status.into(), message: None })
-}
-
-// ── News archive: incremental day-file updates ─────────────────────────────────
-
-/// Walk `news_data/all/YYYY-MM/` folders to find the newest `YYYY-MM-DD.json`
-/// file. Returns `(day, max_published_utc)` where `day` is "YYYY-MM-DD" and
-/// `max_published_utc` is the latest article timestamp in that file ("YYYY-MM-DDTHH:MM:SS").
-/// Returns `(None, None)` if no archive files exist.
-fn find_newest_archive_cutoff() -> (Option<String>, Option<String>) {
-    let root = std::path::Path::new(ARCHIVE_ROOT);
-    if !root.exists() { return (None, None); }
-
-    // Find the lexically-largest YYYY-MM-DD.json across all YYYY-MM subdirs.
-    let mut newest_path: Option<std::path::PathBuf> = None;
-    let mut newest_day: Option<String> = None;
-    let entries = match std::fs::read_dir(root) { Ok(e) => e, Err(_) => return (None, None) };
-    for month_entry in entries.flatten() {
-        let month_path = month_entry.path();
-        if !month_path.is_dir() { continue; }
-        let day_entries = match std::fs::read_dir(&month_path) { Ok(e) => e, Err(_) => continue };
-        for day_entry in day_entries.flatten() {
-            let p = day_entry.path();
-            let name = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s, None => continue };
-            // Expect "YYYY-MM-DD.json", 15 chars total.
-            if name.len() != 15 || !name.ends_with(".json") { continue; }
-            let day = &name[..10];
-            if newest_day.as_deref().map(|d| day > d).unwrap_or(true) {
-                newest_day = Some(day.to_string());
-                newest_path = Some(p);
-            }
-        }
-    }
-
-    let (day, path) = match (newest_day, newest_path) {
-        (Some(d), Some(p)) => (d, p),
-        _ => return (None, None),
-    };
-
-    // Parse the file and pull max(article.published_utc).
-    let max_pub = (|| -> Option<String> {
-        let content = std::fs::read_to_string(&path).ok()?;
-        let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-        let articles = json.get("articles")?.as_array()?;
-        articles.iter()
-            .filter_map(|a| a.get("published_utc")?.as_str().map(String::from))
-            .max()
-    })();
-
-    (Some(day), max_pub)
-}
-
-/// Read all articles for `day` from `news_historical` and write the per-day
-/// archive file at `news_data/all/YYYY-MM/YYYY-MM-DD.json`. Preserves existing
-/// bodies stored in the DB. Returns `(absolute_path, article_count)`.
-fn write_archive_for_day(db: &duckdb::Connection, day: &str) -> Result<(String, usize), String> {
-    let mut stmt = db.prepare(
-        "SELECT article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday, body
-         FROM news_historical
-         WHERE published_utc LIKE ? || '%'
-         ORDER BY published_utc ASC"
-    ).map_err(|e| format!("prepare archive query: {}", e))?;
-
-    let rows = stmt.query_map([day], |row| {
-        let body_val: Option<String> = row.get(9).ok().flatten();
-        Ok(serde_json::json!({
-            "article_id":    row.get::<_, String>(0)?,
-            "title":         row.get::<_, String>(1)?,
-            "published_utc": row.get::<_, String>(2)?,
-            "summary":       row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-            "url":           row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-            "author":        row.get::<_, Option<String>>(5)?.unwrap_or_default(),
-            "tags":          row.get::<_, Option<String>>(6)?.unwrap_or_default(),
-            "hour_utc":      row.get::<_, i32>(7)?,
-            "weekday":       row.get::<_, i32>(8)?,
-            "body":          body_val,
-        }))
-    }).map_err(|e| format!("query archive: {}", e))?;
-
-    let articles: Vec<serde_json::Value> = rows.flatten().collect();
-    let count = articles.len();
-
-    let month = &day[..7];
-    let dir = std::path::Path::new(ARCHIVE_ROOT).join(month);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("create dir {}: {}", dir.display(), e))?;
-    let path = dir.join(format!("{}.json", day));
-
-    let payload = serde_json::json!({
-        "date":         day,
-        "count":        count,
-        "generated_at": chrono::Utc::now().to_rfc3339(),
-        "articles":     articles,
-    });
-    let pretty = serde_json::to_string_pretty(&payload).map_err(|e| format!("serialize: {}", e))?;
-    std::fs::write(&path, pretty).map_err(|e| format!("write {}: {}", path.display(), e))?;
-
-    Ok((path.to_string_lossy().to_string(), count))
-}
-
-#[derive(serde::Serialize)]
-struct NewsUpdateResult {
-    /// "YYYY-MM-DD" of the most recent archive file before the run, or null if
-    /// no archive files existed.
-    last_archive_day: Option<String>,
-    /// ISO timestamp used as the lower bound when calling fetch_news_since
-    /// (latest article time in the last archive file, or 7 days ago as fallback).
-    cutoff: String,
-    /// Number of new articles pulled from FXStreet.
-    articles_fetched: usize,
-    /// Article bodies successfully fetched and written to news_historical.body.
-    bodies_fetched: usize,
-    /// Articles where FXStreet's API returned an empty body (data flashes).
-    /// Stored as '' so we don't retry.
-    bodies_empty: usize,
-    /// Body fetches that failed (timeout / parse error / proxy error).
-    /// Left as NULL so a later run can retry.
-    bodies_failed: usize,
-    /// True if FXStreet returned HTTP 429 during the body fetch loop.
-    /// Body fetching stops at the first 429 and the message field explains.
-    rate_limited: bool,
-    /// (day, article_count) for every day whose file was (re)written.
-    days_written: Vec<(String, usize)>,
-    /// Optional human-readable error or info message.
-    message: Option<String>,
-}
-
-/// Tauri command: incremental archive update.
-///
-/// 1. Walks `news_data/all/` to find the newest YYYY-MM-DD.json
-/// 2. Reads its latest `published_utc`
-/// 3. Calls `fetch_news_since(cutoff)` to pull every newer article from FXStreet
-/// 4. Upserts them into `news_historical`
-/// 5. For every article in the affected days that still has `body IS NULL`,
-///    fetches the body via the per-article proxy endpoint and updates
-///    `news_historical.body` (concurrency 1 — the puppeteer proxy serialises
-///    requests internally and >1 confuses its shared page state)
-/// 6. (Re)writes one JSON file per affected day under `news_data/all/` —
-///    pulling the now-populated bodies along with everything else
-///
-/// When no archive files exist yet, the cutoff defaults to 7 days before "now"
-/// so the first run does a sensible bootstrap rather than crawling the full feed.
-#[tauri::command]
-async fn update_news_archive(state: tauri::State<'_, AppState>) -> Result<NewsUpdateResult, String> {
-    // Step 1: find newest archive day + its latest article time.
-    let (last_archive_day, latest_in_file) =
-        tokio::task::spawn_blocking(find_newest_archive_cutoff)
-            .await
-            .map_err(|e| format!("scan task join: {}", e))?;
-
-    // Cutoff: the latest article time in the newest file, or 7 days ago if no
-    // archive exists yet. fetch_news_since stops walking once it sees articles
-    // <= cutoff, so this is also our "how far back do we crawl" bound.
-    let cutoff = match latest_in_file.clone() {
-        Some(t) => t,
-        None => {
-            let seven_days_ago = chrono::Utc::now() - chrono::Duration::days(7);
-            seven_days_ago.format("%Y-%m-%dT%H:%M:%S").to_string()
-        }
-    };
-
-    // Step 2: make sure econcal is reachable (we need it for both the news
-    // listing fetch AND the per-article body fetch).
-    if !ensure_econcal_alive().await {
-        return Ok(NewsUpdateResult {
-            last_archive_day, cutoff,
-            articles_fetched: 0,
-            bodies_fetched: 0, bodies_empty: 0, bodies_failed: 0,
-            rate_limited: false,
-            days_written: Vec::new(),
-            message: Some("Econcal proxy not reachable on :6000. Restart the app and retry.".into()),
-        });
-    }
-
-    // Step 3: fetch newer articles from FXStreet.
-    let rows = match news_realtime::fetch_news_since(50, 200, Some(&cutoff), None).await {
-        Ok(r) => r,
-        Err(e) => return Ok(NewsUpdateResult {
-            last_archive_day, cutoff,
-            articles_fetched: 0,
-            bodies_fetched: 0, bodies_empty: 0, bodies_failed: 0,
-            rate_limited: false,
-            days_written: Vec::new(),
-            message: Some(format!("Fetch failed: {}", e)),
-        }),
-    };
-    let articles_fetched = rows.len();
-
-    // Step 4: upsert into news_historical + compute affected days.
-    let affected_days: std::collections::BTreeSet<String> = rows.iter()
-        .filter_map(|r| if r.published_utc.len() >= 10 { Some(r.published_utc[..10].to_string()) } else { None })
-        .collect();
-
-    {
-        let db_mutex = state.db_mutex.clone();
-        let rows_for_db = rows.clone();
-        tokio::task::spawn_blocking(move || -> Result<(), String> {
-            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-            if !rows_for_db.is_empty() {
-                news_realtime::write_news_to_db(&db, &rows_for_db)
-                    .map_err(|e| format!("write_news_to_db: {}", e))?;
-            }
-            Ok(())
-        })
-        .await
-        .map_err(|e| format!("upsert task join: {}", e))??;
-    }
-
-    // Step 5: list every article in the affected days that still has no body.
-    // We include OLD articles (not just the ones we just inserted) so an
-    // article that landed in DB via the live 5-min fetch — and never got a
-    // body — gets one on this click too.
-    let affected_for_query: Vec<String> = affected_days.iter().cloned().collect();
-    let to_fetch: Vec<String> = {
-        let db_mutex = state.db_mutex.clone();
-        tokio::task::spawn_blocking(move || -> Result<Vec<String>, String> {
-            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-            let mut ids = Vec::new();
-            for day in &affected_for_query {
-                let mut stmt = db.prepare(
-                    "SELECT article_id FROM news_historical
-                     WHERE published_utc LIKE ? || '%'
-                       AND url IS NOT NULL AND url <> ''
-                       AND body IS NULL"
-                ).map_err(|e| format!("prepare body-list: {}", e))?;
-                let day_ids: Vec<String> = stmt.query_map([day.as_str()], |row| row.get::<_, String>(0))
-                    .map_err(|e| format!("query body-list: {}", e))?
-                    .flatten().collect();
-                ids.extend(day_ids);
-            }
-            Ok(ids)
-        })
-        .await
-        .map_err(|e| format!("body-list join: {}", e))??
-    };
-
-    // Step 6: fetch bodies sequentially. Bail at the first 429.
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
-        .build()
-        .map_err(|e| format!("build http client: {}", e))?;
-
-    let mut fetched_bodies: Vec<(String, String)> = Vec::new();
-    let mut empty_body_ids: Vec<String> = Vec::new();
-    let mut failed_body_ids: Vec<String> = Vec::new();
-    let mut rate_limited = false;
-    let mut max_retry_after = 0u64;
-
-    for aid in &to_fetch {
-        if rate_limited { break; }
-        match fetch_one_body(&client, aid).await {
-            BodyFetch::Ok(b)         => fetched_bodies.push((aid.clone(), b)),
-            BodyFetch::EmptyBody     => empty_body_ids.push(aid.clone()),
-            BodyFetch::Failed        => failed_body_ids.push(aid.clone()),
-            BodyFetch::RateLimited { retry_after_secs } => {
-                rate_limited = true;
-                max_retry_after = retry_after_secs;
-            }
-        }
-    }
-
-    let bodies_fetched = fetched_bodies.len();
-    let bodies_empty   = empty_body_ids.len();
-    let bodies_failed  = failed_body_ids.len();
-
-    // Step 7: write fetched + empty body markers back to DB.
-    if !fetched_bodies.is_empty() || !empty_body_ids.is_empty() {
-        let db_mutex = state.db_mutex.clone();
-        let fetched_for_db = fetched_bodies.clone();
-        let empty_for_db = empty_body_ids.clone();
-        tokio::task::spawn_blocking(move || -> Result<(), String> {
-            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-            for (aid, body) in &fetched_for_db {
-                let _ = db.execute(
-                    "UPDATE news_historical SET body = ? WHERE article_id = ?",
-                    duckdb::params![body, aid],
-                );
-            }
-            for aid in &empty_for_db {
-                let _ = db.execute(
-                    "UPDATE news_historical SET body = '' WHERE article_id = ?",
-                    duckdb::params![aid],
-                );
-            }
-            Ok(())
-        })
-        .await
-        .map_err(|e| format!("body-write join: {}", e))??;
-    }
-
-    // Step 8: regenerate each affected day's JSON file from DB.
-    let days_written: Vec<(String, usize)> = {
-        let db_mutex = state.db_mutex.clone();
-        let affected_for_write = affected_days.clone();
-        tokio::task::spawn_blocking(move || -> Result<Vec<(String, usize)>, String> {
-            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-            let mut written = Vec::with_capacity(affected_for_write.len());
-            for day in &affected_for_write {
-                let (_path, count) = write_archive_for_day(&db, day)?;
-                written.push((day.clone(), count));
-            }
-            Ok(written)
-        })
-        .await
-        .map_err(|e| format!("write-days join: {}", e))??
-    };
-
-    let message = if rate_limited {
-        Some(format!(
-            "FXStreet rate-limited after {} bodies (Retry-After ~{}s). \
-             {} bodies still missing — click News_Updates again in {} minute(s) to resume.",
-            bodies_fetched + bodies_empty,
-            max_retry_after,
-            to_fetch.len() - bodies_fetched - bodies_empty,
-            (max_retry_after + 59) / 60,
-        ))
-    } else {
-        None
-    };
-
-    Ok(NewsUpdateResult {
-        last_archive_day,
-        cutoff,
-        articles_fetched,
-        bodies_fetched,
-        bodies_empty,
-        bodies_failed,
-        rate_limited,
-        days_written,
-        message,
-    })
-}
-
-// ── Gold EC events: one-shot table create + walk to today ──────────────────────
-
-/// 30-day windows are large enough for one FXStreet API call but small
-/// enough that the response stays well under a few MB. Each chunk commits
-/// independently, so interrupting the walk never loses more than a chunk.
-const EC_GOLD_CHUNK_DAYS: i64 = 30;
-
-/// Earliest date FXStreet's `/v4/eventdate/mini` endpoint reliably returns
-/// data for. Matches the floor of the existing eurusd_economic_calendar
-/// (oldest row there is 2009-01-02).
-const EC_GOLD_START_DATE: &str = "2009-01-01";
-
-/// Emitted via Tauri events after every 30-day chunk so the frontend can
-/// render a live progress bar instead of staring at a frozen "Updating…"
-/// label for two minutes.
-#[derive(serde::Serialize, Clone)]
-struct EcGoldProgress {
-    chunks_done: usize,
-    chunks_total: usize,
-    rows_added_so_far: usize,
-    /// YYYY-MM-DD of the chunk we just finished.
-    current_chunk_start: String,
-    current_chunk_end: String,
-    /// Wallclock seconds elapsed since the click. Frontend uses this to
-    /// compute an ETA = elapsed / chunks_done × (chunks_total - chunks_done).
-    elapsed_secs: u64,
-}
-
-#[derive(serde::Serialize)]
-struct EcGoldUpdateResult {
-    /// True iff `xauusd_economic_calendar` already existed before this run.
-    /// False on the very first click (we just created it from scratch).
-    table_existed: bool,
-    /// `MAX(timestamp_utc)` in the table before the run — null if fresh.
-    cursor_before: Option<String>,
-    /// First date the walk asked FXStreet for (YYYY-MM-DD).
-    walk_start: String,
-    /// End of the walk (always today's UTC date, YYYY-MM-DD).
-    walk_end: String,
-    /// 30-day chunks fetched + upserted this run.
-    chunks_processed: usize,
-    /// Sum of rows inserted/updated this run (after currency filter).
-    rows_added_this_call: usize,
-    /// `COUNT(*) FROM xauusd_economic_calendar` after the run.
-    total_rows: usize,
-    /// Final coverage window after the run.
-    oldest_in_db: Option<String>,
-    newest_in_db: Option<String>,
-    /// Wallclock time spent on the walk.
-    duration_ms: u128,
-    /// Set if a chunk failed mid-walk; the partial progress is still
-    /// committed and the next click will resume from `MAX(timestamp_utc)+1`.
-    error: Option<String>,
-}
-
-/// Tauri command behind the `EC_Gold_Events_Update` button.
-///
-///  - If `xauusd_economic_calendar` is missing → create it and walk every
-///    30-day window from 2009-01-01 → today, upserting all gold-relevant
-///    events (USD/EUR/GBP/JPY/CHF/AUD/CNY, every impact level).
-///  - If it exists → resume from `MAX(timestamp_utc) + 1 day` and walk
-///    forward to today.
-///
-/// Per-chunk commit so a network/proxy hiccup never costs more than one
-/// chunk of progress. The next click picks up from the last committed row.
-#[tauri::command]
-async fn update_ec_gold_events(
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<EcGoldUpdateResult, String> {
-    use chrono::{Duration, NaiveDate};
-    use tauri::Emitter;
-    let start_clock = std::time::Instant::now();
-
-    // Step 1: proxy must be alive.
-    if !ensure_econcal_alive().await {
-        return Ok(EcGoldUpdateResult {
-            table_existed: false,
-            cursor_before: None,
-            walk_start: String::new(),
-            walk_end: chrono::Utc::now().format("%Y-%m-%d").to_string(),
-            chunks_processed: 0,
-            rows_added_this_call: 0,
-            total_rows: 0,
-            oldest_in_db: None,
-            newest_in_db: None,
-            duration_ms: start_clock.elapsed().as_millis(),
-            error: Some("Econcal proxy not reachable on :6000.".into()),
-        });
-    }
-
-    // Step 2: ensure table exists and find resume cursor.
-    let (table_existed, cursor_before, cursor_start): (bool, Option<String>, NaiveDate) = {
-        let db_mutex = state.db_mutex.clone();
-        tokio::task::spawn_blocking(move || -> Result<(bool, Option<String>, NaiveDate), String> {
-            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-            let existed = db.query_row(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'xauusd_economic_calendar'",
-                [], |row| row.get::<_, i64>(0)
-            ).unwrap_or(0) > 0;
-            ec_realtime::create_xauusd_ec_table(&db)?;
-            let max_ts: Option<String> = db.query_row(
-                "SELECT MAX(timestamp_utc) FROM xauusd_economic_calendar",
-                [], |row| row.get::<_, Option<String>>(0)
-            ).unwrap_or(None);
-            let start = match &max_ts {
-                Some(ts) if ts.len() >= 10 => {
-                    NaiveDate::parse_from_str(&ts[..10], "%Y-%m-%d")
-                        .map_err(|e| format!("parse max ts: {}", e))?
-                        + Duration::days(1)
-                }
-                _ => NaiveDate::parse_from_str(EC_GOLD_START_DATE, "%Y-%m-%d")
-                    .map_err(|e| format!("parse start date: {}", e))?,
-            };
-            Ok((existed, max_ts, start))
-        }).await.map_err(|e| format!("cursor task join: {}", e))??
-    };
-
-    let today: NaiveDate = chrono::Utc::now().date_naive();
-
-    // Already current → no-op.
-    if cursor_start > today {
-        let (total, oldest, newest) = read_xauusd_ec_stats(&state).await?;
-        return Ok(EcGoldUpdateResult {
-            table_existed,
-            cursor_before,
-            walk_start: cursor_start.format("%Y-%m-%d").to_string(),
-            walk_end: today.format("%Y-%m-%d").to_string(),
-            chunks_processed: 0,
-            rows_added_this_call: 0,
-            total_rows: total,
-            oldest_in_db: oldest,
-            newest_in_db: newest,
-            duration_ms: start_clock.elapsed().as_millis(),
-            error: None,
-        });
-    }
-
-    // Step 3: walk forward in 30-day chunks. No per-click cap — a single
-    // click does the whole backfill (2009→today ≈ 200 chunks ≈ ~2 minutes).
-    // Emit a Tauri event after every chunk so the UI can render progress.
-    let walk_start_str = cursor_start.format("%Y-%m-%d").to_string();
-    let total_days = (today - cursor_start).num_days().max(0);
-    let chunks_total = ((total_days as usize + EC_GOLD_CHUNK_DAYS as usize - 1)
-                       / EC_GOLD_CHUNK_DAYS as usize)
-                       .max(1);
-    let mut cursor = cursor_start;
-    let mut rows_added_this_call = 0usize;
-    let mut chunks_processed = 0usize;
-    let mut last_error: Option<String> = None;
-    let mut chunk_idx = 0usize;
-
-    while cursor <= today {
-        let chunk_end = (cursor + Duration::days(EC_GOLD_CHUNK_DAYS - 1)).min(today);
-        let s = cursor.format("%Y%m%d").to_string();
-        let e = chunk_end.format("%Y%m%d").to_string();
-        chunk_idx += 1;
-
-        let fetched = match ec_realtime::fetch_events_for_date(&s, &e).await {
-            Ok(r) => r,
-            Err(err) => {
-                last_error = Some(format!("chunk {} ({}..{}) failed: {}", chunk_idx, s, e, err));
-                break;
-            }
-        };
-
-        let db_mutex = state.db_mutex.clone();
-        let fetched_for_write = fetched.clone();
-        let written = tokio::task::spawn_blocking(move || -> Result<usize, String> {
-            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-            ec_realtime::upsert_xauusd_ec(&db, &fetched_for_write)
-        })
-        .await
-        .map_err(|e| format!("upsert task join: {}", e))??;
-
-        rows_added_this_call += written;
-        chunks_processed += 1;
-        println!("[ec-gold] {}..{}: {} fetched, {} kept (cum {} / chunk {}/{})",
-                 s, e, fetched.len(), written, rows_added_this_call, chunks_processed, chunks_total);
-
-        // Push live progress to the frontend so the user sees the walk
-        // happening instead of a frozen "Updating…" label.
-        let progress = EcGoldProgress {
-            chunks_done: chunks_processed,
-            chunks_total,
-            rows_added_so_far: rows_added_this_call,
-            current_chunk_start: cursor.format("%Y-%m-%d").to_string(),
-            current_chunk_end: chunk_end.format("%Y-%m-%d").to_string(),
-            elapsed_secs: start_clock.elapsed().as_secs(),
-        };
-        let _ = app.emit("ec_gold_progress", &progress);
-
-        cursor = chunk_end + Duration::days(1);
-
-        // 120 ms pacing so the puppeteer proxy stays happy.
-        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
-    }
-
-    let (total_rows, oldest_in_db, newest_in_db) = read_xauusd_ec_stats(&state).await?;
-
-    Ok(EcGoldUpdateResult {
-        table_existed,
-        cursor_before,
-        walk_start: walk_start_str,
-        walk_end: today.format("%Y-%m-%d").to_string(),
-        chunks_processed,
-        rows_added_this_call,
-        total_rows,
-        oldest_in_db,
-        newest_in_db,
-        duration_ms: start_clock.elapsed().as_millis(),
-        error: last_error,
-    })
-}
-
-/// Helper for `update_ec_gold_events`: row count + coverage window snapshot.
-async fn read_xauusd_ec_stats(state: &tauri::State<'_, AppState>) -> Result<(usize, Option<String>, Option<String>), String> {
-    let db_mutex = state.db_mutex.clone();
-    tokio::task::spawn_blocking(move || -> Result<(usize, Option<String>, Option<String>), String> {
-        let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-        let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-        let count: i64 = db.query_row(
-            "SELECT COUNT(*) FROM xauusd_economic_calendar",
-            [], |row| row.get(0)
-        ).unwrap_or(0);
-        let oldest: Option<String> = db.query_row(
-            "SELECT MIN(timestamp_utc) FROM xauusd_economic_calendar",
-            [], |row| row.get::<_, Option<String>>(0)
-        ).unwrap_or(None);
-        let newest: Option<String> = db.query_row(
-            "SELECT MAX(timestamp_utc) FROM xauusd_economic_calendar",
-            [], |row| row.get::<_, Option<String>>(0)
-        ).unwrap_or(None);
-        Ok((count as usize, oldest, newest))
-    })
-    .await
-    .map_err(|e| format!("stats task join: {}", e))?
-}
-
-// ── Per-TF stats panel for the Archives tab ──────────────────────────────────
-
-#[derive(serde::Serialize, Clone)]
-struct TfStats {
-    /// Display name ("M1", "M5", ..., "MN1")
-    timeframe: String,
-    /// Backing table name ("xauusd_m1", etc.)
-    table: String,
-    /// Row count (0 if table missing).
-    rows: u64,
-    /// Oldest bar's timestamp as ISO 8601 (or null).
-    oldest: Option<String>,
-    /// Newest bar's timestamp as ISO 8601 (or null).
-    newest: Option<String>,
-    /// (newest - oldest) in days as a float, null if empty.
-    coverage_days: Option<f64>,
-    /// (now - newest) in seconds — how stale the tail is. Null if empty.
-    tail_age_secs: Option<i64>,
-    /// One bar width in seconds — used by the UI to decide "fresh" vs "stale".
-    bar_secs: i64,
-}
-
-#[derive(serde::Serialize)]
-struct XauusdStatsResult {
-    timeframes: Vec<TfStats>,
-    /// "live" / "weekend-closed" — gives the UI context for what "fresh" means.
-    market_state: String,
-    /// `now` at query time (so the UI's "fresh as of …" indicator stays honest).
-    queried_at_utc: String,
-}
-
-/// Tauri command for the Archives tab's "Gold DB timeframe states" panel.
-/// Returns one row per xauusd_{tf} table with row count + coverage + freshness.
-#[tauri::command]
-async fn get_xauusd_tf_stats(state: tauri::State<'_, AppState>) -> Result<XauusdStatsResult, String> {
-    // (display name, table suffix, bar width seconds) — only the TFs the
-    // broker actually exposes. M2/M4/M10/M30/H4 dropped because the broker
-    // returns empty for them.
-    let tfs: &[(&str, &str, i64)] = &[
-        ("M1",  "m1",  60),
-        ("M3",  "m3",  180),
-        ("M5",  "m5",  300),
-        ("M15", "m15", 900),
-        ("H1",  "h1",  3600),
-        ("H12", "h12", 43200),
-        ("D1",  "d1",  86400),
-        ("W1",  "w1",  604800),
-        ("MN1", "mn1", 2592000),
-    ];
-
-    let now_secs = chrono::Utc::now().timestamp();
-    let queried_at_utc = chrono::Utc::now().to_rfc3339();
-    let market_state = if xauusd_is_market_closed() { "weekend-closed" } else { "live" }.to_string();
-
-    let db_mutex = state.db_mutex.clone();
-    let tfs_vec: Vec<(String, String, i64)> = tfs.iter()
-        .map(|(n, s, b)| (n.to_string(), format!("xauusd_{}", s), *b))
-        .collect();
-
-    let timeframes = tokio::task::spawn_blocking(move || -> Vec<TfStats> {
-        let _lock = match db_mutex.lock() { Ok(l) => l, Err(_) => return Vec::new() };
-        let db = match duckdb::Connection::open(DB_PATH) {
-            Ok(c) => c,
-            Err(_) => return Vec::new(),
-        };
-
-        tfs_vec.into_iter().map(|(tf, table, bar_secs)| {
-            // Existence check — don't auto-create here; if a TF was never
-            // touched, we want to report rows=0 honestly.
-            let exists: i64 = db.query_row(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
-                duckdb::params![table.as_str()],
-                |row| row.get(0)
-            ).unwrap_or(0);
-
-            if exists == 0 {
-                return TfStats {
-                    timeframe: tf, table, rows: 0,
-                    oldest: None, newest: None,
-                    coverage_days: None, tail_age_secs: None, bar_secs,
-                };
-            }
-
-            let count: i64 = db.query_row(
-                &format!("SELECT COUNT(*) FROM {}", table),
-                [], |row| row.get(0)
-            ).unwrap_or(0);
-
-            let oldest_ts: Option<i64> = db.query_row(
-                &format!("SELECT MIN(timestamp) FROM {}", table),
-                [], |row| row.get::<_, Option<i64>>(0)
-            ).ok().flatten();
-            let newest_ts: Option<i64> = db.query_row(
-                &format!("SELECT MAX(timestamp) FROM {}", table),
-                [], |row| row.get::<_, Option<i64>>(0)
-            ).ok().flatten();
-
-            let coverage_days = match (oldest_ts, newest_ts) {
-                (Some(o), Some(n)) if n > o => Some((n - o) as f64 / 86400.0),
-                _ => None,
-            };
-            let tail_age_secs = newest_ts.map(|n| now_secs - n);
-
-            let to_iso = |ts: i64| chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
-                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string());
-
-            TfStats {
-                timeframe: tf,
-                table,
-                rows: count as u64,
-                oldest: oldest_ts.and_then(to_iso),
-                newest: newest_ts.and_then(to_iso),
-                coverage_days,
-                tail_age_secs,
-                bar_secs,
-            }
-        }).collect()
-    })
-    .await
-    .map_err(|e| format!("stats task join: {}", e))?;
-
-    Ok(XauusdStatsResult { timeframes, market_state, queried_at_utc })
 }
 
 // ── Background price refresh: keeps xauusd_m1/m5/h1/d1 caches fresh ──────────
@@ -1915,904 +1191,795 @@ async fn run_price_refresh_loop(symbol: String, shared_db: SharedDb) {
     }
 }
 
-// ── Gold EC events: storage → per-day JSON files ───────────────────────────────
+// ── Trade Ideas: live snapshot helpers + 4-model fan-out ─────────────
 
-/// Root directory for the per-day EC events archive. Mirrors `news_data/all/`
-/// in layout: `ec_events_data/all/YYYY-MM/YYYY-MM-DD.json`.
-const EC_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/ec_events_data/all");
-
-#[derive(serde::Serialize, Clone)]
-struct EcGoldStorageProgress {
-    files_done: usize,
-    files_total: usize,
-    events_written_so_far: usize,
-    /// YYYY-MM-DD of the file we just finished writing.
-    current_day: String,
-    elapsed_secs: u64,
+/// Fetch `count` trendbars for `symbol_id` at `period` ending now, live from
+/// cTrader via the chart request channel — the same path the chart uses. Bars
+/// are returned oldest-first. Used to build the Trade Idea snapshot now that
+/// the DuckDB candle tables are gone (charts are live-only).
+async fn fetch_trendbars_for_snapshot(
+    symbol_id: i64,
+    period: openapi::ProtoOaTrendbarPeriod,
+    minutes_per_bar: i64,
+    count: u32,
+) -> Result<Vec<Candle>, String> {
+    let tx = CHART_REQ_TX.get().ok_or("chart channel not initialised")?;
+    let end_ms = chrono::Utc::now().timestamp_millis();
+    let from_ms = end_ms - (count as i64) * minutes_per_bar * 60 * 1000;
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    tx.send(ChartRequest { symbol_id, period, from_ms, to_ms: end_ms, count, reply: reply_tx })
+        .await
+        .map_err(|e| format!("send chart req: {}", e))?;
+    match tokio::time::timeout(std::time::Duration::from_secs(30), reply_rx).await {
+        Ok(Ok(Ok(mut bars))) => {
+            bars.sort_by_key(|c| c.timestamp);
+            Ok(bars)
+        }
+        Ok(Ok(Err(e))) => Err(e),
+        Ok(Err(_))      => Err("chart request was cancelled".into()),
+        Err(_)          => Err("cTrader response timeout".into()),
+    }
 }
 
+/// Serialize a candle slice into compact `{ts,o,h,l,c}` JSON objects (oldest-first).
+fn candles_to_json(bars: &[Candle]) -> Vec<serde_json::Value> {
+    bars.iter().map(|c| serde_json::json!({
+        "ts": c.timestamp,
+        "o": c.open, "h": c.high, "l": c.low, "c": c.close,
+    })).collect()
+}
+
+/// Session anchor for intraday VWAP — resets at 21:00 UTC (CME globex / spot-gold
+/// daily reopen), matching the chart's `VWAP_SESSION_OFFSET_SEC`.
+const VWAP_SESSION_OFFSET_SEC: i64 = 21 * 3600;
+fn vwap_session_day(ts: i64) -> i64 { (ts - VWAP_SESSION_OFFSET_SEC).div_euclid(86400) }
+fn round2(x: f64) -> f64 { (x * 100.0).round() / 100.0 }
+
+/// Annotate candles with session-anchored VWAP (HLC3, resets 21:00 UTC) and an
+/// 8-period EMA of close — the two indicators the day-trade strategy keys off.
+/// Returns `(json_with_vwap_ema, last_vwap, last_ema8)` so the caller can also
+/// surface the current values at the top of the snapshot.
+fn candles_with_indicators(bars: &[Candle]) -> (Vec<serde_json::Value>, Option<f64>, Option<f64>) {
+    let alpha = 2.0 / (8.0 + 1.0);
+    let mut cum_pv = 0.0;
+    let mut cum_v = 0.0;
+    let mut cur_day = i64::MIN;
+    let mut ema: Option<f64> = None;
+    let mut last_vwap: Option<f64> = None;
+    let mut out = Vec::with_capacity(bars.len());
+    for c in bars {
+        let day = vwap_session_day(c.timestamp);
+        if day != cur_day { cum_pv = 0.0; cum_v = 0.0; cur_day = day; }
+        let typical = (c.high + c.low + c.close) / 3.0;
+        let vol = c.volume.max(0) as f64;
+        cum_pv += typical * vol;
+        cum_v += vol;
+        let vwap = if cum_v > 0.0 { cum_pv / cum_v } else { typical };
+        ema = Some(match ema {
+            Some(prev) => alpha * c.close + (1.0 - alpha) * prev,
+            None => c.close,
+        });
+        last_vwap = Some(vwap);
+        out.push(serde_json::json!({
+            "ts": c.timestamp, "o": c.open, "h": c.high, "l": c.low, "c": c.close,
+            "vwap": round2(vwap),
+            "ema8": ema.map(round2),
+        }));
+    }
+    (out, last_vwap.map(round2), ema.map(round2))
+}
+
+/// High / low of the most recent 21:00-UTC session from a candle slice. Used as
+/// the "session high / low" reference the strategy retests against.
+fn session_high_low(bars: &[Candle]) -> (Option<f64>, Option<f64>) {
+    let Some(last) = bars.last() else { return (None, None) };
+    let day = vwap_session_day(last.timestamp);
+    let mut hi = f64::MIN;
+    let mut lo = f64::MAX;
+    for c in bars {
+        if vwap_session_day(c.timestamp) == day {
+            hi = hi.max(c.high);
+            lo = lo.min(c.low);
+        }
+    }
+    if hi == f64::MIN { (None, None) } else { (Some(round2(hi)), Some(round2(lo))) }
+}
+
+/// ATR(n): simple average of (high − low) over the last `n` bars.
+fn atr_simple(bars: &[Candle], n: usize) -> Option<f64> {
+    if bars.is_empty() { return None; }
+    let take = bars.len().min(n);
+    let slice = &bars[bars.len() - take..];
+    let sum: f64 = slice.iter().map(|c| c.high - c.low).sum();
+    Some(round2(sum / take as f64))
+}
+
+/// Build two live snapshots in one pass:
+///   - `compact` — tiny (latest M1 + M5 + scalar levels + a few headlines) for
+///     the small/fast models (Gemini, DeepSeek, Qwen) so they stay under ~20 s.
+///   - `full` — richer (M5+M15+H1 + PDH/PDL/PDC + more news/calendar) for the
+///     Claude multi-strategy read.
+/// VWAP/8EMA are computed over a full session of M5 bars so the values are
+/// correct; only recent slices are shipped.
+async fn build_trade_snapshots(
+    db_mutex: &SharedDb,
+    symbol_id: i64,
+) -> Result<(serde_json::Value, serde_json::Value), String> {
+    use openapi::ProtoOaTrendbarPeriod as P;
+    let (m1, m5, m15, h1, d1) = tokio::join!(
+        fetch_trendbars_for_snapshot(symbol_id, P::M1,  1,  30),
+        fetch_trendbars_for_snapshot(symbol_id, P::M5,  5,  288), // ~24h → correct session VWAP
+        fetch_trendbars_for_snapshot(symbol_id, P::M15, 15, 96),
+        fetch_trendbars_for_snapshot(symbol_id, P::H1,  60, 30),
+        fetch_trendbars_for_snapshot(symbol_id, P::D1,  60 * 24, 5),
+    );
+    let m1 = m1.unwrap_or_default();
+    let m5 = m5.unwrap_or_default();
+    let m15 = m15.unwrap_or_default();
+    let h1 = h1.unwrap_or_default();
+    let d1 = d1.unwrap_or_default();
+    if m5.is_empty() && m1.is_empty() && h1.is_empty() {
+        return Err("no candle data from cTrader (session reconnecting?)".into());
+    }
+
+    let (m5_full, vwap_now, ema8_m5) = candles_with_indicators(&m5);
+    let (m15_full, _, ema8_m15) = candles_with_indicators(&m15);
+    let (sess_hi, sess_lo) = session_high_low(&m5);
+    let atr_h1 = atr_simple(&h1, 14);
+
+    let slice_tail = |v: &[serde_json::Value], n: usize| -> Vec<serde_json::Value> {
+        v.iter().skip(v.len().saturating_sub(n)).cloned().collect()
+    };
+    let m1_recent = if m1.len() > 20 { candles_to_json(&m1[m1.len() - 20..]) } else { candles_to_json(&m1) };
+    let m5_recent_20 = slice_tail(&m5_full, 20);
+    let m5_recent_24 = slice_tail(&m5_full, 24);
+    let m15_recent = slice_tail(&m15_full, 32);
+    let h1_recent = if h1.len() > 16 { candles_to_json(&h1[h1.len() - 16..]) } else { candles_to_json(&h1) };
+
+    // Prior completed day (D1's last bar is today/in-progress, second-last is yesterday).
+    let (pdh, pdl, pdc) = if d1.len() >= 2 {
+        let p = &d1[d1.len() - 2];
+        (Some(round2(p.high)), Some(round2(p.low)), Some(round2(p.close)))
+    } else { (None, None, None) };
+
+    let live_bid = {
+        let bits = LATEST_XAUUSD_BID.load(std::sync::atomic::Ordering::Relaxed);
+        if bits != 0 { Some(f64::from_bits(bits)) } else { None }
+    };
+    let last = m1.last().or_else(|| m5.last()).or_else(|| h1.last());
+    let price = live_bid.or_else(|| last.map(|c| c.close));
+    let last_ts_utc = last.and_then(|c|
+        chrono::DateTime::<chrono::Utc>::from_timestamp(c.timestamp, 0).map(|d| d.to_rfc3339()));
+
+    // Live calendar: today + tomorrow, vol≥2, gold currencies — names + times.
+    const GOLD_CCYS: [&str; 7] = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "CNY"];
+    let calendar: Vec<serde_json::Value> = if ensure_econcal_alive().await {
+        let start = chrono::Utc::now().format("%Y%m%d").to_string();
+        let end = (chrono::Utc::now() + chrono::Duration::days(1)).format("%Y%m%d").to_string();
+        match ec_realtime::fetch_events_for_date(&start, &end).await {
+            Ok(rows) => rows.into_iter()
+                .filter(|r| r.volatility >= 2 && GOLD_CCYS.contains(&r.currency.as_str()))
+                .take(8)
+                .map(|r| serde_json::json!({ "ts": r.timestamp_utc, "cur": r.currency, "name": r.event_name }))
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    } else { Vec::new() };
+
+    // Recent gold/macro headlines (last 2 days, titles only).
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(2)).format("%Y-%m-%d").to_string();
+    let headlines: Vec<String> = {
+        let db_mutex = db_mutex.clone();
+        tokio::task::spawn_blocking(move || -> Vec<String> {
+            let Ok(_lock) = db_mutex.lock() else { return Vec::new() };
+            let Ok(db) = duckdb::Connection::open(DB_PATH) else { return Vec::new() };
+            let q = "SELECT title FROM news_historical
+                     WHERE published_utc >= ?
+                       AND (lower(title) LIKE '%gold%' OR lower(title) LIKE '%fed%'
+                         OR lower(title) LIKE '%powell%' OR lower(title) LIKE '%dollar%'
+                         OR lower(title) LIKE '%yield%'  OR lower(title) LIKE '%cpi%'
+                         OR lower(title) LIKE '%inflation%' OR lower(title) LIKE '%pce%')
+                     ORDER BY published_utc DESC LIMIT 8";
+            let Ok(mut stmt) = db.prepare(q) else { return Vec::new() };
+            stmt.query_map([cutoff.as_str()], |row| row.get::<_, String>(0))
+                .map(|rows| rows.flatten().collect())
+                .unwrap_or_default()
+        }).await.unwrap_or_default()
+    };
+
+    let now_utc = chrono::Utc::now().to_rfc3339();
+    let compact = serde_json::json!({
+        "now_utc": now_utc,
+        "price": price,
+        "last_bar_ts_utc": last_ts_utc,
+        "vwap": vwap_now,
+        "ema8_m5": ema8_m5,
+        "ema8_m15": ema8_m15,
+        "session_high": sess_hi,
+        "session_low": sess_lo,
+        "atr_h1": atr_h1,
+        "prior_day": { "high": pdh, "low": pdl, "close": pdc },
+        "m1_recent": m1_recent,        // {ts,o,h,l,c}
+        "m5_recent": m5_recent_20,     // {ts,o,h,l,c,vwap,ema8}
+        "calendar_next": calendar.iter().take(5).cloned().collect::<Vec<_>>(),
+        "news_headlines": headlines.iter().take(5).cloned().collect::<Vec<_>>(),
+    });
+    let full = serde_json::json!({
+        "now_utc": now_utc,
+        "price": price,
+        "last_bar_ts_utc": last_ts_utc,
+        "vwap": vwap_now,
+        "ema8_m5": ema8_m5,
+        "ema8_m15": ema8_m15,
+        "session_high": sess_hi,
+        "session_low": sess_lo,
+        "atr_h1": atr_h1,
+        "prior_day": { "high": pdh, "low": pdl, "close": pdc },
+        "m5_recent": m5_recent_24,     // {ts,o,h,l,c,vwap,ema8}
+        "m15_recent": m15_recent,      // {ts,o,h,l,c,vwap,ema8}
+        "h1_recent": h1_recent,        // {ts,o,h,l,c}
+        "calendar_next": calendar,
+        "news_headlines": headlines,
+    });
+    Ok((compact, full))
+}
+
+/// Tauri command behind `Gold_Trade_Ideas` — fan out to 4 models in parallel.
+/// Claude gets the full snapshot + the multi-strategy playbook; Gemini/DeepSeek/
+/// Qwen get the compact snapshot + the focused VWAP+8EMA prompt. Each is
+/// single-shot and capped at ~18 s; a `trade_idea_model` event is emitted per
+/// model as it finishes so the popups fill in live.
+#[tauri::command]
+async fn get_gold_trade_ideas_multi(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Vec<ai::traders::ModelTradeIdea>, String> {
+    use tauri::Emitter;
+
+    let symbol_id = {
+        let map = symbol_map().lock().map_err(|e| e.to_string())?;
+        map.get("XAUUSD").copied()
+            .ok_or_else(|| "XAUUSD not subscribed yet — wait a few seconds after connect.".to_string())?
+    };
+
+    let (compact, full) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
+    // Claude runs the full multi-strategy playbook on the fuller snapshot;
+    // Gemini/DeepSeek/Qwen get a general day-trade prompt on the compact snapshot.
+    let user_compact = format!(
+        "Compact live snapshot (seconds old):\n```json\n{}\n```\n\nGive ONE intraday setup for right now. JSON only.",
+        serde_json::to_string(&compact).unwrap_or_default()
+    );
+    let user_full = format!(
+        "Live snapshot (seconds old):\n```json\n{}\n```\n\nClassify the regime, pick the best-fitting strategy, and give ONE intraday setup for right now. JSON only.",
+        serde_json::to_string(&full).unwrap_or_default()
+    );
+    let system_claude = ai::traders::gold_day_trader_prompt();
+    let system_simple = ai::traders::SIMPLE_TRADER_PROMPT.to_string();
+
+    let claude_model = std::env::var("CLAUDE_MODEL").unwrap_or_else(|_| "sonnet".to_string());
+    let gemini_key = std::env::var("GOOGLE_API_KEY").ok();
+
+    enum Kind { Claude(String), Gemini(String, Option<String>) }
+    // (label, kind, system, user)
+    let jobs: Vec<(&str, Kind, String, String)> = vec![
+        ("Claude", Kind::Claude(claude_model),                             system_claude, user_full),
+        ("Gemini", Kind::Gemini("gemini-flash-latest".into(), gemini_key), system_simple, user_compact),
+    ];
+
+    let mut set = tokio::task::JoinSet::new();
+    for (label, kind, system, user) in jobs {
+        let app = app.clone();
+        let label = label.to_string();
+        set.spawn(async move {
+            let res = match kind {
+                Kind::Claude(m) => ai::traders::run_claude_cli(&label, &m, &system, &user).await,
+                Kind::Gemini(m, key) => match key {
+                    Some(k) => ai::traders::run_gemini(&label, &m, &k, &system, &user).await,
+                    None => ai::traders::ModelTradeIdea::error(&label, &m, "GOOGLE_API_KEY not set in .env"),
+                },
+            };
+            let _ = app.emit("trade_idea_model", &res);
+            res
+        });
+    }
+
+    let mut out = Vec::new();
+    while let Some(joined) = set.join_next().await {
+        if let Ok(r) = joined { out.push(r); }
+    }
+    Ok(out)
+}
+
+/// Result of a LIVE order placement. `sent` is true once the broker accepts the
+/// order; otherwise `error` explains why.
 #[derive(serde::Serialize)]
-struct EcGoldStorageResult {
-    /// True if any disk files existed before this run (i.e. an incremental
-    /// update rather than a fresh bootstrap).
-    incremental: bool,
-    /// `MAX(YYYY-MM-DD)` of the disk archive before this run, null if empty.
-    disk_latest_day_before: Option<String>,
-    /// `MAX(YYYY-MM-DD)` in `xauusd_economic_calendar`, null if table empty.
-    db_latest_day: Option<String>,
-    /// Days inspected this run that already match the DB → no rewrite needed.
-    days_already_current: usize,
-    /// Days actually (re)written this run.
-    files_written: usize,
-    /// Sum of events in the (re)written files.
-    events_written: usize,
-    /// True iff nothing needed updating (disk already matched DB).
-    up_to_date: bool,
-    archive_root: String,
-    duration_ms: u128,
+struct OrderResult {
+    sent: bool,
+    side: String,            // "BUY" | "SELL"
+    symbol: String,
+    oz: u32,
+    ctrader_volume: i64,     // volume in cents, validated against symbol min/step
+    order_type: String,      // "MARKET" | "LIMIT" | "STOP"
+    entry: Option<f64>,      // pending entry price (None for MARKET)
+    sl: Option<f64>,         // SL price attached (None = not attached)
+    tp: Option<f64>,         // TP price attached
+    status: Option<String>,  // execution type, e.g. ORDER_ACCEPTED / ORDER_FILLED
     error: Option<String>,
 }
 
-/// Tauri command behind the `EC_Gold_events_storage` button.
+/// Place a REAL order for XAUUSD on the live cTrader account, sized from the
+/// chosen ounces. When the idea has an entry zone, a PENDING order is placed at
+/// that entry (LIMIT for a pullback, STOP for a breakout) with the idea's
+/// absolute SL/TP — so the fill matches the idea instead of chasing the market.
+/// With no entry zone it falls back to a MARKET order with relative SL/TP.
+/// Refuses if the symbol spec isn't cached or there's no live price.
 ///
-/// Diff-aware: on first run, writes one JSON file per day under
-/// `ec_events_data/all/YYYY-MM/YYYY-MM-DD.json` for every day in the DB.
-/// On re-run, walks the existing archive, finds the latest day file, and:
-///   - if the DB has newer days → writes those new days' files,
-///   - if the DB has more events for the latest disk day → rewrites just that day,
-///   - if everything already matches → returns `up_to_date = true` (no work done).
-///
-/// Per-day file format mirrors `news_data/all/YYYY-MM-DD.json`:
-/// ```json
-/// {
-///   "date": "2026-05-26",
-///   "count": 18,
-///   "generated_at": "2026-05-26T12:34:56Z",
-///   "events": [ { event row as object }, ... ]
-/// }
-/// ```
-#[tauri::command]
-async fn store_ec_gold_events(
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<EcGoldStorageResult, String> {
-    use tauri::Emitter;
-    let start_clock = std::time::Instant::now();
-
-    // Step 1: find the latest day already on disk.
-    let disk_latest_day_before: Option<String> = tokio::task::spawn_blocking(find_latest_disk_day)
-        .await
-        .map_err(|e| format!("disk-scan task join: {}", e))?;
-    let incremental = disk_latest_day_before.is_some();
-
-    // Step 2: query (day, count) for every day in xauusd_economic_calendar.
-    let db_days: Vec<(String, usize)> = {
-        let db_mutex = state.db_mutex.clone();
-        tokio::task::spawn_blocking(move || -> Result<Vec<(String, usize)>, String> {
-            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-            let mut stmt = db.prepare(
-                "SELECT substr(timestamp_utc, 1, 10) AS day, COUNT(*) AS n
-                 FROM xauusd_economic_calendar
-                 WHERE length(timestamp_utc) >= 10
-                 GROUP BY day
-                 ORDER BY day ASC"
-            ).map_err(|e| format!("prepare day-counts: {}", e))?;
-            let rows: Vec<(String, usize)> = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
-            }).map_err(|e| format!("query day-counts: {}", e))?
-              .flatten().collect();
-            Ok(rows)
-        })
-        .await
-        .map_err(|e| format!("day-counts task join: {}", e))??
-    };
-
-    if db_days.is_empty() {
-        return Ok(EcGoldStorageResult {
-            incremental, disk_latest_day_before, db_latest_day: None,
-            days_already_current: 0,
-            files_written: 0, events_written: 0,
-            up_to_date: false,
-            archive_root: EC_ARCHIVE_ROOT.to_string(),
-            duration_ms: start_clock.elapsed().as_millis(),
-            error: Some("xauusd_economic_calendar is empty — run EC_Gold_Events_Update first.".into()),
-        });
-    }
-
-    let db_latest_day = db_days.last().map(|(d, _)| d.clone());
-
-    // Step 3: decide which days to (re)write.
-    //
-    //   First run (no disk):  every DB day.
-    //   Re-run:               every DB day >= disk-latest whose DB count
-    //                         differs from the on-disk file's count
-    //                         (missing-on-disk counts as count 0).
-    //
-    // Older days are trusted as-is. The rationale: this archive is meant
-    // to be a snapshot of the DB; once a day has been written and its
-    // event count matches what's in the DB, there's no reason to rewrite.
-    let days_to_write: Vec<(String, usize)> = match &disk_latest_day_before {
-        None => db_days.clone(),
-        Some(disk_latest) => db_days.iter()
-            .filter(|(day, db_count)| {
-                if day.as_str() < disk_latest.as_str() { return false; }
-                read_disk_event_count(day) != *db_count
-            })
-            .cloned()
-            .collect(),
-    };
-    let days_already_current = if let Some(disk_latest) = &disk_latest_day_before {
-        db_days.iter()
-            .filter(|(day, _)| day.as_str() >= disk_latest.as_str())
-            .count()
-            .saturating_sub(days_to_write.len())
-    } else { 0 };
-
-    if days_to_write.is_empty() {
-        return Ok(EcGoldStorageResult {
-            incremental, disk_latest_day_before, db_latest_day,
-            days_already_current,
-            files_written: 0, events_written: 0,
-            up_to_date: true,
-            archive_root: EC_ARCHIVE_ROOT.to_string(),
-            duration_ms: start_clock.elapsed().as_millis(),
-            error: None,
-        });
-    }
-
-    // Step 4: group the days-to-write by month so we can pull each month's
-    // events in one DB query (cheaper than 1 query per day for first runs
-    // where days_to_write can be ~5000 entries).
-    let files_total = days_to_write.len();
-    let mut by_month: std::collections::BTreeMap<String, Vec<String>> =
-        std::collections::BTreeMap::new();
-    for (day, _) in &days_to_write {
-        if day.len() >= 7 {
-            by_month.entry(day[..7].to_string()).or_default().push(day.clone());
-        }
-    }
-    let wanted_days: std::collections::HashSet<String> =
-        days_to_write.iter().map(|(d, _)| d.clone()).collect();
-
-    let mut files_written = 0usize;
-    let mut events_written = 0usize;
-    let mut last_error: Option<String> = None;
-
-    // Fire an initial 0% progress so the UI shows the bar straight away
-    // (without waiting for the first file to land). For fast re-runs of
-    // 1-5 files, the bar would otherwise pop in for ~50 ms at the very end.
-    let first_day = days_to_write.first().map(|(d, _)| d.clone()).unwrap_or_default();
-    let _ = app.emit("ec_gold_storage_progress", &EcGoldStorageProgress {
-        files_done: 0,
-        files_total,
-        events_written_so_far: 0,
-        current_day: first_day,
-        elapsed_secs: start_clock.elapsed().as_secs(),
-    });
-
-    'months: for (month, _) in &by_month {
-        // Pull every event in this month, ordered by timestamp.
-        let db_mutex = state.db_mutex.clone();
-        let month_q = month.clone();
-        let month_events: Vec<(String, serde_json::Value)> = match tokio::task::spawn_blocking(move || -> Result<Vec<(String, serde_json::Value)>, String> {
-            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-            let mut stmt = db.prepare(
-                "SELECT event_date_id, event_id, event_name, currency, country_code,
-                        volatility, timestamp_utc, weekday, hour_utc,
-                        actual_raw, forecast_raw, previous_raw,
-                        actual, forecast, previous, surprise, beats_forecast, unit
-                 FROM xauusd_economic_calendar
-                 WHERE substr(timestamp_utc, 1, 7) = ?
-                 ORDER BY timestamp_utc ASC"
-            ).map_err(|e| format!("prepare month query: {}", e))?;
-            let rows = stmt.query_map([month_q.as_str()], |row| {
-                let ts: String = row.get(6)?;
-                let day = if ts.len() >= 10 { ts[..10].to_string() } else { ts.clone() };
-                let event = serde_json::json!({
-                    "event_date_id":  row.get::<_, String>(0)?,
-                    "event_id":       row.get::<_, String>(1)?,
-                    "event_name":     row.get::<_, String>(2)?,
-                    "currency":       row.get::<_, String>(3)?,
-                    "country_code":   row.get::<_, String>(4)?,
-                    "volatility":     row.get::<_, i32>(5)?,
-                    "timestamp_utc":  ts,
-                    "weekday":        row.get::<_, i32>(7)?,
-                    "hour_utc":       row.get::<_, i32>(8)?,
-                    "actual_raw":     row.get::<_, Option<String>>(9)?,
-                    "forecast_raw":   row.get::<_, Option<String>>(10)?,
-                    "previous_raw":   row.get::<_, Option<String>>(11)?,
-                    "actual":         row.get::<_, Option<f64>>(12)?,
-                    "forecast":       row.get::<_, Option<f64>>(13)?,
-                    "previous":       row.get::<_, Option<f64>>(14)?,
-                    "surprise":       row.get::<_, Option<f64>>(15)?,
-                    "beats_forecast": row.get::<_, Option<i32>>(16)?,
-                    "unit":           row.get::<_, Option<String>>(17)?,
-                });
-                Ok((day, event))
-            }).map_err(|e| format!("query month: {}", e))?;
-            Ok(rows.flatten().collect())
-        }).await.map_err(|e| format!("month task join: {}", e))? {
-            Ok(v) => v,
-            Err(e) => { last_error = Some(format!("{} read failed: {}", month, e)); break 'months; }
-        };
-
-        // Group this month's rows by day, keeping only days_to_write.
-        let mut by_day: std::collections::BTreeMap<String, Vec<serde_json::Value>> =
-            std::collections::BTreeMap::new();
-        for (day, event) in month_events {
-            if wanted_days.contains(&day) {
-                by_day.entry(day).or_default().push(event);
-            }
-        }
-
-        let month_dir = std::path::Path::new(EC_ARCHIVE_ROOT).join(month);
-        if let Err(e) = std::fs::create_dir_all(&month_dir) {
-            last_error = Some(format!("create dir {}: {}", month_dir.display(), e));
-            break 'months;
-        }
-
-        let now_rfc = chrono::Utc::now().to_rfc3339();
-        for (day, events) in &by_day {
-            let path = month_dir.join(format!("{}.json", day));
-            let count = events.len();
-            let payload = serde_json::json!({
-                "date":         day,
-                "count":        count,
-                "generated_at": now_rfc,
-                "events":       events,
-            });
-            let pretty = match serde_json::to_string_pretty(&payload) {
-                Ok(s) => s,
-                Err(e) => { last_error = Some(format!("serialize {}: {}", day, e)); break 'months; }
-            };
-            if let Err(e) = std::fs::write(&path, pretty) {
-                last_error = Some(format!("write {}: {}", path.display(), e));
-                break 'months;
-            }
-            files_written += 1;
-            events_written += count;
-
-            let _ = app.emit("ec_gold_storage_progress", &EcGoldStorageProgress {
-                files_done: files_written,
-                files_total,
-                events_written_so_far: events_written,
-                current_day: day.clone(),
-                elapsed_secs: start_clock.elapsed().as_secs(),
-            });
-        }
-    }
-
-    Ok(EcGoldStorageResult {
-        incremental, disk_latest_day_before, db_latest_day,
-        days_already_current,
-        files_written, events_written,
-        up_to_date: false,
-        archive_root: EC_ARCHIVE_ROOT.to_string(),
-        duration_ms: start_clock.elapsed().as_millis(),
-        error: last_error,
-    })
-}
-
-/// Walk `ec_events_data/all/YYYY-MM/` and return the lexically-largest
-/// `YYYY-MM-DD.json` filename (without the extension), or None if the
-/// archive root doesn't exist or has no day files.
-fn find_latest_disk_day() -> Option<String> {
-    let root = std::path::Path::new(EC_ARCHIVE_ROOT);
-    if !root.exists() { return None; }
-    let mut newest: Option<String> = None;
-    let month_iter = std::fs::read_dir(root).ok()?;
-    for month_entry in month_iter.flatten() {
-        let mp = month_entry.path();
-        if !mp.is_dir() { continue; }
-        let day_iter = match std::fs::read_dir(&mp) { Ok(d) => d, Err(_) => continue };
-        for day_entry in day_iter.flatten() {
-            let p = day_entry.path();
-            let name = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s, None => continue };
-            if name.len() != 15 || !name.ends_with(".json") { continue; }
-            let day = &name[..10];
-            if newest.as_deref().map(|n| day > n).unwrap_or(true) {
-                newest = Some(day.to_string());
-            }
-        }
-    }
-    newest
-}
-
-/// Return the `count` field from `ec_events_data/all/YYYY-MM/{day}.json`,
-/// or 0 if the file is missing / unreadable / malformed.
-fn read_disk_event_count(day: &str) -> usize {
-    if day.len() < 7 { return 0; }
-    let path = std::path::Path::new(EC_ARCHIVE_ROOT)
-        .join(&day[..7])
-        .join(format!("{}.json", day));
-    let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => return 0 };
-    let v: serde_json::Value = match serde_json::from_str(&content) { Ok(v) => v, Err(_) => return 0 };
-    v.get("count").and_then(|c| c.as_u64()).map(|n| n as usize).unwrap_or(0)
-}
-
-// ── Trade Ideas tab: ask local Claude CLI for an XAUUSD trade idea ───────────
-
-#[derive(serde::Serialize)]
-struct TradeIdeaResult {
-    /// Markdown text from Claude (or an error message rendered as markdown).
-    /// The trailing fenced ```json block is stripped before this is returned.
-    markdown: String,
-    /// True if the Claude call succeeded. False on missing CLI / spawn error.
-    ok: bool,
-    /// Total wallclock from button click to response (ms).
-    duration_ms: u128,
-    /// Model alias actually used (echoed for transparency).
-    model: String,
-    /// Structured form of the trade idea, parsed from the JSON block at the
-    /// end of Claude's response. `None` if the block was missing or invalid
-    /// (in which case the frontend just renders the markdown).
-    parsed: Option<TradeIdea>,
-}
-
-/// Machine-readable form of the trade idea. Mirrors the JSON block the
-/// xauusd-trader agent appends to its markdown output. The frontend uses
-/// this to render the trade card + chart-overlay levels.
-///
-/// All level fields are `Option<f64>` because FLAT ideas legitimately have
-/// no entry / stop / target.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-struct TradeIdea {
-    bias: String,
-    current_price: Option<f64>,
-    atr_h1: Option<f64>,
-    atr_d1: Option<f64>,
-    atr_d1_pct: Option<f64>,
-    vol_regime: Option<String>,
-    entry_low: Option<f64>,
-    entry_high: Option<f64>,
-    entry_note: Option<String>,
+/// Internal core shared by the Tauri command and the auto-trade loop.
+async fn submit_gold_order(
+    side: String,
+    oz: u32,
+    entry: Option<f64>,
     stop: Option<f64>,
     target1: Option<f64>,
-    target2: Option<f64>,
-    rr1: Option<f64>,
-    rr2: Option<f64>,
-    conviction: Option<String>,
-    timeframe: Option<String>,
-    market_state: Option<String>,
-    next_catalyst_utc: Option<String>,
-    next_catalyst_name: Option<String>,
-    invalidation_note: Option<String>,
-}
-
-/// Pull the trailing ```json … ``` fenced block out of Claude's markdown and
-/// deserialize it into a `TradeIdea`. Returns `(stripped_markdown, parsed)`:
-/// the markdown with the JSON block removed so the frontend doesn't render it
-/// twice, plus the parsed struct (or `None` if absent / unparseable).
-fn extract_trade_idea_json(markdown: &str) -> (String, Option<TradeIdea>) {
-    // Find the LAST ```json fence in the text — the agent is instructed to
-    // place it after the human-readable markdown. Scan from the end so we
-    // don't accidentally match a JSON example inside the rationale.
-    let lower = markdown.to_ascii_lowercase();
-    let Some(open_idx) = lower.rfind("```json") else {
-        return (markdown.to_string(), None);
+) -> Result<OrderResult, String> {
+    let oz = oz.clamp(1, 10);
+    let (trade_side, side_str) = match side.to_uppercase().as_str() {
+        "LONG" | "BUY"  => (openapi::ProtoOaTradeSide::Buy, "BUY"),
+        "SHORT" | "SELL" => (openapi::ProtoOaTradeSide::Sell, "SELL"),
+        other => return Err(format!("can't place an order for bias '{}'", other)),
     };
-    // Find the matching closing ``` after the opener.
-    let after_open = open_idx + "```json".len();
-    let Some(rel_close) = markdown[after_open..].find("```") else {
-        return (markdown.to_string(), None);
+    let is_buy = matches!(trade_side, openapi::ProtoOaTradeSide::Buy);
+
+    let spec = xauusd_spec().lock().map_err(|e| e.to_string())?.ok_or(
+        "XAUUSD trading spec not loaded yet — wait a few seconds after connect and retry."
+    )?;
+    let round = |x: f64| {
+        let f = 10f64.powi(spec.digits.max(0));
+        (x * f).round() / f
     };
-    let close_idx = after_open + rel_close;
-    let json_body = markdown[after_open..close_idx].trim();
 
-    let parsed: Option<TradeIdea> = serde_json::from_str(json_body).ok();
-
-    // Strip the fenced block (and the line break before it, if any) from the
-    // markdown so the modal shows the human prose only.
-    let mut stripped = markdown[..open_idx].trim_end().to_string();
-    // Tail after the closing fence, in case the agent added trailing prose.
-    let tail = markdown[close_idx + 3..].trim();
-    if !tail.is_empty() {
-        stripped.push_str("\n\n");
-        stripped.push_str(tail);
+    // Volume: oz × 100 (cents), clamped to [min, max] and floored to a step multiple.
+    let mut volume = oz as i64 * 100;
+    if spec.max_volume > 0 { volume = volume.min(spec.max_volume); }
+    if spec.step_volume > 0 { volume = (volume / spec.step_volume) * spec.step_volume; }
+    if spec.min_volume > 0 && volume < spec.min_volume { volume = spec.min_volume; }
+    if volume <= 0 {
+        return Err(format!("computed volume {} invalid for spec min={} step={}",
+                           volume, spec.min_volume, spec.step_volume));
     }
-    (stripped, parsed)
+
+    let price = {
+        let bits = LATEST_XAUUSD_BID.load(std::sync::atomic::Ordering::Relaxed);
+        if bits != 0 { f64::from_bits(bits) } else { 0.0 }
+    };
+    if price <= 0.0 {
+        return Err("no live XAUUSD price yet — wait for a tick and retry.".into());
+    }
+
+    // Entry chosen in the popup (may be user-edited). None → market.
+    let entry = entry.map(round);
+
+    let mut order = OrderRequest {
+        symbol_id: spec.symbol_id,
+        trade_side,
+        order_type: openapi::ProtoOaOrderType::Market,
+        volume,
+        limit_price: None,
+        stop_price: None,
+        stop_loss: None,
+        take_profit: None,
+        rel_sl: None,
+        rel_tp: None,
+        label: "GoldTradeIdea".into(),
+        reply: { /* set below */ tokio::sync::oneshot::channel().0 },
+    };
+
+    let (out_type, out_entry, out_sl, out_tp);
+    if let Some(e) = entry {
+        // PENDING order at the idea's entry. Buy below market = LIMIT, above = STOP
+        // (and the mirror for sells). Absolute SL/TP are allowed for pending orders.
+        let ot = if is_buy {
+            if e <= price { openapi::ProtoOaOrderType::Limit } else { openapi::ProtoOaOrderType::Stop }
+        } else if e >= price { openapi::ProtoOaOrderType::Limit } else { openapi::ProtoOaOrderType::Stop };
+        order.order_type = ot;
+        match ot {
+            openapi::ProtoOaOrderType::Limit => order.limit_price = Some(e),
+            _ => order.stop_price = Some(e),
+        }
+        // SL/TP validated against the ENTRY (must straddle it correctly).
+        let sl = stop.map(round).filter(|&s| if is_buy { s < e } else { s > e });
+        let tp = target1.map(round).filter(|&t| if is_buy { t > e } else { t < e });
+        order.stop_loss = sl;
+        order.take_profit = tp;
+        out_type = ot.as_str_name().to_string();
+        out_entry = Some(e);
+        out_sl = sl;
+        out_tp = tp;
+    } else {
+        // No entry zone → MARKET now, with relative SL/TP from current price.
+        let sl = stop.filter(|&s| if is_buy { s < price } else { s > price });
+        let tp = target1.filter(|&t| if is_buy { t > price } else { t < price });
+        order.rel_sl = sl.map(|s| ((price - s).abs() * 100_000.0).round() as i64);
+        order.rel_tp = tp.map(|t| ((t - price).abs() * 100_000.0).round() as i64);
+        out_type = "MARKET".to_string();
+        out_entry = None;
+        out_sl = sl.map(round);
+        out_tp = tp.map(round);
+    }
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    order.reply = reply_tx;
+    let tx = ORDER_REQ_TX.get().ok_or("order channel not initialised")?;
+    tx.send(order).await.map_err(|e| format!("send order: {}", e))?;
+
+    let outcome = match tokio::time::timeout(std::time::Duration::from_secs(15), reply_rx).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(_)) => Err("order request cancelled".into()),
+        Err(_) => Err("broker response timeout (order may or may not have been placed — check cTrader)".into()),
+    };
+
+    match outcome {
+        Ok(status) => Ok(OrderResult {
+            sent: true, side: side_str.into(), symbol: "XAUUSD".into(), oz,
+            ctrader_volume: volume, order_type: out_type, entry: out_entry,
+            sl: out_sl, tp: out_tp, status: Some(status), error: None,
+        }),
+        Err(e) => Ok(OrderResult {
+            sent: false, side: side_str.into(), symbol: "XAUUSD".into(), oz,
+            ctrader_volume: volume, order_type: out_type, entry: out_entry,
+            sl: out_sl, tp: out_tp, status: None, error: Some(e),
+        }),
+    }
 }
 
-/// Tauri command behind the `Gold_Trade_Ideas` button.
-///
-/// Shells out to the local `claude` CLI (Claude Code), which uses the user's
-/// existing Claude subscription auth and picks up the `xauusd-trader` subagent
-/// in `.claude/agents/`. This avoids needing an API key — the CLI handles auth.
-///
-/// Emits live `trade_idea_phase` Tauri events at each step so the modal can
-/// show "Reading EC events…", "Loading news…", "Asking Claude…" instead of
-/// just a spinner.
+/// Tauri command wrapper around [`submit_gold_order`].
 #[tauri::command]
-async fn get_gold_trade_idea(
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<TradeIdeaResult, String> {
-    use tauri::Emitter;
-    let start_clock = std::time::Instant::now();
-    let model = std::env::var("CLAUDE_MODEL").unwrap_or_else(|_| "opus".to_string());
-
-    // Helper closure-ish — emit a one-line status to the modal.
-    let emit_phase = |label: &str| {
-        let _ = app.emit("trade_idea_phase", &serde_json::json!({
-            "label": label,
-            "elapsed_secs": start_clock.elapsed().as_secs(),
-        }));
-    };
-    emit_phase("Reading current price + multi-TF candles + EC events + today's news from DuckDB…");
-
-    // Gather snapshot data from DuckDB. Keep it compact — every byte costs
-    // input tokens.
-    let snapshot = {
-        let db_mutex = state.db_mutex.clone();
-        tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
-            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
-            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
-
-            // 1. Latest M1 close + timestamp.
-            let last_m1: Option<(i64, f64)> = db.query_row(
-                "SELECT timestamp, close FROM xauusd_m1 ORDER BY timestamp DESC LIMIT 1",
-                [], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
-            ).ok();
-
-            // 2. Last 30 H1 bars (for ATR + intraday structure).
-            let h1_bars: Vec<serde_json::Value> = {
-                let mut stmt = db.prepare(
-                    "SELECT timestamp, open, high, low, close
-                     FROM xauusd_h1 ORDER BY timestamp DESC LIMIT 30"
-                ).map_err(|e| e.to_string())?;
-                let rows: Vec<serde_json::Value> = stmt.query_map([], |row| {
-                    Ok(serde_json::json!({
-                        "ts": row.get::<_, i64>(0)?,
-                        "o": row.get::<_, f64>(1)?,
-                        "h": row.get::<_, f64>(2)?,
-                        "l": row.get::<_, f64>(3)?,
-                        "c": row.get::<_, f64>(4)?,
-                    }))
-                }).map_err(|e| e.to_string())?
-                  .flatten().collect();
-                // Reverse so oldest-first is more natural for the model.
-                rows.into_iter().rev().collect()
-            };
-
-            // 3. Last 30 D1 bars (HTF context).
-            let d1_bars: Vec<serde_json::Value> = {
-                let mut stmt = db.prepare(
-                    "SELECT timestamp, open, high, low, close
-                     FROM xauusd_d1 ORDER BY timestamp DESC LIMIT 30"
-                ).map_err(|e| e.to_string())?;
-                let rows: Vec<serde_json::Value> = stmt.query_map([], |row| {
-                    Ok(serde_json::json!({
-                        "ts": row.get::<_, i64>(0)?,
-                        "o": row.get::<_, f64>(1)?,
-                        "h": row.get::<_, f64>(2)?,
-                        "l": row.get::<_, f64>(3)?,
-                        "c": row.get::<_, f64>(4)?,
-                    }))
-                }).map_err(|e| e.to_string())?
-                  .flatten().collect();
-                rows.into_iter().rev().collect()
-            };
-
-            // 4. Today's + next 24h vol≥2 EC events.
-            let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-            let tomorrow_plus = (chrono::Utc::now() + chrono::Duration::days(2))
-                .format("%Y-%m-%d").to_string();
-            let ec_events: Vec<serde_json::Value> = {
-                let mut stmt = db.prepare(
-                    "SELECT timestamp_utc, currency, volatility, event_name,
-                            actual, forecast, previous
-                     FROM xauusd_economic_calendar
-                     WHERE substr(timestamp_utc, 1, 10) >= ?
-                       AND substr(timestamp_utc, 1, 10) <  ?
-                       AND volatility >= 2
-                     ORDER BY timestamp_utc ASC"
-                ).map_err(|e| e.to_string())?;
-                let rows: Vec<serde_json::Value> = stmt.query_map(
-                    [today.as_str(), tomorrow_plus.as_str()],
-                    |row| Ok(serde_json::json!({
-                        "ts": row.get::<_, String>(0)?,
-                        "cur": row.get::<_, String>(1)?,
-                        "vol": row.get::<_, i32>(2)?,
-                        "name": row.get::<_, String>(3)?,
-                        "actual": row.get::<_, Option<f64>>(4)?,
-                        "fcst": row.get::<_, Option<f64>>(5)?,
-                        "prev": row.get::<_, Option<f64>>(6)?,
-                    }))
-                ).map_err(|e| e.to_string())?
-                  .flatten().collect();
-                rows
-            };
-
-            // 5. Today's gold-relevant news. Titles + summary for ~15;
-            //    full body for the top 3 by published_utc DESC.
-            let news_titles: Vec<serde_json::Value> = {
-                let mut stmt = db.prepare(
-                    "SELECT published_utc, title, summary
-                     FROM news_historical
-                     WHERE published_utc LIKE ? || '%'
-                       AND (
-                         lower(title) LIKE '%gold%' OR lower(title) LIKE '%xau%'
-                      OR lower(title) LIKE '%fed%'  OR lower(title) LIKE '%powell%'
-                      OR lower(title) LIKE '%dxy%'  OR lower(title) LIKE '%dollar%'
-                      OR lower(title) LIKE '%yield%' OR lower(title) LIKE '%real%'
-                      OR lower(title) LIKE '%cpi%'  OR lower(title) LIKE '%inflation%'
-                      OR lower(title) LIKE '%fomc%' OR lower(title) LIKE '%nfp%'
-                       )
-                     ORDER BY published_utc DESC LIMIT 15"
-                ).map_err(|e| e.to_string())?;
-                let rows: Vec<serde_json::Value> = stmt.query_map([today.as_str()], |row| {
-                    Ok(serde_json::json!({
-                        "ts": row.get::<_, String>(0)?,
-                        "title": row.get::<_, String>(1)?,
-                        "summary": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                    }))
-                }).map_err(|e| e.to_string())?
-                  .flatten().collect();
-                rows
-            };
-
-            let news_bodies: Vec<serde_json::Value> = {
-                let mut stmt = db.prepare(
-                    "SELECT published_utc, title, body
-                     FROM news_historical
-                     WHERE published_utc LIKE ? || '%'
-                       AND body IS NOT NULL AND body <> ''
-                       AND (
-                         lower(title) LIKE '%gold%' OR lower(title) LIKE '%xau%'
-                      OR lower(title) LIKE '%fed%'  OR lower(title) LIKE '%powell%'
-                      OR lower(title) LIKE '%dxy%'  OR lower(title) LIKE '%dollar%'
-                      OR lower(title) LIKE '%yield%' OR lower(title) LIKE '%real%'
-                       )
-                     ORDER BY published_utc DESC LIMIT 3"
-                ).map_err(|e| e.to_string())?;
-                let rows: Vec<serde_json::Value> = stmt.query_map([today.as_str()], |row| {
-                    let body: String = row.get::<_, String>(2)?;
-                    // Truncate each body to ~1500 chars to keep prompt size sane.
-                    let truncated = if body.chars().count() > 1500 {
-                        format!("{}…", body.chars().take(1500).collect::<String>())
-                    } else { body };
-                    Ok(serde_json::json!({
-                        "ts": row.get::<_, String>(0)?,
-                        "title": row.get::<_, String>(1)?,
-                        "body": truncated,
-                    }))
-                }).map_err(|e| e.to_string())?
-                  .flatten().collect();
-                rows
-            };
-
-            Ok(serde_json::json!({
-                "now_utc": chrono::Utc::now().to_rfc3339(),
-                "current_price": last_m1.map(|(ts, c)| serde_json::json!({
-                    "close": c,
-                    "ts_unix": ts,
-                    "ts_utc": chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default(),
-                })),
-                "h1_bars_30": h1_bars,
-                "d1_bars_30": d1_bars,
-                "ec_events_next_48h_vol2plus": ec_events,
-                "news_headlines_today": news_titles,
-                "news_bodies_top3": news_bodies,
-            }))
-        })
-        .await
-        .map_err(|e| format!("snapshot task join: {}", e))??
-    };
-
-    // Concise snapshot summary for the live status panel.
-    let summary = {
-        let n_h1 = snapshot.get("h1_bars_30").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-        let n_d1 = snapshot.get("d1_bars_30").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-        let n_ec = snapshot.get("ec_events_next_48h_vol2plus").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-        let n_titles = snapshot.get("news_headlines_today").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-        let n_bodies = snapshot.get("news_bodies_top3").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-        let px = snapshot.get("current_price")
-            .and_then(|v| v.get("close")).and_then(|v| v.as_f64())
-            .map(|p| format!("{:.2}", p)).unwrap_or_else(|| "n/a".to_string());
-        format!("price {} · {} H1 · {} D1 · {} EC events · {} news titles ({} with body)",
-                px, n_h1, n_d1, n_ec, n_titles, n_bodies)
-    };
-    emit_phase(&format!("Snapshot ready — {} · sending to Claude ({})…", summary, model));
-
-    let user_message = format!(
-        "Produce an XAUUSD trade idea using your standard output template \
-         (markdown + trailing ```json block).\n\n\
-         **The snapshot below has what you need.** Price, last 30 H1 bars, \
-         last 30 D1 bars, today's vol≥2 EC events, today's news headlines, \
-         and the 3 most relevant article bodies — gathered seconds ago from \
-         the project DuckDB. **Reason from this snapshot first.**\n\n\
-         **Budget: max 6 additional Bash calls.** Run a DuckDB query only if \
-         you can name the specific number it produces and it's not in the \
-         snapshot (e.g. precise ATR, 1Y high/low). Combine related queries. \
-         Do not re-query the snapshot, do not Read the same file twice, do \
-         not Grep a file you've already Read, do not spawn another agent. \
-         If you're at 5 queries and still uncertain, the answer is FLAT.\n\n\
-         Snapshot:\n\n```json\n{}\n```",
-        serde_json::to_string_pretty(&snapshot).unwrap_or_default()
-    );
-
-    // Spawn the local claude CLI in print mode with the xauusd-trader subagent.
-    // The CLI handles auth via the user's existing Claude Code session (OAuth)
-    // — no API key needed. `current_dir` set to project root so the agent file
-    // at `.claude/agents/xauusd-trader.md` is discoverable.
-    //
-    // The user_message (containing a JSON snapshot with `[]{}` etc.) is piped
-    // via **stdin** rather than passed as a CLI argument. Reason: Rust 1.77.2+
-    // refuses to spawn .cmd files with "unsafe" argument characters (CVE-2024-
-    // 24576 fix), throwing "batch file arguments are invalid". Stdin sidesteps
-    // the entire argument-quoting layer.
-    let project_root = env!("CARGO_MANIFEST_DIR");
-    let claude_bin = if cfg!(windows) { "claude.cmd" } else { "claude" };
-
-    let mut cmd = tokio::process::Command::new(claude_bin);
-    cmd.args([
-            "-p",                          // print mode (non-interactive, exit after)
-            "--agent", "xauusd-trader",    // use the trader subagent
-            "--model", &model,             // opus / sonnet / haiku alias
-            // stream-json + verbose: each line is a NDJSON event (tool_use,
-            // tool_result, assistant text, final result). We parse it live so
-            // the modal can show "Running Bash: SELECT ..." as it happens,
-            // instead of staring at a blind spinner for 5-10 minutes.
-            "--output-format", "stream-json",
-            "--verbose",
-        ])
-        .current_dir(project_root)
-        .stdin(std::process::Stdio::piped())  // ← piped, we'll write the prompt
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    #[cfg(windows)]
-    {
-        // CREATE_NO_WINDOW so spawning claude doesn't pop a console window.
-        // tokio's Command exposes creation_flags natively on Windows — no
-        // std::os::windows::process::CommandExt import needed.
-        cmd.creation_flags(0x08000000);
-    }
-
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => return Ok(TradeIdeaResult {
-            markdown: format!(
-                "### Couldn't spawn the `claude` CLI\n\n```\n{}\n```\n\n\
-                 Make sure Claude Code is installed and on your PATH \
-                 (`npm i -g @anthropic-ai/claude-code` or similar) and \
-                 that you've logged in at least once (`claude` interactively).",
-                e
-            ),
-            ok: false,
-            duration_ms: start_clock.elapsed().as_millis(),
-            model,
-            parsed: None,
-        }),
-    };
-
-    // Write the prompt to stdin and close it (signals EOF so claude starts).
-    if let Some(mut stdin) = child.stdin.take() {
-        use tokio::io::AsyncWriteExt;
-        if let Err(e) = stdin.write_all(user_message.as_bytes()).await {
-            return Ok(TradeIdeaResult {
-                markdown: format!("### Couldn't write prompt to claude stdin\n\n```\n{}\n```", e),
-                ok: false,
-                duration_ms: start_clock.elapsed().as_millis(),
-                model,
-                parsed: None,
-            });
-        }
-        let _ = stdin.shutdown().await;
-        drop(stdin);
-    }
-
-    // 10-minute timeout. With the upgraded 9-step workflow (long-range
-    // context, multi-day narrative, event study, etc.) Opus 4.7 routinely
-    // spends 5-8 minutes in tool calls. We stream stdout line-by-line so
-    // the user sees progress (each Bash query, each Read) instead of a
-    // blind spinner — that's why a longer timeout is OK UX-wise.
-    emit_phase("Claude is thinking — streaming tool calls live…");
-
-    // Drain stderr in the background so the OS pipe buffer doesn't fill
-    // and block the child. We only surface stderr if the child exits non-zero.
-    let mut stderr = child.stderr.take().expect("stderr piped");
-    let stderr_task = tokio::spawn(async move {
-        use tokio::io::AsyncReadExt;
-        let mut buf = Vec::with_capacity(4096);
-        let _ = stderr.read_to_end(&mut buf).await;
-        buf
-    });
-
-    let stdout = child.stdout.take().expect("stdout piped");
-    let final_text = match tokio::time::timeout(
-        std::time::Duration::from_secs(600),
-        stream_claude_output(stdout, &emit_phase),
-    ).await {
-        Ok(Ok(text)) => text,
-        Ok(Err(e)) => {
-            let _ = child.kill().await;
-            return Ok(TradeIdeaResult {
-                markdown: format!("### Error reading Claude stream\n\n```\n{}\n```", e),
-                ok: false,
-                duration_ms: start_clock.elapsed().as_millis(),
-                model,
-                parsed: None,
-            });
-        }
-        Err(_) => {
-            let _ = child.kill().await;
-            return Ok(TradeIdeaResult {
-                markdown: "### Claude CLI timed out\n\nThe CLI didn't respond within 10 minutes. \
-                           Try again, or try a faster model with `CLAUDE_MODEL=sonnet` in `.env`.".into(),
-                ok: false,
-                duration_ms: start_clock.elapsed().as_millis(),
-                model,
-                parsed: None,
-            });
-        }
-    };
-
-    // Reap the child + collect exit status.
-    let status = match child.wait().await {
-        Ok(s) => s,
-        Err(e) => return Ok(TradeIdeaResult {
-            markdown: format!("### Couldn't reap claude CLI\n\n```\n{}\n```", e),
-            ok: false,
-            duration_ms: start_clock.elapsed().as_millis(),
-            model,
-            parsed: None,
-        }),
-    };
-    let stderr_bytes = stderr_task.await.unwrap_or_default();
-
-    if !status.success() {
-        let stderr_str = String::from_utf8_lossy(&stderr_bytes).into_owned();
-        return Ok(TradeIdeaResult {
-            markdown: format!(
-                "### Claude CLI returned non-zero exit\n\n**stderr:**\n```\n{}\n```\n\n\
-                 **last assistant text (first chars):**\n```\n{}\n```",
-                stderr_str.trim(),
-                final_text.chars().take(2000).collect::<String>().trim(),
-            ),
-            ok: false,
-            duration_ms: start_clock.elapsed().as_millis(),
-            model,
-            parsed: None,
-        });
-    }
-
-    let raw = final_text.trim().to_string();
-    if raw.is_empty() {
-        return Ok(TradeIdeaResult {
-            markdown: "### Claude CLI returned empty output\n\nNo error, but no content either. \
-                       Try running `claude -p \"hello\"` in your terminal to confirm the CLI is working.".into(),
-            ok: false,
-            duration_ms: start_clock.elapsed().as_millis(),
-            model,
-            parsed: None,
-        });
-    }
-
-    let (markdown, parsed) = extract_trade_idea_json(&raw);
-
-    Ok(TradeIdeaResult {
-        markdown,
-        ok: true,
-        duration_ms: start_clock.elapsed().as_millis(),
-        model,
-        parsed,
-    })
+async fn place_gold_order(
+    side: String,
+    oz: u32,
+    entry: Option<f64>,
+    stop: Option<f64>,
+    target1: Option<f64>,
+) -> Result<OrderResult, String> {
+    submit_gold_order(side, oz, entry, stop, target1).await
 }
 
-/// Read claude CLI's stream-json (NDJSON) stdout line-by-line, emit a phase
-/// event for every tool use the agent runs, and return the final assistant
-/// text once the `result` event arrives. Each line of stdout is one JSON
-/// event from the claude CLI.
-///
-/// Event shapes we care about (claude CLI stream-json):
-///   - `{"type":"system","subtype":"init",...}`           — session bootstrap
-///   - `{"type":"assistant","message":{"content":[
-///        {"type":"text","text":"..."},
-///        {"type":"tool_use","name":"Bash","input":{...}},
-///        ...]}}`                                          — assistant turn
-///   - `{"type":"user","message":{"content":[
-///        {"type":"tool_result","content":"..."}]}}`       — tool finished
-///   - `{"type":"result","subtype":"success","result":"...final markdown..."}`
-async fn stream_claude_output<F>(
-    stdout: tokio::process::ChildStdout,
-    emit_phase: &F,
-) -> std::io::Result<String>
-where
-    F: Fn(&str),
-{
-    use tokio::io::{AsyncBufReadExt, BufReader};
-    let reader = BufReader::new(stdout);
-    let mut lines = reader.lines();
-    let mut final_text = String::new();
-    let mut tool_n: usize = 0;
+/// Enable/disable the auto-trade loop and set the per-trade size (oz).
+#[tauri::command]
+fn set_auto_trade(enabled: bool, oz: u32) {
+    AUTO_OZ.store(oz.clamp(1, 10), std::sync::atomic::Ordering::Relaxed);
+    AUTO_TRADE.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    println!("[auto] {} · {} oz", if enabled { "ENABLED" } else { "disabled" }, oz.clamp(1, 10));
+}
 
-    while let Some(line) = lines.next_line().await? {
-        if line.trim().is_empty() { continue; }
-        // Parse as JSON; if it's not JSON (unexpected text noise), skip it.
-        let v: serde_json::Value = match serde_json::from_str(&line) {
-            Ok(v) => v,
+/// Push the current auto-trade status to the UI over the WS bridge.
+async fn push_auto_status(tx: &mpsc::Sender<PriceUpdate>, status: &str) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let v = serde_json::json!({
+        "enabled": AUTO_TRADE.load(Relaxed),
+        "oz": AUTO_OZ.load(Relaxed),
+        "status": status,
+    });
+    let _ = tx.send(PriceUpdate::AutoStatus(v)).await;
+}
+
+/// Generate a fresh Claude setup and, if it's a clean LONG/SHORT with an entry,
+/// place an `AUTO_OZ`-sized pending order. Returns Ok(true) if an order was
+/// placed, Ok(false) if FLAT/no setup, Err on a hard failure.
+async fn auto_generate_and_place(db_mutex: &SharedDb) -> Result<bool, String> {
+    let symbol_id = {
+        let map = symbol_map().lock().map_err(|e| e.to_string())?;
+        map.get("XAUUSD").copied().ok_or("XAUUSD not subscribed yet")?
+    };
+    let (_compact, full) = build_trade_snapshots(db_mutex, symbol_id).await?;
+    let system = ai::traders::gold_day_trader_prompt();
+    let user = format!(
+        "Live snapshot (seconds old):\n```json\n{}\n```\n\nClassify the regime, pick the best-fitting strategy, and give ONE intraday setup for right now. JSON only.",
+        serde_json::to_string(&full).unwrap_or_default()
+    );
+    let model = std::env::var("CLAUDE_MODEL").unwrap_or_else(|_| "sonnet".into());
+    let idea = ai::traders::run_claude_cli("Claude", &model, &system, &user).await;
+    if !idea.ok { return Err(idea.error.unwrap_or_else(|| "model error".into())); }
+    let bias = idea.bias.as_deref().unwrap_or("FLAT").to_uppercase();
+    if bias != "LONG" && bias != "SHORT" { return Ok(false); }
+    let entry = match (idea.entry_low, idea.entry_high) {
+        (Some(a), Some(b)) => Some((a + b) / 2.0),
+        (Some(a), None) | (None, Some(a)) => Some(a),
+        (None, None) => None,
+    };
+    let oz = AUTO_OZ.load(std::sync::atomic::Ordering::Relaxed).clamp(1, 10);
+    let res = submit_gold_order(bias, oz, entry, idea.stop, idea.target1).await?;
+    if res.sent { Ok(true) } else { Err(res.error.unwrap_or_else(|| "order rejected".into())) }
+}
+
+/// Auto-trade state machine: keep exactly one XAUUSD position at a time. When
+/// flat, ask Claude for a setup and place a pending order; cancel orders that
+/// rest unfilled > 15 min; regenerate after each position closes. Idles when
+/// `AUTO_TRADE` is off. Runs for the life of the process.
+async fn run_auto_trade_loop(tx: mpsc::Sender<PriceUpdate>, db_mutex: SharedDb) {
+    use std::time::{Duration, Instant};
+    use std::sync::atomic::Ordering::Relaxed;
+    let mut seen_orders: std::collections::HashMap<i64, Instant> = std::collections::HashMap::new();
+    let mut next_gen = Instant::now();
+    let mut last_place = Instant::now() - Duration::from_secs(120);
+    let mut was_enabled = false;
+
+    loop {
+        tokio::time::sleep(Duration::from_secs(20)).await;
+        if !AUTO_TRADE.load(Relaxed) {
+            if was_enabled { push_auto_status(&tx, "off").await; was_enabled = false; }
+            seen_orders.clear();
+            continue;
+        }
+        if !was_enabled { push_auto_status(&tx, "enabled").await; was_enabled = true; }
+
+        let (positions, pending) = match xau_account_state().lock() {
+            Ok(s) => (s.positions, s.pending_order_ids.clone()),
             Err(_) => continue,
         };
-        let ty = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
-        match ty {
-            "system" => {
-                if v.get("subtype").and_then(|x| x.as_str()) == Some("init") {
-                    emit_phase("Claude session initialised — preparing to think…");
-                }
-            }
-            "assistant" => {
-                if let Some(content) = v.pointer("/message/content").and_then(|c| c.as_array()) {
-                    for block in content {
-                        let btype = block.get("type").and_then(|x| x.as_str()).unwrap_or("");
-                        match btype {
-                            "tool_use" => {
-                                tool_n += 1;
-                                let name = block.get("name").and_then(|x| x.as_str()).unwrap_or("?");
-                                let preview = describe_tool_use(name, block.get("input"));
-                                emit_phase(&format!("[#{}] {} {}", tool_n, name, preview));
-                            }
-                            "text" => {
-                                if let Some(t) = block.get("text").and_then(|x| x.as_str()) {
-                                    let snippet = t.trim();
-                                    if !snippet.is_empty() {
-                                        let preview: String = snippet
-                                            .lines().next().unwrap_or("")
-                                            .chars().take(120).collect();
-                                        emit_phase(&format!("Thinking: {}…", preview));
-                                    }
-                                }
-                            }
-                            _ => {}
+
+        // In a position → wait for it to close.
+        if positions > 0 {
+            push_auto_status(&tx, "in position — waiting for it to close").await;
+            seen_orders.clear();
+            continue;
+        }
+
+        // Order(s) resting → wait for fill, or cancel if stale (>15 min).
+        if !pending.is_empty() {
+            let now = Instant::now();
+            for &id in &pending { seen_orders.entry(id).or_insert(now); }
+            seen_orders.retain(|id, _| pending.contains(id));
+            let mut cancelled = false;
+            for (id, t) in seen_orders.clone() {
+                if now.duration_since(t) > Duration::from_secs(15 * 60) {
+                    push_auto_status(&tx, &format!("cancelling stale order {} (>15m unfilled)", id)).await;
+                    if let Some(ctx) = CANCEL_REQ_TX.get() {
+                        let (rtx, rrx) = tokio::sync::oneshot::channel();
+                        if ctx.send(CancelRequest { order_id: id, reply: rtx }).await.is_ok() {
+                            let _ = tokio::time::timeout(Duration::from_secs(15), rrx).await;
                         }
                     }
+                    seen_orders.remove(&id);
+                    next_gen = Instant::now();
+                    cancelled = true;
                 }
             }
-            "result" => {
-                // Final event. Capture the result text and stop.
-                if let Some(text) = v.get("result").and_then(|x| x.as_str()) {
-                    final_text = text.to_string();
-                }
-                break;
+            if !cancelled { push_auto_status(&tx, "order resting — waiting for fill").await; }
+            continue;
+        }
+
+        // Flat → generate the next idea (throttled).
+        if Instant::now() < next_gen {
+            push_auto_status(&tx, "flat — waiting before next idea").await;
+            continue;
+        }
+        if last_place.elapsed() < Duration::from_secs(60) { continue; } // let reconcile settle
+        push_auto_status(&tx, "flat — asking Claude for a setup…").await;
+        match auto_generate_and_place(&db_mutex).await {
+            Ok(true) => {
+                last_place = Instant::now();
+                next_gen = Instant::now() + Duration::from_secs(60);
+                push_auto_status(&tx, "order placed — waiting for fill").await;
             }
-            _ => {}
+            Ok(false) => {
+                next_gen = Instant::now() + Duration::from_secs(5 * 60);
+                push_auto_status(&tx, "no clean setup (FLAT) — retry in 5m").await;
+            }
+            Err(e) => {
+                next_gen = Instant::now() + Duration::from_secs(60);
+                push_auto_status(&tx, &format!("error: {} — retry in 1m", e)).await;
+            }
         }
     }
-
-    Ok(final_text)
 }
 
-/// One-line, user-friendly description of a tool-use block for the live
-/// phase emit. Keep short — the modal shows it in a single line.
-fn describe_tool_use(name: &str, input: Option<&serde_json::Value>) -> String {
-    let Some(input) = input else { return String::new(); };
-    match name {
-        "Bash" => {
-            let cmd = input.get("command").and_then(|x| x.as_str()).unwrap_or("");
-            let preview: String = cmd.chars().take(140).collect();
-            format!("· {}", preview.replace('\n', " "))
-        }
-        "Read" => {
-            let path = input.get("file_path").and_then(|x| x.as_str()).unwrap_or("");
-            // Show just the trailing folder/file for brevity.
-            let short = path.rsplit_once(['/', '\\']).map(|(_, t)| t).unwrap_or(path);
-            format!("· {}", short)
-        }
-        "Grep" => {
-            let pat = input.get("pattern").and_then(|x| x.as_str()).unwrap_or("");
-            let path = input.get("path").and_then(|x| x.as_str()).unwrap_or("");
-            let short = path.rsplit_once(['/', '\\']).map(|(_, t)| t).unwrap_or(path);
-            format!("· /{}/ in {}", pat, short)
-        }
-        "Glob" => {
-            let pat = input.get("pattern").and_then(|x| x.as_str()).unwrap_or("");
-            format!("· {}", pat)
-        }
-        _ => String::new(),
+/// Ask Claude whether a resting pending order is still worth keeping, given a
+/// fresh live snapshot. Returns KEEP/CANCEL + reason; the UI shows it with
+/// Keep / Cancel buttons. Read-only — places/cancels nothing itself.
+#[tauri::command]
+async fn review_pending_order(
+    state: tauri::State<'_, AppState>,
+    order_id: i64,
+    side: String,
+    entry: Option<f64>,
+    stop: Option<f64>,
+    target1: Option<f64>,
+) -> Result<ai::traders::OrderReview, String> {
+    let symbol_id = {
+        let map = symbol_map().lock().map_err(|e| e.to_string())?;
+        map.get("XAUUSD").copied()
+            .ok_or_else(|| "XAUUSD not subscribed yet.".to_string())?
+    };
+    let (_compact, full) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
+    let user = format!(
+        "Resting pending order #{}: {} XAUUSD @ entry {} · SL {} · TP {}.\n\n\
+         Fresh live snapshot:\n```json\n{}\n```\n\n\
+         Is this order still relevant? KEEP or CANCEL? JSON only.",
+        order_id,
+        side.to_uppercase(),
+        entry.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "n/a".into()),
+        stop.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "n/a".into()),
+        target1.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "n/a".into()),
+        serde_json::to_string(&full).unwrap_or_default(),
+    );
+    let model = std::env::var("CLAUDE_MODEL").unwrap_or_else(|_| "sonnet".to_string());
+    Ok(ai::traders::review_order_with_claude(&model, &user).await)
+}
+
+/// Cancel a resting pending order on the live account by id.
+#[tauri::command]
+async fn cancel_order(order_id: i64) -> Result<String, String> {
+    let tx = CANCEL_REQ_TX.get().ok_or("cancel channel not initialised")?;
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    tx.send(CancelRequest { order_id, reply: reply_tx })
+        .await
+        .map_err(|e| format!("send cancel: {}", e))?;
+    match tokio::time::timeout(std::time::Duration::from_secs(15), reply_rx).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(_)) => Err("cancel request cancelled".into()),
+        Err(_) => Err("broker response timeout (check cTrader)".into()),
     }
+}
+
+/// Ask Claude whether to HOLD / ADJUST (new SL/TP) / CLOSE an open position,
+/// given a fresh live snapshot. Read-only — applies nothing itself.
+#[tauri::command]
+async fn review_position(
+    state: tauri::State<'_, AppState>,
+    position_id: i64,
+    side: String,
+    entry: Option<f64>,
+    oz: f64,
+    stop: Option<f64>,
+    target1: Option<f64>,
+) -> Result<ai::traders::PositionReview, String> {
+    let symbol_id = {
+        let map = symbol_map().lock().map_err(|e| e.to_string())?;
+        map.get("XAUUSD").copied().ok_or_else(|| "XAUUSD not subscribed yet.".to_string())?
+    };
+    let (_compact, full) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
+    let f = |v: Option<f64>| v.map(|x| format!("{:.2}", x)).unwrap_or_else(|| "none".into());
+    let user = format!(
+        "Open position #{}: {} XAUUSD {} oz · entry {} · SL {} · TP {}.\n\n\
+         Fresh live snapshot:\n```json\n{}\n```\n\n\
+         HOLD, ADJUST (give new SL/TP), or CLOSE? JSON only.",
+        position_id, side.to_uppercase(), oz, f(entry), f(stop), f(target1),
+        serde_json::to_string(&full).unwrap_or_default(),
+    );
+    let model = std::env::var("CLAUDE_MODEL").unwrap_or_else(|_| "sonnet".to_string());
+    Ok(ai::traders::review_position_with_claude(&model, &user).await)
+}
+
+/// Market-close an open position (full size) on the live account.
+#[tauri::command]
+async fn close_position(position_id: i64, oz: f64) -> Result<String, String> {
+    let volume = (oz * 100.0).round() as i64;
+    if volume <= 0 { return Err("invalid volume".into()); }
+    let tx = POS_ACTION_TX.get().ok_or("position channel not initialised")?;
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    tx.send(PositionActionRequest {
+        action: PositionAction::Close { position_id, volume },
+        reply: reply_tx,
+    }).await.map_err(|e| format!("send close: {}", e))?;
+    match tokio::time::timeout(std::time::Duration::from_secs(15), reply_rx).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(_)) => Err("close request cancelled".into()),
+        Err(_) => Err("broker response timeout (check cTrader)".into()),
+    }
+}
+
+/// Amend an open position's stop-loss and/or take-profit (absolute prices).
+#[tauri::command]
+async fn amend_position_sltp(
+    position_id: i64,
+    stop_loss: Option<f64>,
+    take_profit: Option<f64>,
+) -> Result<String, String> {
+    if stop_loss.is_none() && take_profit.is_none() {
+        return Err("nothing to amend".into());
+    }
+    let tx = POS_ACTION_TX.get().ok_or("position channel not initialised")?;
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    tx.send(PositionActionRequest {
+        action: PositionAction::AmendSltp { position_id, stop_loss, take_profit },
+        reply: reply_tx,
+    }).await.map_err(|e| format!("send amend: {}", e))?;
+    match tokio::time::timeout(std::time::Duration::from_secs(15), reply_rx).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(_)) => Err("amend request cancelled".into()),
+        Err(_) => Err("broker response timeout (check cTrader)".into()),
+    }
+}
+
+/// Build the positions/orders snapshot JSON pushed to the UI panel. Volume is
+/// shown in oz (cents/100). Pending protection/closing orders are excluded by
+/// the caller; this just serializes whatever maps it's given.
+fn build_positions_snapshot(
+    positions: &std::collections::HashMap<i64, openapi::ProtoOaPosition>,
+    orders: &std::collections::HashMap<i64, openapi::ProtoOaOrder>,
+    names: &std::collections::HashMap<i64, String>,
+) -> serde_json::Value {
+    let side_str = |s: i32| if s == openapi::ProtoOaTradeSide::Buy as i32 { "BUY" } else { "SELL" };
+    let sym = |id: i64| names.get(&id).cloned().unwrap_or_else(|| id.to_string());
+    let pos: Vec<serde_json::Value> = positions.values().map(|p| {
+        let td = &p.trade_data;
+        serde_json::json!({
+            "id": p.position_id,
+            "symbol": sym(td.symbol_id),
+            "side": side_str(td.trade_side),
+            "oz": td.volume as f64 / 100.0,
+            "entry": p.price,
+            "sl": p.stop_loss,
+            "tp": p.take_profit,
+        })
+    }).collect();
+    let ord: Vec<serde_json::Value> = orders.values().map(|o| {
+        let td = &o.trade_data;
+        let ot = openapi::ProtoOaOrderType::try_from(o.order_type).map(|t| t.as_str_name()).unwrap_or("?");
+        serde_json::json!({
+            "id": o.order_id,
+            "symbol": sym(td.symbol_id),
+            "side": side_str(td.trade_side),
+            "type": ot,
+            "oz": td.volume as f64 / 100.0,
+            "price": o.limit_price.or(o.stop_price),
+            "sl": o.stop_loss,
+            "tp": o.take_profit,
+        })
+    }).collect();
+    serde_json::json!({ "positions": pos, "orders": ord })
+}
+
+/// If an execution event is a position close (a FILLED closing order), emit a
+/// one-off TradeNotice (SL hit / TP hit / stop-out / closed + gross P/L). Uses
+/// the pre-close tracked position to recover entry/SL/TP.
+async fn maybe_emit_close_notice(
+    ev: &openapi::ProtoOaExecutionEvent,
+    open_positions: &std::collections::HashMap<i64, openapi::ProtoOaPosition>,
+    names: &std::collections::HashMap<i64, String>,
+    tx: &mpsc::Sender<PriceUpdate>,
+) {
+    let Some(order) = ev.order.as_ref() else { return };
+    // 3 = ORDER_FILLED; closing_order marks it as reducing/closing a position.
+    if ev.execution_type != 3 || order.closing_order != Some(true) { return; }
+
+    let pos_id = order.position_id.unwrap_or(0);
+    let close_px = order.execution_price.unwrap_or(0.0);
+    let prev = open_positions.get(&pos_id);
+    let (entry, sl, tp, side, oz, symbol) = match prev {
+        Some(p) => (
+            p.price.unwrap_or(0.0), p.stop_loss, p.take_profit,
+            p.trade_data.trade_side, p.trade_data.volume as f64 / 100.0,
+            names.get(&p.trade_data.symbol_id).cloned().unwrap_or_else(|| "XAUUSD".into()),
+        ),
+        None => (0.0, None, None, 0, 0.0, "XAUUSD".into()),
+    };
+    let reason = if order.is_stop_out == Some(true) {
+        "stop-out"
+    } else {
+        match (sl, tp) {
+            (Some(s), Some(t)) => if (close_px - s).abs() <= (close_px - t).abs() { "SL hit" } else { "TP hit" },
+            (Some(_), None) => "SL hit",
+            (None, Some(_)) => "TP hit",
+            _ => "closed",
+        }
+    };
+    let is_buy = side == openapi::ProtoOaTradeSide::Buy as i32;
+    let pnl = if entry > 0.0 {
+        let dir = if is_buy { 1.0 } else { -1.0 };
+        ((close_px - entry) * oz * dir * 100.0).round() / 100.0
+    } else { 0.0 };
+    let notice = serde_json::json!({
+        "reason": reason,
+        "symbol": symbol,
+        "side": if is_buy { "BUY" } else { "SELL" },
+        "oz": oz,
+        "close": close_px,
+        "pnl": pnl,
+        "position_id": pos_id,
+    });
+    let _ = tx.send(PriceUpdate::TradeNotice(notice)).await;
 }
 
 /// Best-effort: terminate a child process tree by PID. Used at shutdown.
@@ -3115,6 +2282,12 @@ fn main() {
     // any command can publish; receiver moves into the tokio thread.
     let (chart_req_tx, chart_req_rx) = mpsc::channel::<ChartRequest>(32);
     let _ = CHART_REQ_TX.set(chart_req_tx);
+    let (order_req_tx, order_req_rx) = mpsc::channel::<OrderRequest>(16);
+    let _ = ORDER_REQ_TX.set(order_req_tx);
+    let (cancel_req_tx, cancel_req_rx) = mpsc::channel::<CancelRequest>(16);
+    let _ = CANCEL_REQ_TX.set(cancel_req_tx);
+    let (pos_action_tx, pos_action_rx) = mpsc::channel::<PositionActionRequest>(16);
+    let _ = POS_ACTION_TX.set(pos_action_tx);
 
     // Mutex serializes all DuckDB file access (only one connection at a time on Windows)
     let shared_db: SharedDb = Arc::new(std::sync::Mutex::new(()));
@@ -3138,6 +2311,9 @@ fn main() {
                 while let Some(msg) = price_rx.recv().await {
                     let json = match msg {
                         PriceUpdate::InstrumentPrice { symbol, bid, ask } => {
+                            if symbol == "XAUUSD" {
+                                LATEST_XAUUSD_BID.store(bid.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                            }
                             serde_json::json!({"type":"tick","symbol":symbol,"bid":bid,"ask":ask})
                         }
                         PriceUpdate::ConnectionStatus(s) => {
@@ -3176,6 +2352,15 @@ fn main() {
                         PriceUpdate::NewsTodayArticles(articles) => {
                             serde_json::json!({"type":"news_today","articles":articles})
                         }
+                        PriceUpdate::PositionsSnapshot(v) => {
+                            serde_json::json!({"type":"positions","positions":v.get("positions").cloned().unwrap_or(serde_json::json!([])),"orders":v.get("orders").cloned().unwrap_or(serde_json::json!([]))})
+                        }
+                        PriceUpdate::TradeNotice(v) => {
+                            serde_json::json!({"type":"trade_event","notice":v})
+                        }
+                        PriceUpdate::AutoStatus(v) => {
+                            serde_json::json!({"type":"auto_status","auto":v})
+                        }
                         _ => continue,
                     };
                     let serialized = json.to_string();
@@ -3200,14 +2385,24 @@ fn main() {
                 while data_resp_drain.recv().await.is_some() {}
             });
 
+            // Auto-trade loop (idles until enabled via the UI toggle).
+            {
+                let auto_tx = tx.clone();
+                let auto_db = db_for_async.clone();
+                tokio::spawn(async move { run_auto_trade_loop(auto_tx, auto_db).await; });
+            }
+
             // Run price streaming with reconnection
             // request_rx passed by &mut so pending requests survive reconnects
             let mut request_rx = data_req_rx;
             let mut chart_req_rx_holder = chart_req_rx;
+            let mut order_req_rx_holder = order_req_rx;
+            let mut cancel_req_rx_holder = cancel_req_rx;
+            let mut pos_action_rx_holder = pos_action_rx;
             let mut backoff_seconds = 1;
             loop {
                 println!("Starting cTrader price stream...");
-                match run_session(tx.clone(), &mut request_rx, data_resp_tx.clone(), &mut chart_req_rx_holder, db_for_async.clone()).await {
+                match run_session(tx.clone(), &mut request_rx, data_resp_tx.clone(), &mut chart_req_rx_holder, &mut order_req_rx_holder, &mut cancel_req_rx_holder, &mut pos_action_rx_holder, db_for_async.clone()).await {
                     Ok(_) => println!("Session ended gracefully."),
                     Err(e) => {
                         println!("Session error: {}", e);
@@ -3231,11 +2426,14 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             fetch_article_body_on_demand,
             get_trendbars,
-            update_news_archive,
-            update_ec_gold_events,
-            store_ec_gold_events,
-            get_gold_trade_idea,
-            get_xauusd_tf_stats,
+            get_gold_trade_ideas_multi,
+            place_gold_order,
+            review_pending_order,
+            cancel_order,
+            review_position,
+            close_position,
+            amend_position_sltp,
+            set_auto_trade,
             get_history_backfill_state,
             start_history_backfill,
         ])
@@ -3256,6 +2454,9 @@ async fn run_session(
     request_rx: &mut mpsc::Receiver<DataRequest>,
     response_tx: mpsc::Sender<DataResponse>,
     chart_req_rx: &mut mpsc::Receiver<ChartRequest>,
+    order_req_rx: &mut mpsc::Receiver<OrderRequest>,
+    cancel_req_rx: &mut mpsc::Receiver<CancelRequest>,
+    pos_action_rx: &mut mpsc::Receiver<PositionActionRequest>,
     shared_db: SharedDb,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Local map: client_msg_id → oneshot reply for in-flight chart requests.
@@ -3264,6 +2465,18 @@ async fn run_session(
         tokio::sync::oneshot::Sender<Result<Vec<Candle>, String>>,
     > = std::collections::HashMap::new();
     let mut chart_msg_id_counter: u64 = 0;
+    // Local map: client_msg_id → oneshot reply for in-flight order requests.
+    let mut pending_order_reqs: std::collections::HashMap<
+        String,
+        tokio::sync::oneshot::Sender<Result<String, String>>,
+    > = std::collections::HashMap::new();
+    let mut order_msg_id_counter: u64 = 0;
+    // Live account state for the Positions panel, kept in sync via reconcile +
+    // execution events.
+    let mut open_positions: std::collections::HashMap<i64, openapi::ProtoOaPosition> =
+        std::collections::HashMap::new();
+    let mut pending_orders: std::collections::HashMap<i64, openapi::ProtoOaOrder> =
+        std::collections::HashMap::new();
     // Load credentials from environment variables
     let app_client_id = std::env::var("CTRADER_CLIENT_ID")
         .expect("CTRADER_CLIENT_ID must be set in .env file");
@@ -3631,6 +2844,38 @@ async fn run_session(
                                     }
                                 }
 
+                                // Fetch the full XAUUSD symbol spec (digits / min /
+                                // step / max volume) so live orders can be sized and
+                                // priced safely. Cached on the 2117 response.
+                                if let Some(xau_id) = symbol_id_to_name.iter()
+                                    .find(|(_, n)| n.as_str() == "XAUUSD").map(|(&id, _)| id)
+                                {
+                                    let spec_req = openapi::ProtoOaSymbolByIdReq {
+                                        payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaSymbolByIdReq as i32),
+                                        ctid_trader_account_id: account_id,
+                                        symbol_id: vec![xau_id],
+                                    };
+                                    let _ = send_message(
+                                        &mut tls_stream,
+                                        openapi::ProtoOaPayloadType::ProtoOaSymbolByIdReq as u32,
+                                        spec_req,
+                                    ).await;
+                                }
+
+                                // Seed the Positions panel with current open positions
+                                // + pending orders. Ongoing changes arrive as execution
+                                // events, which trigger a fresh reconcile.
+                                let recon = openapi::ProtoOaReconcileReq {
+                                    payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaReconcileReq as i32),
+                                    ctid_trader_account_id: account_id,
+                                    return_protection_orders: Some(false),
+                                };
+                                let _ = send_message(
+                                    &mut tls_stream,
+                                    openapi::ProtoOaPayloadType::ProtoOaReconcileReq as u32,
+                                    recon,
+                                ).await;
+
                                 // (Note: the one-shot history backfill is NOT auto-spawned
                                 // anymore — it's triggered manually by the
                                 // `XAUUSD_History_Update` button in the Archives tab. The
@@ -3650,6 +2895,55 @@ async fn run_session(
                             } else {
                                 println!("Error: No symbols found in account symbol list.");
                                 break;
+                            }
+                        }
+                    },
+                    2117 => { // ProtoOASymbolByIdRes — cache XAUUSD trading spec
+                        if let Some(payload) = &msg.payload {
+                            if let Ok(res) = openapi::ProtoOaSymbolByIdRes::decode(payload.as_slice()) {
+                                if let Some(sym) = res.symbol.first() {
+                                    let spec = SymbolSpec {
+                                        symbol_id: sym.symbol_id,
+                                        digits: sym.digits,
+                                        min_volume: sym.min_volume.unwrap_or(0),
+                                        step_volume: sym.step_volume.unwrap_or(0),
+                                        max_volume: sym.max_volume.unwrap_or(i64::MAX),
+                                    };
+                                    println!("[order] XAUUSD spec: digits={} min_vol={} step_vol={} max_vol={}",
+                                             spec.digits, spec.min_volume, spec.step_volume, spec.max_volume);
+                                    if let Ok(mut g) = xauusd_spec().lock() { *g = Some(spec); }
+                                }
+                            }
+                        }
+                    },
+                    2125 => { // ProtoOAReconcileRes — full positions + pending orders
+                        if let Some(payload) = &msg.payload {
+                            if let Ok(res) = openapi::ProtoOaReconcileRes::decode(payload.as_slice()) {
+                                open_positions.clear();
+                                for p in res.position { open_positions.insert(p.position_id, p); }
+                                pending_orders.clear();
+                                for o in res.order {
+                                    // Skip protection/closing orders — show entry orders only.
+                                    if o.closing_order != Some(true) {
+                                        pending_orders.insert(o.order_id, o);
+                                    }
+                                }
+                                let snap = build_positions_snapshot(&open_positions, &pending_orders, &symbol_id_to_name);
+                                let _ = tx.send(PriceUpdate::PositionsSnapshot(snap)).await;
+
+                                // Refresh XAUUSD-only account state for the auto-trade loop.
+                                if let Some(xid) = symbol_id_to_name.iter()
+                                    .find(|(_, n)| n.as_str() == "XAUUSD").map(|(&id, _)| id)
+                                {
+                                    let positions = open_positions.values()
+                                        .filter(|p| p.trade_data.symbol_id == xid).count();
+                                    let pending_order_ids: Vec<i64> = pending_orders.values()
+                                        .filter(|o| o.trade_data.symbol_id == xid)
+                                        .map(|o| o.order_id).collect();
+                                    if let Ok(mut s) = xau_account_state().lock() {
+                                        *s = XauAccountState { positions, pending_order_ids };
+                                    }
+                                }
                             }
                         }
                     },
@@ -3734,6 +3028,62 @@ async fn run_session(
                                     &shared_db,
                                 ).await?;
                             }
+                        }
+                    },
+                    2126 => { // ProtoOAExecutionEvent
+                        let parsed = msg.payload.as_ref()
+                            .and_then(|p| openapi::ProtoOaExecutionEvent::decode(p.as_slice()).ok());
+                        // 1. If this answers our place_gold_order, reply to that command.
+                        if let Some(reply) = msg.client_msg_id.as_ref()
+                            .and_then(|id| pending_order_reqs.remove(id))
+                        {
+                            match &parsed {
+                                Some(ev) => {
+                                    let et = openapi::ProtoOaExecutionType::try_from(ev.execution_type)
+                                        .map(|e| e.as_str_name()).unwrap_or("UNKNOWN");
+                                    let rejected = matches!(ev.execution_type, 7 | 8); // REJECTED / CANCEL_REJECTED
+                                    if rejected || ev.error_code.is_some() {
+                                        let _ = reply.send(Err(format!(
+                                            "{}{}", et,
+                                            ev.error_code.clone().map(|c| format!(" ({})", c)).unwrap_or_default()
+                                        )));
+                                    } else {
+                                        let pos = ev.position.as_ref().map(|p| p.position_id);
+                                        let _ = reply.send(Ok(format!(
+                                            "{}{}", et,
+                                            pos.map(|id| format!(" · position {}", id)).unwrap_or_default()
+                                        )));
+                                    }
+                                }
+                                None => { let _ = reply.send(Err("empty execution event".into())); }
+                            }
+                        }
+                        // 2. Lifecycle event: emit a close notice (using pre-close state),
+                        //    then refresh the panel with a fresh reconcile.
+                        if let Some(ev) = &parsed {
+                            maybe_emit_close_notice(ev, &open_positions, &symbol_id_to_name, &tx).await;
+                        }
+                        let recon = openapi::ProtoOaReconcileReq {
+                            payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaReconcileReq as i32),
+                            ctid_trader_account_id: account_id,
+                            return_protection_orders: Some(false),
+                        };
+                        let _ = send_message(
+                            &mut tls_stream,
+                            openapi::ProtoOaPayloadType::ProtoOaReconcileReq as u32,
+                            recon,
+                        ).await;
+                    },
+                    2132 => { // ProtoOAOrderErrorEvent — resolves a pending order with failure
+                        if let Some(reply) = msg.client_msg_id.as_ref()
+                            .and_then(|id| pending_order_reqs.remove(id))
+                        {
+                            let detail = msg.payload.as_ref()
+                                .and_then(|p| openapi::ProtoOaOrderErrorEvent::decode(p.as_slice()).ok())
+                                .map(|e| format!("{}{}", e.error_code,
+                                    e.description.map(|d| format!(" - {}", d)).unwrap_or_default()))
+                                .unwrap_or_else(|| "order error".into());
+                            let _ = reply.send(Err(detail));
                         }
                     },
                     2146 => { // ProtoOAGetTickDataRes
@@ -3930,6 +3280,13 @@ async fn run_session(
                             let err = openapi::ProtoOaErrorRes::decode(payload.as_slice())?;
                             let desc = err.description.clone().unwrap_or_default();
                             println!("ERROR: {} - {}", err.error_code, desc);
+
+                            // If this error answers a pending order, fail that order.
+                            if let Some(reply) = msg.client_msg_id.as_ref()
+                                .and_then(|id| pending_order_reqs.remove(id))
+                            {
+                                let _ = reply.send(Err(format!("{} - {}", err.error_code, desc)));
+                            }
 
                             if err.error_code == "CH_CLIENT_AUTH_FAILURE" || err.error_code == "ACCOUNT_NOT_AUTHORIZED" {
                                 // Notify UI if download was active
@@ -4219,6 +3576,109 @@ async fn run_session(
                 ).await {
                     // Send failed: fail the pending request so the Tauri command unblocks.
                     if let Some(reply_tx) = pending_chart_reqs.remove(&cid) {
+                        let _ = reply_tx.send(Err(format!("send failed: {}", e)));
+                    }
+                }
+            }
+            // LIVE order placement: build a ProtoOANewOrderReq with a unique
+            // client_msg_id so the ExecutionEvent / error can be matched back.
+            Some(order_req) = order_req_rx.recv() => {
+                order_msg_id_counter += 1;
+                let cid = format!("order-{}", order_msg_id_counter);
+                pending_order_reqs.insert(cid.clone(), order_req.reply);
+                let req = openapi::ProtoOaNewOrderReq {
+                    payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaNewOrderReq as i32),
+                    ctid_trader_account_id: account_id,
+                    symbol_id: order_req.symbol_id,
+                    order_type: order_req.order_type as i32,
+                    trade_side: order_req.trade_side as i32,
+                    volume: order_req.volume,
+                    limit_price: order_req.limit_price,
+                    stop_price: order_req.stop_price,
+                    stop_loss: order_req.stop_loss,
+                    take_profit: order_req.take_profit,
+                    relative_stop_loss: order_req.rel_sl,
+                    relative_take_profit: order_req.rel_tp,
+                    label: Some(order_req.label),
+                    ..Default::default()
+                };
+                println!("[order] sending type={:?} {} vol={} limit={:?} stop={:?} sl={:?} tp={:?}",
+                         order_req.order_type, req.trade_side, req.volume,
+                         req.limit_price, req.stop_price, req.stop_loss, req.take_profit);
+                if let Err(e) = send_message_with_id(
+                    &mut tls_stream,
+                    openapi::ProtoOaPayloadType::ProtoOaNewOrderReq as u32,
+                    req,
+                    &cid,
+                ).await {
+                    if let Some(reply_tx) = pending_order_reqs.remove(&cid) {
+                        let _ = reply_tx.send(Err(format!("send failed: {}", e)));
+                    }
+                }
+            }
+            // Cancel a resting pending order. The ORDER_CANCELLED execution event
+            // (matched by client_msg_id) resolves the reply via pending_order_reqs.
+            Some(cancel_req) = cancel_req_rx.recv() => {
+                order_msg_id_counter += 1;
+                let cid = format!("cancel-{}", order_msg_id_counter);
+                pending_order_reqs.insert(cid.clone(), cancel_req.reply);
+                let req = openapi::ProtoOaCancelOrderReq {
+                    payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaCancelOrderReq as i32),
+                    ctid_trader_account_id: account_id,
+                    order_id: cancel_req.order_id,
+                };
+                println!("[order] cancelling order {}", cancel_req.order_id);
+                if let Err(e) = send_message_with_id(
+                    &mut tls_stream,
+                    openapi::ProtoOaPayloadType::ProtoOaCancelOrderReq as u32,
+                    req,
+                    &cid,
+                ).await {
+                    if let Some(reply_tx) = pending_order_reqs.remove(&cid) {
+                        let _ = reply_tx.send(Err(format!("send failed: {}", e)));
+                    }
+                }
+            }
+            // Close / amend an open position. The resulting ExecutionEvent
+            // (matched by client_msg_id) resolves the reply via pending_order_reqs.
+            Some(pa) = pos_action_rx.recv() => {
+                order_msg_id_counter += 1;
+                let cid = format!("posact-{}", order_msg_id_counter);
+                pending_order_reqs.insert(cid.clone(), pa.reply);
+                let send_res = match pa.action {
+                    PositionAction::Close { position_id, volume } => {
+                        let req = openapi::ProtoOaClosePositionReq {
+                            payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaClosePositionReq as i32),
+                            ctid_trader_account_id: account_id,
+                            position_id,
+                            volume,
+                        };
+                        println!("[order] closing position {} vol={}", position_id, volume);
+                        send_message_with_id(
+                            &mut tls_stream,
+                            openapi::ProtoOaPayloadType::ProtoOaClosePositionReq as u32,
+                            req, &cid,
+                        ).await
+                    }
+                    PositionAction::AmendSltp { position_id, stop_loss, take_profit } => {
+                        let req = openapi::ProtoOaAmendPositionSltpReq {
+                            payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaAmendPositionSltpReq as i32),
+                            ctid_trader_account_id: account_id,
+                            position_id,
+                            stop_loss,
+                            take_profit,
+                            ..Default::default()
+                        };
+                        println!("[order] amend SL/TP position {} sl={:?} tp={:?}", position_id, stop_loss, take_profit);
+                        send_message_with_id(
+                            &mut tls_stream,
+                            openapi::ProtoOaPayloadType::ProtoOaAmendPositionSltpReq as u32,
+                            req, &cid,
+                        ).await
+                    }
+                };
+                if let Err(e) = send_res {
+                    if let Some(reply_tx) = pending_order_reqs.remove(&cid) {
                         let _ = reply_tx.send(Err(format!("send failed: {}", e)));
                     }
                 }

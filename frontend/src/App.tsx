@@ -33,129 +33,100 @@ type NewsArticle = {
   body: string | null
 }
 type NewsTodayMsg = { type: 'news_today'; articles: NewsArticle[] }
+
+type OpenPosition = {
+  id: number
+  symbol: string
+  side: 'BUY' | 'SELL' | string
+  oz: number
+  entry: number | null
+  sl: number | null
+  tp: number | null
+}
+type PendingOrder = {
+  id: number
+  symbol: string
+  side: 'BUY' | 'SELL' | string
+  type: string
+  oz: number
+  price: number | null
+  sl: number | null
+  tp: number | null
+}
+type OrderReview = {
+  ok: boolean
+  recommendation: string | null
+  confidence: string | null
+  reason: string | null
+  error: string | null
+  duration_ms: number
+}
+type PositionReview = {
+  ok: boolean
+  action: string | null
+  new_sl: number | null
+  new_tp: number | null
+  confidence: string | null
+  reason: string | null
+  error: string | null
+  duration_ms: number
+}
+type PositionsMsg = { type: 'positions'; positions: OpenPosition[]; orders: PendingOrder[] }
+type TradeNotice = {
+  reason: string
+  symbol: string
+  side: string
+  oz: number
+  close: number
+  pnl: number
+  position_id: number
+}
+type TradeEventMsg = { type: 'trade_event'; notice: TradeNotice }
+
+type AutoState = { enabled: boolean; oz: number; status: string }
+type AutoStatusMsg = { type: 'auto_status'; auto: AutoState }
+
 type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTodayMsg
+  | PositionsMsg | TradeEventMsg | AutoStatusMsg
 
 type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error'
-type Tab = 'dashboard' | 'calendar' | 'news' | 'archive' | 'trade-ideas'
+type Tab = 'dashboard' | 'calendar' | 'news' | 'trade-ideas' | 'positions'
 
-type TradeIdea = {
-  bias: 'LONG' | 'SHORT' | 'FLAT' | string
-  current_price: number | null
-  atr_h1: number | null
-  atr_d1: number | null
-  atr_d1_pct: number | null
-  vol_regime: string | null
+// One model's single intraday setup, as returned by get_gold_trade_ideas_multi
+// and streamed per-model over the `trade_idea_model` event.
+type ModelTradeIdea = {
+  provider: string
+  model: string
+  ok: boolean
+  bias: 'LONG' | 'SHORT' | 'FLAT' | string | null
+  strategy: string | null
   entry_low: number | null
   entry_high: number | null
-  entry_note: string | null
   stop: number | null
   target1: number | null
   target2: number | null
-  rr1: number | null
-  rr2: number | null
-  conviction: string | null
-  timeframe: string | null
-  market_state: string | null
-  next_catalyst_utc: string | null
-  next_catalyst_name: string | null
-  invalidation_note: string | null
-}
-
-type TradeIdeaResult = {
-  markdown: string
-  ok: boolean
-  duration_ms: number
-  model: string
-  parsed: TradeIdea | null
-}
-
-type NewsUpdateResult = {
-  last_archive_day: string | null
-  cutoff: string
-  articles_fetched: number
-  bodies_fetched: number
-  bodies_empty: number
-  bodies_failed: number
-  rate_limited: boolean
-  days_written: [string, number][]
-  message: string | null
-}
-
-type EcGoldUpdateResult = {
-  table_existed: boolean
-  cursor_before: string | null
-  walk_start: string
-  walk_end: string
-  chunks_processed: number
-  rows_added_this_call: number
-  total_rows: number
-  oldest_in_db: string | null
-  newest_in_db: string | null
-  duration_ms: number
+  rationale: string | null
   error: string | null
-}
-
-type EcGoldProgress = {
-  chunks_done: number
-  chunks_total: number
-  rows_added_so_far: number
-  current_chunk_start: string
-  current_chunk_end: string
-  elapsed_secs: number
-}
-
-type EcGoldStorageResult = {
-  incremental: boolean
-  disk_latest_day_before: string | null
-  db_latest_day: string | null
-  days_already_current: number
-  files_written: number
-  events_written: number
-  up_to_date: boolean
-  archive_root: string
   duration_ms: number
+}
+
+// The models we fan out to, in display order. Popups are keyed by provider.
+const TRADER_PROVIDERS = ['Claude', 'Gemini'] as const
+type TraderProvider = typeof TRADER_PROVIDERS[number]
+
+// Result of a live market-order placement (place_gold_order).
+type OrderResult = {
+  sent: boolean
+  side: string
+  symbol: string
+  oz: number
+  ctrader_volume: number
+  order_type: string
+  entry: number | null
+  sl: number | null
+  tp: number | null
+  status: string | null
   error: string | null
-}
-
-type EcGoldStorageProgress = {
-  files_done: number
-  files_total: number
-  events_written_so_far: number
-  current_day: string
-  elapsed_secs: number
-}
-
-type TfStats = {
-  timeframe: string
-  table: string
-  rows: number
-  oldest: string | null
-  newest: string | null
-  coverage_days: number | null
-  tail_age_secs: number | null
-  bar_secs: number
-}
-
-type XauusdStatsResult = {
-  timeframes: TfStats[]
-  market_state: 'live' | 'weekend-closed' | string
-  queried_at_utc: string
-}
-
-type BackfillState = {
-  status: 'idle' | 'running' | 'complete' | 'error' | string
-  started_at_utc: string | null
-  completed_at_utc: string | null
-  current_tf: string | null
-  current_mode: string | null
-  chunks_this_tf: number
-  bars_this_tf: number
-  total_bars: number
-  last_chunk_oldest_utc: string | null
-  tfs_completed: string[]
-  tfs_skipped: string[]
-  tfs_total: number
-  last_error: string | null
 }
 
 function App() {
@@ -170,7 +141,12 @@ function App() {
   const [openArticle, setOpenArticle] = useState<NewsArticle | null>(null)
   const [tab, setTab] = useState<Tab>('dashboard')
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
+  const [positions, setPositions] = useState<OpenPosition[]>([])
+  const [orders, setOrders] = useState<PendingOrder[]>([])
+  const [auto, setAuto] = useState<AutoState>({ enabled: false, oz: 1, status: 'off' })
+  const [tradeBanner, setTradeBanner] = useState<TradeNotice | null>(null)
   const reconnectRef = useRef<number | null>(null)
+  const bannerTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     let ws: WebSocket | null = null
@@ -210,6 +186,18 @@ function App() {
               break
             case 'news_today':
               setNewsArticles(msg.articles)
+              break
+            case 'positions':
+              setPositions(msg.positions ?? [])
+              setOrders(msg.orders ?? [])
+              break
+            case 'trade_event':
+              setTradeBanner(msg.notice)
+              if (bannerTimerRef.current) window.clearTimeout(bannerTimerRef.current)
+              bannerTimerRef.current = window.setTimeout(() => setTradeBanner(null), 30000)
+              break
+            case 'auto_status':
+              setAuto(msg.auto)
               break
           }
         } catch {
@@ -281,13 +269,21 @@ function App() {
             News
             {newsArticles.length > 0 && <span className="badge">{newsArticles.length}</span>}
           </button>
-          <button className={tab === 'archive' ? 'tab active' : 'tab'} onClick={() => setTab('archive')}>
-            Archives
-          </button>
           <button className={tab === 'trade-ideas' ? 'tab active' : 'tab'} onClick={() => setTab('trade-ideas')}>
             Trade Ideas
           </button>
+          <button className={tab === 'positions' ? 'tab active' : 'tab'} onClick={() => setTab('positions')}>
+            Positions
+            {(positions.length + orders.length) > 0 && <span className="badge">{positions.length + orders.length}</span>}
+          </button>
         </nav>
+
+        {tradeBanner && (
+          <div className={`trade-banner ${tradeBanner.pnl >= 0 ? 'ok' : 'loss'}`}>
+            <span><strong>{tradeBanner.reason}</strong> · {tradeBanner.side} {tradeBanner.oz} oz {tradeBanner.symbol} @ {tradeBanner.close.toFixed(2)} · P/L <strong>{tradeBanner.pnl >= 0 ? '+' : ''}{tradeBanner.pnl.toFixed(2)} USD</strong></span>
+            <button className="trade-banner-x" onClick={() => setTradeBanner(null)} aria-label="Dismiss">×</button>
+          </div>
+        )}
 
         <section className="panel">
           {tab === 'dashboard' && (
@@ -299,8 +295,8 @@ function App() {
           {tab === 'news' && (
             <NewsView articles={newsArticles} status={newsStatus} onOpen={setOpenArticle} />
           )}
-          {tab === 'archive' && <ArchiveView />}
           {tab === 'trade-ideas' && <TradeIdeasView />}
+          {tab === 'positions' && <PositionsView positions={positions} orders={orders} tick={tick} auto={auto} />}
         </section>
 
         {openArticle && (
@@ -331,10 +327,81 @@ const BARS_PER_TF: Record<Timeframe, number> = {
   H1: 1000, H12: 500, D1: 500, W1: 300, MN1: 200,
 }
 
+// Indicators (VWAP + 8 EMA) only render on intraday TFs where the
+// daily-anchored VWAP makes sense. On H1+ the indicators are hidden.
+const INDICATOR_TFS: ReadonlyArray<Timeframe> = ['M1', 'M3', 'M5', 'M15']
+const isIndicatorTf = (tf: Timeframe) => INDICATOR_TFS.includes(tf)
+const EMA_PERIOD = 8
+
+// VWAP session anchor in seconds-of-day (UTC). The "session day" for spot
+// gold resets at 21:00 UTC (≈ 17:00 NY EDT) — matches TradingView's default
+// VWAP behavior for XAUUSD and aligns with CME Globex's daily close/reopen.
+// During EST (winter) the true reset is 22:00 UTC; we hold at 21:00 year-round
+// for simplicity, accepting a ~1h offset in the winter half of the year.
+const VWAP_SESSION_OFFSET_SEC = 21 * 3600
+
+// "Session day" index for a unix-second timestamp under the 21:00 UTC anchor.
+// A bar at 20:59 UTC belongs to the *previous* session day; a bar at 21:00
+// UTC starts a new session.
+const sessionDay = (unixSec: number) =>
+  Math.floor((unixSec - VWAP_SESSION_OFFSET_SEC) / 86400)
+
+// Unix-second timestamp at which a given session day begins (its 21:00 UTC
+// anchor). Used by the live-tick path to walk same-day candles for VWAP.
+const sessionDayStart = (day: number) =>
+  day * 86400 + VWAP_SESSION_OFFSET_SEC
+
+// Compute session-anchored VWAP (resets at 21:00 UTC) and continuous 8 EMA
+// from an ascending candle array. Returns two parallel series suitable for
+// lightweight-charts setData. VWAP uses typical price = (high+low+close)/3.
+function computeOverlays(candles: Candle[]):
+  { vwap: { time: number; value: number }[]; ema: { time: number; value: number }[] }
+{
+  const vwap: { time: number; value: number }[] = []
+  const ema: { time: number; value: number }[] = []
+  if (candles.length === 0) return { vwap, ema }
+
+  let cumPV = 0, cumV = 0, curDay = -1
+  for (const c of candles) {
+    const day = sessionDay(c.time)
+    if (day !== curDay) { cumPV = 0; cumV = 0; curDay = day }
+    const typical = (c.high + c.low + c.close) / 3
+    cumPV += typical * c.volume
+    cumV  += c.volume
+    vwap.push({ time: c.time, value: cumV > 0 ? cumPV / cumV : typical })
+  }
+
+  const alpha = 2 / (EMA_PERIOD + 1)
+  let prev = candles[0].close
+  ema.push({ time: candles[0].time, value: prev })
+  for (let i = 1; i < candles.length; i++) {
+    prev = alpha * candles[i].close + (1 - alpha) * prev
+    ema.push({ time: candles[i].time, value: prev })
+  }
+  return { vwap, ema }
+}
+
 function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<any>(null)
   const seriesRef = useRef<any>(null)
+  // Indicator overlays — yellow VWAP, blue 8 EMA. Both follow the same
+  // setData/update lifecycle as the candle series.
+  const vwapSeriesRef = useRef<any>(null)
+  const emaSeriesRef = useRef<any>(null)
+  const vwapDataRef = useRef<{ time: number; value: number }[]>([])
+  const emaDataRef = useRef<{ time: number; value: number }[]>([])
+  // VWAP session state — running totals for CLOSED bars in the current session
+  // (excludes the live in-progress bar). Lets us recompute VWAP on every tick
+  // without re-walking the full candle array.
+  const sessionDayRef = useRef(-1)
+  const sessionCumPVRef = useRef(0)
+  const sessionCumVRef = useRef(0)
+  // Synthetic volume for the live bar: starts at cTrader's snapshot volume and
+  // increments by 1 per tick. cTrader's tick stream carries price only (no
+  // volume), so we use tick-count as the volume proxy — same convention cTrader
+  // uses for its own trendbar volume on FX/CFD instruments.
+  const liveBarVRef = useRef(0)
   const lastCandleRef = useRef<Candle | null>(null)
   // All loaded candles for the current TF (ascending). Lazy-load on pan-left
   // prepends older ones here, then we re-call setData with the full array.
@@ -359,6 +426,34 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
   const tickRef = useRef<Tick | null>(tick)
   useEffect(() => { tickRef.current = tick }, [tick])
 
+  // Seed VWAP session refs from a candle array. cumPV/cumV cover CLOSED bars in
+  // the current session day (everything in the day except the last bar);
+  // liveBarV is seeded with the last bar's snapshot volume so the initial VWAP
+  // is continuous with computeOverlays' result.
+  const initVwapSession = (candles: Candle[]) => {
+    if (candles.length === 0) {
+      sessionDayRef.current = -1
+      sessionCumPVRef.current = 0
+      sessionCumVRef.current = 0
+      liveBarVRef.current = 0
+      return
+    }
+    const last = candles[candles.length - 1]
+    const day = sessionDay(last.time)
+    const dayStart = sessionDayStart(day)
+    let cumPV = 0, cumV = 0
+    for (let i = 0; i < candles.length - 1; i++) {
+      const c = candles[i]
+      if (c.time < dayStart) continue
+      cumPV += ((c.high + c.low + c.close) / 3) * c.volume
+      cumV  += c.volume
+    }
+    sessionDayRef.current = day
+    sessionCumPVRef.current = cumPV
+    sessionCumVRef.current = cumV
+    liveBarVRef.current = last.volume
+  }
+
   // Recreate the chart on every symbol *or* timeframe change. The chart
   // instance carries hidden zoom/scroll state that survives setData and resists
   // applyOptions/resetTimeScale, so the only way to guarantee each timeframe
@@ -367,7 +462,7 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const { createChart, CandlestickSeries } = await import('lightweight-charts')
+      const { createChart, CandlestickSeries, LineSeries } = await import('lightweight-charts')
       if (cancelled || !containerRef.current) return
 
       // Tear down any previous chart for this symbol/TF.
@@ -375,6 +470,8 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
         try { chartRef.current.remove() } catch { /* ignore */ }
         chartRef.current = null
         seriesRef.current = null
+        vwapSeriesRef.current = null
+        emaSeriesRef.current = null
       }
 
       const chart = createChart(containerRef.current, {
@@ -393,6 +490,28 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
           borderColor: '#25272d',
           rightOffset: 8,        // a few empty bars on the right for breathing room
           barSpacing: 6,          // pixels per bar — TradingView default
+          // Display X-axis tick marks in the user's *local* timezone (matches
+          // cTrader's default). lightweight-charts defaults to UTC. We feed it
+          // UTC unix seconds (unchanged); only the formatter shifts the display.
+          tickMarkFormatter: (time: any) => {
+            const d = new Date((time as number) * 1000)
+            // Hour:Minute for intraday density (M1-H1); fall back to short
+            // date for daily-and-above tick density.
+            if (timeframe === 'D1' || timeframe === 'W1' || timeframe === 'MN1') {
+              return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+            }
+            return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+          },
+        },
+        localization: {
+          // Crosshair time tooltip — also local timezone.
+          timeFormatter: (time: any) => {
+            const d = new Date((time as number) * 1000)
+            return d.toLocaleString(undefined, {
+              year: 'numeric', month: '2-digit', day: '2-digit',
+              hour: '2-digit', minute: '2-digit',
+            })
+          },
         },
         rightPriceScale: { borderColor: '#25272d' },
         autoSize: true,
@@ -402,8 +521,27 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
         borderUpColor: '#2dd47b', borderDownColor: '#f87171',
         wickUpColor: '#2dd47b',   wickDownColor: '#f87171',
       })
+      // VWAP (yellow) + 8 EMA (blue) overlays. Always create the series so
+      // the lifecycle is identical across TFs; hide on non-intraday TFs by
+      // pushing empty data.
+      const vwapSeries = chart.addSeries(LineSeries, {
+        color: '#f4c430',          // VWAP — gold/yellow
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        title: 'VWAP',
+      })
+      const emaSeries = chart.addSeries(LineSeries, {
+        color: '#3b82f6',          // 8 EMA — blue
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        title: '8 EMA',
+      })
       chartRef.current = chart
       seriesRef.current = series
+      vwapSeriesRef.current = vwapSeries
+      emaSeriesRef.current = emaSeries
       setChartGen(g => g + 1)
     })()
     return () => {
@@ -472,6 +610,21 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
           setError(`Chart render failed: ${String(chartErr)}`)
           setLoading(false)
           return
+        }
+        // Overlays: VWAP (daily anchor) + 8 EMA. Only on intraday TFs.
+        if (isIndicatorTf(timeframe)) {
+          const { vwap, ema } = computeOverlays(deduped)
+          vwapDataRef.current = vwap
+          emaDataRef.current = ema
+          vwapSeriesRef.current?.setData(vwap.map(p => ({ time: p.time as any, value: p.value })))
+          emaSeriesRef.current?.setData(ema.map(p => ({ time: p.time as any, value: p.value })))
+          initVwapSession(deduped)
+        } else {
+          vwapDataRef.current = []
+          emaDataRef.current = []
+          vwapSeriesRef.current?.setData([])
+          emaSeriesRef.current?.setData([])
+          initVwapSession([])
         }
         if (deduped.length === 0) {
           setError(`No ${timeframe} bars available for this window. Try a different timeframe or wait for market hours.`)
@@ -606,6 +759,16 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
         time: c.time as any,
         open: c.open, high: c.high, low: c.low, close: c.close,
       })))
+      // Recompute overlays — prepending older bars can shift VWAP day-anchors
+      // and the EMA seed, so a full recompute is the safe path.
+      if (isIndicatorTf(timeframe)) {
+        const { vwap, ema } = computeOverlays(deduped)
+        vwapDataRef.current = vwap
+        emaDataRef.current = ema
+        vwapSeriesRef.current?.setData(vwap.map(p => ({ time: p.time as any, value: p.value })))
+        emaSeriesRef.current?.setData(ema.map(p => ({ time: p.time as any, value: p.value })))
+        initVwapSession(deduped)
+      }
       if (range && newBars > 0) {
         // Shift the visible range right by the actual number of newly prepended bars.
         tsApi.setVisibleLogicalRange({
@@ -657,6 +820,28 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
         time: prev.time as any,
         open: prev.open, high: prev.high, low: prev.low, close: prev.close,
       })
+      // Tick within the live bar: refresh EMA from the new close, and refresh
+      // VWAP by adding +1 of synthetic volume to the live bar and re-deriving
+      // the running session average.
+      if (isIndicatorTf(timeframe)) {
+        if (emaDataRef.current.length >= 2) {
+          const ema = emaDataRef.current
+          const alpha = 2 / (EMA_PERIOD + 1)
+          const prevEma = ema[ema.length - 2].value
+          const newEma = alpha * mid + (1 - alpha) * prevEma
+          ema[ema.length - 1] = { time: prev.time, value: newEma }
+          emaSeriesRef.current?.update({ time: prev.time as any, value: newEma })
+        }
+        liveBarVRef.current += 1
+        const liveTypical = (prev.high + prev.low + prev.close) / 3
+        const cumPV = sessionCumPVRef.current + liveTypical * liveBarVRef.current
+        const cumV  = sessionCumVRef.current  + liveBarVRef.current
+        const vwapVal = cumV > 0 ? cumPV / cumV : liveTypical
+        if (vwapDataRef.current.length > 0) {
+          vwapDataRef.current[vwapDataRef.current.length - 1] = { time: prev.time, value: vwapVal }
+          vwapSeriesRef.current?.update({ time: prev.time as any, value: vwapVal })
+        }
+      }
     } else if (bucket > prev.time) {
       // Bucket advanced — open a new live bar at `bucket`. If cTrader's historical
       // ended several buckets before "now" there will be a visible time gap
@@ -668,6 +853,41 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
       lastCandleRef.current = newCandle
       // Also push into allCandlesRef so pan-left math stays consistent.
       allCandlesRef.current = [...allCandlesRef.current, newCandle]
+      // Extend the overlays with one new point for this fresh bar. VWAP rolls
+      // the just-closed live bar into the session totals, resets if we crossed
+      // the 21:00 UTC session boundary, then seeds the new live bar; EMA
+      // chains off the previous EMA value.
+      if (isIndicatorTf(timeframe)) {
+        const typical = mid  // O=H=L=C on a fresh bar
+        // Finalise the previous (now-closed) live bar: its synthetic V went into
+        // liveBarVRef, and its OHLC is in `prev`. Add that bar's contribution to
+        // the session totals if it belonged to the current session.
+        const prevDay = sessionDay(prev.time)
+        if (prevDay === sessionDayRef.current && liveBarVRef.current > 0) {
+          const prevTypical = (prev.high + prev.low + prev.close) / 3
+          sessionCumPVRef.current += prevTypical * liveBarVRef.current
+          sessionCumVRef.current  += liveBarVRef.current
+        }
+        // Cross a session boundary? Reset session totals before seeding the new bar.
+        const newDay = sessionDay(bucket)
+        if (newDay !== sessionDayRef.current) {
+          sessionDayRef.current = newDay
+          sessionCumPVRef.current = 0
+          sessionCumVRef.current = 0
+        }
+        // New live bar starts with 0 synthetic volume; ticks will accumulate it.
+        liveBarVRef.current = 0
+        const cumV = sessionCumVRef.current
+        const vwapVal = cumV > 0 ? sessionCumPVRef.current / cumV : typical
+        vwapDataRef.current.push({ time: bucket, value: vwapVal })
+        vwapSeriesRef.current?.update({ time: bucket as any, value: vwapVal })
+
+        const alpha = 2 / (EMA_PERIOD + 1)
+        const prevEma = emaDataRef.current[emaDataRef.current.length - 1]?.value ?? typical
+        const newEma = alpha * typical + (1 - alpha) * prevEma
+        emaDataRef.current.push({ time: bucket, value: newEma })
+        emaSeriesRef.current?.update({ time: bucket as any, value: newEma })
+      }
       // Don't fitContent here — it would zoom out to fit all 1000+ bars and
       // override the "show last 120" view we set after the initial load.
       // The chart's rightOffset already leaves room for new bars on the right.
@@ -920,856 +1140,555 @@ function ArticleModal({ article, onClose }: { article: NewsArticle; onClose: () 
   )
 }
 
-function ArchiveView() {
-  // News_Updates state
-  const [newsBusy, setNewsBusy] = useState(false)
-  const [newsResult, setNewsResult] = useState<NewsUpdateResult | null>(null)
-  const [newsError, setNewsError] = useState<string | null>(null)
-
-  // EC_Gold_Events_Update state
-  const [ecBusy, setEcBusy] = useState(false)
-  const [ecResult, setEcResult] = useState<EcGoldUpdateResult | null>(null)
-  const [ecError, setEcError] = useState<string | null>(null)
-  const [ecProgress, setEcProgress] = useState<EcGoldProgress | null>(null)
-
-  // EC_Gold_events_storage state
-  const [ecStoreBusy, setEcStoreBusy] = useState(false)
-  const [ecStoreResult, setEcStoreResult] = useState<EcGoldStorageResult | null>(null)
-  const [ecStoreError, setEcStoreError] = useState<string | null>(null)
-  const [ecStoreProgress, setEcStoreProgress] = useState<EcGoldStorageProgress | null>(null)
-
-  // Gold DB timeframe stats (auto-loads on tab mount + refresh button)
-  const [tfStats, setTfStats] = useState<XauusdStatsResult | null>(null)
-  const [tfStatsBusy, setTfStatsBusy] = useState(false)
-  const [tfStatsError, setTfStatsError] = useState<string | null>(null)
-
-  const loadTfStats = async () => {
-    setTfStatsBusy(true); setTfStatsError(null)
-    try { setTfStats(await invoke<XauusdStatsResult>('get_xauusd_tf_stats')) }
-    catch (e) { setTfStatsError(String(e)) }
-    finally { setTfStatsBusy(false) }
-  }
-  useEffect(() => { loadTfStats() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
-
-  // Live backfill state: poll every 500 ms while the tab is open so the
-  // user sees the chunk-by-chunk progress of the background history backfill
-  // in near real-time. Auto-refreshes the TF stats panel too once backfill
-  // status flips to "complete" so the new row counts appear without a
-  // manual Refresh click.
-  const [backfill, setBackfill] = useState<BackfillState | null>(null)
-  const prevStatusRef = useRef<string | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    const tick = async () => {
-      try {
-        const s = await invoke<BackfillState>('get_history_backfill_state')
-        if (cancelled) return
-        setBackfill(s)
-        // When backfill flips from running → complete, refresh the TF stats
-        // panel so the user sees the final row counts immediately.
-        if (prevStatusRef.current === 'running' && s.status === 'complete') {
-          loadTfStats()
-        }
-        prevStatusRef.current = s.status
-      } catch { /* ignore — backend may be starting up */ }
-    }
-    tick()
-    const id = window.setInterval(tick, 500)
-    return () => { cancelled = true; window.clearInterval(id) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const runNewsUpdate = async () => {
-    setNewsBusy(true); setNewsError(null); setNewsResult(null)
-    try { setNewsResult(await invoke<NewsUpdateResult>('update_news_archive')) }
-    catch (e) { setNewsError(String(e)) }
-    finally { setNewsBusy(false) }
-  }
-
-  const runEcGoldUpdate = async () => {
-    setEcBusy(true); setEcError(null); setEcResult(null); setEcProgress(null)
-    // Subscribe to chunk-by-chunk progress events from the Rust side
-    // BEFORE we invoke, so we never miss the first chunk's event.
-    let unlisten: UnlistenFn | null = null
-    try {
-      unlisten = await listen<EcGoldProgress>('ec_gold_progress', (e) => {
-        setEcProgress(e.payload)
-      })
-      setEcResult(await invoke<EcGoldUpdateResult>('update_ec_gold_events'))
-    } catch (e) {
-      setEcError(String(e))
-    } finally {
-      if (unlisten) unlisten()
-      setEcBusy(false)
-      setEcProgress(null)  // hide the live bar — the result panel takes over
-    }
-  }
-
-  const runEcGoldStorage = async () => {
-    setEcStoreBusy(true); setEcStoreError(null); setEcStoreResult(null); setEcStoreProgress(null)
-    let unlisten: UnlistenFn | null = null
-    try {
-      unlisten = await listen<EcGoldStorageProgress>('ec_gold_storage_progress', (e) => {
-        setEcStoreProgress(e.payload)
-      })
-      setEcStoreResult(await invoke<EcGoldStorageResult>('store_ec_gold_events'))
-    } catch (e) {
-      setEcStoreError(String(e))
-    } finally {
-      if (unlisten) unlisten()
-      setEcStoreBusy(false)
-      setEcStoreProgress(null)
-    }
-  }
-
-  // Derived: percent + simple ETA from the latest progress event.
-  const ecPct = ecProgress
-    ? Math.min(100, Math.round((ecProgress.chunks_done / ecProgress.chunks_total) * 100))
-    : 0
-  const ecEtaSecs = ecProgress && ecProgress.chunks_done > 0
-    ? Math.round(ecProgress.elapsed_secs / ecProgress.chunks_done * (ecProgress.chunks_total - ecProgress.chunks_done))
-    : null
-
-  const ecStorePct = ecStoreProgress
-    ? Math.min(100, Math.round((ecStoreProgress.files_done / ecStoreProgress.files_total) * 100))
-    : 0
-  const ecStoreEtaSecs = ecStoreProgress && ecStoreProgress.files_done > 0
-    ? Math.round(ecStoreProgress.elapsed_secs / ecStoreProgress.files_done
-                 * (ecStoreProgress.files_total - ecStoreProgress.files_done))
-    : null
-
-  return (
-    <div className="archive">
-      <h3>Gold DB timeframe states</h3>
-      <p className="muted">
-        One row per <code>xauusd_&lt;tf&gt;</code> table — bars stored, coverage span,
-        and how stale the newest bar is. Tail freshness is colour-coded against the
-        bar width: green if &lt; 2 bars old, amber if &lt; 10, red otherwise. The market
-        state is shown above the table since "stale" is expected during weekend closure.
-      </p>
-
-      <div className="archive-actions">
-        <button className="btn" onClick={loadTfStats} disabled={tfStatsBusy}>
-          {tfStatsBusy ? 'Loading…' : 'Refresh DB stats'}
-        </button>
-        <button
-          className="btn"
-          onClick={async () => {
-            try { await invoke<string>('start_history_backfill') }
-            catch (e) { alert('Start failed: ' + String(e)) }
-          }}
-          disabled={backfill?.status === 'running'}
-        >
-          {backfill?.status === 'running'
-            ? `Updating… (${backfill.current_tf?.toUpperCase() ?? '...'} in progress)`
-            : 'XAUUSD_History_Update'}
-        </button>
-      </div>
-
-      {tfStatsError && <div className="archive-result err">Error: {tfStatsError}</div>}
-
-      {tfStats && (
-        <div className="tf-stats-panel">
-          <div className="tf-stats-meta muted small">
-            Market: <strong className={tfStats.market_state === 'live' ? 'ok' : 'err'}>
-              {tfStats.market_state}
-            </strong>
-            {' · queried at '}
-            {tfStats.queried_at_utc.slice(11, 19)} UTC
-          </div>
-          <table className="tf-stats">
-            <thead>
-              <tr>
-                <th>TF</th>
-                <th className="right">Bars</th>
-                <th>Oldest (UTC)</th>
-                <th>Newest (UTC)</th>
-                <th className="right">Coverage</th>
-                <th className="right">Tail age</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tfStats.timeframes.map(s => {
-                const ageClass =
-                  s.tail_age_secs == null   ? 'tail-empty' :
-                  s.tail_age_secs < s.bar_secs * 2  ? 'tail-fresh' :
-                  s.tail_age_secs < s.bar_secs * 10 ? 'tail-amber' :
-                                                     'tail-stale'
-                return (
-                  <tr key={s.timeframe}>
-                    <td><strong>{s.timeframe}</strong></td>
-                    <td className="right">{s.rows.toLocaleString()}</td>
-                    <td>{s.oldest ? s.oldest.replace('T', ' ') : '—'}</td>
-                    <td>{s.newest ? s.newest.replace('T', ' ') : '—'}</td>
-                    <td className="right">
-                      {s.coverage_days != null
-                        ? (s.coverage_days >= 365
-                            ? `${(s.coverage_days / 365).toFixed(1)}y`
-                            : `${s.coverage_days.toFixed(1)}d`)
-                        : '—'}
-                    </td>
-                    <td className={`right ${ageClass}`}>
-                      {s.tail_age_secs == null ? '—' : formatAge(s.tail_age_secs)}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <h3 style={{ marginTop: 28 }}>Current fetching state</h3>
-      <p className="muted">
-        Live snapshot of the background history-backfill loop (auto-refreshed
-        every 500 ms). Shows which timeframe it's currently walking, how many
-        chunks have landed for that TF, and the cumulative bars across the
-        whole run.
-      </p>
-
-      {backfill && (
-        <div className="archive-result">
-          <div>
-            <strong>Status:</strong>{' '}
-            <span className={
-              backfill.status === 'running'  ? 'tail-amber' :
-              backfill.status === 'complete' ? 'tail-fresh' :
-              backfill.status === 'error'    ? 'tail-stale' : ''
-            }>
-              {backfill.status === 'running' && (backfill.current_tf
-                ? `running — ${backfill.current_tf.toUpperCase()} (mode: ${backfill.current_mode ?? '?'})`
-                : 'running — waiting to start next TF')}
-              {backfill.status === 'complete' && '✓ complete'}
-              {backfill.status === 'error' && `error: ${backfill.last_error ?? 'unknown'}`}
-              {backfill.status === 'idle' && 'idle (no backfill in progress)'}
-            </span>
-          </div>
-
-          {backfill.current_tf && (
-            <>
-              <div>
-                <strong>Current TF chunks:</strong>{' '}
-                {backfill.chunks_this_tf.toLocaleString()} chunks ·{' '}
-                {backfill.bars_this_tf.toLocaleString()} bars
-                {backfill.last_chunk_oldest_utc &&
-                  ` · oldest bar so far: ${backfill.last_chunk_oldest_utc.replace('T', ' ')} UTC`}
-              </div>
-            </>
-          )}
-
-          <div>
-            <strong>Overall progress:</strong>{' '}
-            {backfill.tfs_completed.length + backfill.tfs_skipped.length} / {backfill.tfs_total} TFs
-            {backfill.tfs_skipped.length > 0 &&
-              ` (${backfill.tfs_skipped.length} skipped as already complete)`}
-          </div>
-
-          <div>
-            <strong>Total bars added this run:</strong>{' '}
-            {backfill.total_bars.toLocaleString()}
-          </div>
-
-          {backfill.tfs_completed.length > 0 && (
-            <div className="muted small" style={{ marginTop: 4 }}>
-              Completed: {backfill.tfs_completed.map(t => t.toUpperCase()).join(', ')}
-            </div>
-          )}
-          {backfill.tfs_skipped.length > 0 && (
-            <div className="muted small">
-              Skipped: {backfill.tfs_skipped.map(t => t.toUpperCase()).join(', ')}
-            </div>
-          )}
-
-          {backfill.started_at_utc && (
-            <div className="muted small" style={{ marginTop: 6 }}>
-              Started: {backfill.started_at_utc.slice(0, 19).replace('T', ' ')} UTC
-              {backfill.completed_at_utc &&
-                ` · Finished: ${backfill.completed_at_utc.slice(0, 19).replace('T', ' ')} UTC`}
-            </div>
-          )}
-        </div>
-      )}
-
-      <h3 style={{ marginTop: 28 }}>News Archives</h3>
-      <p className="muted">
-        Detects the newest day file under <code>news_data/all/</code>, reads its latest
-        article time, then fetches every newer article from FXStreet and (re)writes
-        one JSON file per affected day up to today.
-      </p>
-
-      <div className="archive-actions">
-        <button className="btn" onClick={runNewsUpdate} disabled={newsBusy}>
-          {newsBusy ? 'Updating… (this can take a minute)' : 'News_Updates'}
-        </button>
-      </div>
-
-      {newsError && <div className="archive-result err">Error: {newsError}</div>}
-
-      {newsResult && (
-        <div className={`archive-result ${newsResult.rate_limited ? 'err' : 'ok'}`}>
-          <div>
-            <strong>Last archive day:</strong> {newsResult.last_archive_day ?? '(none — first run)'}
-          </div>
-          <div>
-            <strong>Cutoff used:</strong> {newsResult.cutoff}
-          </div>
-          <div>
-            <strong>Articles fetched:</strong> {newsResult.articles_fetched}
-          </div>
-          <div>
-            <strong>Bodies:</strong> {newsResult.bodies_fetched} fetched
-            {newsResult.bodies_empty > 0 && `, ${newsResult.bodies_empty} empty`}
-            {newsResult.bodies_failed > 0 && `, ${newsResult.bodies_failed} failed`}
-          </div>
-          <div>
-            <strong>Day files written:</strong> {newsResult.days_written.length}
-          </div>
-          {newsResult.days_written.length > 0 && (
-            <ul className="archive-days">
-              {newsResult.days_written.map(([day, count]) => (
-                <li key={day}><code>{day}.json</code> — {count} articles</li>
-              ))}
-            </ul>
-          )}
-          {newsResult.message && <div className="muted small">{newsResult.message}</div>}
-        </div>
-      )}
-
-      <h3 style={{ marginTop: 28 }}>Gold EC Events</h3>
-      <p className="muted">
-        Creates <code>xauusd_economic_calendar</code> if it doesn't exist and walks
-        FXStreet from 2009-01-01 → today, upserting every event for
-        <strong> USD, EUR, GBP, JPY, CHF, AUD, CNY</strong> (all impact levels: low,
-        medium, high). On a re-click, resumes from the last stored timestamp + 1 day.
-        First run takes ~2 minutes; subsequent clicks are near-instant.
-      </p>
-
-      <div className="archive-actions">
-        <button className="btn" onClick={runEcGoldUpdate} disabled={ecBusy || ecStoreBusy}>
-          {ecBusy ? 'Updating… (first run takes ~2 min)' : 'EC_Gold_Events_Update'}
-        </button>
-        <button className="btn" onClick={runEcGoldStorage} disabled={ecBusy || ecStoreBusy}>
-          {ecStoreBusy ? 'Writing files…' : 'EC_Gold_events_storage'}
-        </button>
-      </div>
-
-      {ecBusy && ecProgress && (
-        <div className="archive-result">
-          <div>
-            <strong>Chunk {ecProgress.chunks_done} / {ecProgress.chunks_total}</strong>
-            {' — '}{ecProgress.current_chunk_start} → {ecProgress.current_chunk_end}
-          </div>
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: `${ecPct}%` }} />
-            <div className="progress-label">{ecPct}%</div>
-          </div>
-          <div className="muted small">
-            {ecProgress.rows_added_so_far.toLocaleString()} rows added · {ecProgress.elapsed_secs}s elapsed
-            {ecEtaSecs != null && ` · ~${ecEtaSecs}s remaining`}
-          </div>
-        </div>
-      )}
-
-      {ecError && <div className="archive-result err">Error: {ecError}</div>}
-
-      {ecResult && (
-        <div className={`archive-result ${ecResult.error ? 'err' : 'ok'}`}>
-          <div>
-            <strong>Table existed before run:</strong> {ecResult.table_existed ? 'yes' : 'no — created this run'}
-          </div>
-          <div>
-            <strong>Walked:</strong> {ecResult.walk_start} → {ecResult.walk_end}
-          </div>
-          <div>
-            <strong>Chunks processed:</strong> {ecResult.chunks_processed}
-            {' '}({(ecResult.duration_ms / 1000).toFixed(1)}s wallclock)
-          </div>
-          <div>
-            <strong>Rows added this click:</strong> {ecResult.rows_added_this_call.toLocaleString()}
-          </div>
-          <div>
-            <strong>Total rows in table:</strong> {ecResult.total_rows.toLocaleString()}
-          </div>
-          {ecResult.oldest_in_db && (
-            <div>
-              <strong>Coverage:</strong> {ecResult.oldest_in_db.slice(0, 10)} → {ecResult.newest_in_db?.slice(0, 10)}
-            </div>
-          )}
-          {ecResult.error && <div className="muted small">⚠ Partial: {ecResult.error}</div>}
-        </div>
-      )}
-
-      {ecStoreBusy && ecStoreProgress && (
-        <div className="archive-result">
-          <div>
-            <strong>Writing file {ecStoreProgress.files_done} / {ecStoreProgress.files_total}</strong>
-            {' — '}{ecStoreProgress.current_day}.json
-          </div>
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: `${ecStorePct}%` }} />
-            <div className="progress-label">{ecStorePct}%</div>
-          </div>
-          <div className="muted small">
-            {ecStoreProgress.events_written_so_far.toLocaleString()} events ·
-            {' '}{ecStoreProgress.elapsed_secs}s elapsed
-            {ecStoreEtaSecs != null && ecStoreEtaSecs > 0 && ` · ~${ecStoreEtaSecs}s remaining`}
-          </div>
-        </div>
-      )}
-
-      {ecStoreError && <div className="archive-result err">Error: {ecStoreError}</div>}
-
-      {ecStoreResult && (
-        <div className={`archive-result ${ecStoreResult.error ? 'err' : 'ok'}`}>
-          <div>
-            <strong>Mode:</strong> {ecStoreResult.incremental ? 'incremental update' : 'first run (full archive)'}
-            {ecStoreResult.up_to_date && ' — all files already current ✓'}
-          </div>
-          {ecStoreResult.disk_latest_day_before && (
-            <div>
-              <strong>Latest day on disk before run:</strong> {ecStoreResult.disk_latest_day_before}
-            </div>
-          )}
-          {ecStoreResult.db_latest_day && (
-            <div>
-              <strong>Latest day in DB:</strong> {ecStoreResult.db_latest_day}
-            </div>
-          )}
-          <div>
-            <strong>Files written this click:</strong> {ecStoreResult.files_written.toLocaleString()}
-            {ecStoreResult.events_written > 0 &&
-              ` (${ecStoreResult.events_written.toLocaleString()} events)`}
-          </div>
-          {ecStoreResult.incremental && (
-            <div>
-              <strong>Days already current (skipped):</strong> {ecStoreResult.days_already_current.toLocaleString()}
-            </div>
-          )}
-          <div>
-            <strong>Duration:</strong> {(ecStoreResult.duration_ms / 1000).toFixed(2)}s
-          </div>
-          <div>
-            <strong>Archive root:</strong> <code>{ecStoreResult.archive_root}</code>
-          </div>
-          {ecStoreResult.error && <div className="muted small">⚠ Partial: {ecStoreResult.error}</div>}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function TradeIdeasView() {
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<TradeIdeaResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
+  const [results, setResults] = useState<Record<string, ModelTradeIdea | null>>({})
+  const [running, setRunning] = useState(false)
 
-  // Poll the global backfill state so we can show a small live indicator and
-  // disable Gold_Trade_Ideas while a backfill is mid-flight (avoids racing
-  // a Claude call against an in-progress DB update).
-  const [backfill, setBackfill] = useState<BackfillState | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    const tick = async () => {
-      try {
-        const s = await invoke<BackfillState>('get_history_backfill_state')
-        if (!cancelled) setBackfill(s)
-      } catch { /* ignore */ }
-    }
-    tick()
-    const id = window.setInterval(tick, 500)
-    return () => { cancelled = true; window.clearInterval(id) }
-  }, [])
-
-  const backfillRunning = backfill?.status === 'running'
-
-  const runUpdate = async () => {
+  const run = async () => {
+    // Open all 4 popups immediately in a loading state, then fill each as its
+    // `trade_idea_model` event arrives (fast models show first).
+    setResults({ Claude: null, Gemini: null, DeepSeek: null, Qwen: null })
+    setOpen(true)
+    setRunning(true)
+    let unlisten: UnlistenFn | null = null
     try {
-      await invoke<string>('start_history_backfill')
-    } catch (e) {
-      alert('Update failed to start: ' + String(e))
-    }
-  }
-
-  const runIdea = async () => {
-    setBusy(true); setError(null); setResult(null); setOpen(true)
-    try {
-      const r = await invoke<TradeIdeaResult>('get_gold_trade_idea')
-      setResult(r)
-    } catch (e) {
-      setError(String(e))
+      unlisten = await listen<ModelTradeIdea>('trade_idea_model', (e) => {
+        const r = e.payload
+        setResults(prev => ({ ...prev, [r.provider]: r }))
+      })
+      const all = await invoke<ModelTradeIdea[]>('get_gold_trade_ideas_multi')
+      // Fallback: make sure every provider is filled even if an event was missed.
+      setResults(prev => {
+        const next = { ...prev }
+        for (const r of all) next[r.provider] = r
+        return next
+      })
+    } catch (err) {
+      setResults(prev => {
+        const next = { ...prev }
+        for (const p of TRADER_PROVIDERS) {
+          if (!next[p]) {
+            next[p] = {
+              provider: p, model: '', ok: false, bias: null, strategy: null,
+              entry_low: null, entry_high: null, stop: null, target1: null, target2: null,
+              rationale: null, error: String(err), duration_ms: 0,
+            }
+          }
+        }
+        return next
+      })
     } finally {
-      setBusy(false)
+      if (unlisten) unlisten()
+      setRunning(false)
     }
   }
+
+  const closeOne = (p: string) => setResults(prev => {
+    const next = { ...prev }
+    delete next[p]
+    return next
+  })
+  const closeAll = () => { setOpen(false); setResults({}) }
 
   return (
     <div className="archive">
-      <h3>XAUUSD Trade Ideas</h3>
+      <h3>XAUUSD Trade Ideas — 4-model day plan</h3>
       <p className="muted">
-        Snapshots your current price, multi-timeframe candles, today's high-impact
-        EC events, and today's gold-relevant news (with article bodies), then asks
-        Claude for a structured trade idea: bias / entry / stop / target / rationale.
-        Read-only — no orders are placed.
+        Sends the same live VWAP + 8 EMA snapshot to four models in parallel —
+        Claude, Gemini, DeepSeek, Qwen — and pops up each one's single intraday
+        setup (bias · entry · SL · TP) as it answers. Read-only · target &lt; 20s.
       </p>
-      <p className="muted small">
-        <strong>Tip:</strong> click <em>XAUUSD_History_Update</em> first to top up
-        the price tables with the latest bars from cTrader, then ask Claude.
-      </p>
-
       <div className="archive-actions">
-        <button
-          className="btn"
-          onClick={runUpdate}
-          disabled={backfillRunning || busy}
-        >
-          {backfillRunning
-            ? `Updating… (${backfill?.current_tf?.toUpperCase() ?? '...'}${backfill?.current_mode ? ` · ${backfill.current_mode}` : ''})`
-            : 'XAUUSD_History_Update'}
-        </button>
-        <button
-          className="btn"
-          onClick={runIdea}
-          disabled={busy || backfillRunning}
-        >
-          {busy ? 'Asking Claude…' : 'Gold_Trade_Ideas'}
+        <button className="btn" onClick={run} disabled={running}>
+          {running ? 'Asking 4 models…' : 'Gold_Trade_Ideas'}
         </button>
       </div>
-
-      {backfillRunning && backfill && (
-        <div className="archive-result">
-          <div className="muted small">
-            <strong>Live update in progress.</strong>
-            {' '}
-            {backfill.tfs_completed.length + backfill.tfs_skipped.length} / {backfill.tfs_total} TFs · {' '}
-            +{backfill.total_bars.toLocaleString()} bars this run
-            {backfill.current_tf && backfill.bars_this_tf > 0 &&
-              ` · current TF: ${backfill.current_tf.toUpperCase()} (+${backfill.bars_this_tf.toLocaleString()})`}
-          </div>
-        </div>
-      )}
-
       {open && (
-        <TradeIdeaModal
-          busy={busy}
-          result={result}
-          error={error}
-          onClose={() => setOpen(false)}
-        />
+        <MultiModelPopups results={results} onCloseOne={closeOne} onCloseAll={closeAll} />
       )}
     </div>
   )
 }
 
-function TradeIdeaModal({
-  busy, result, error, onClose,
-}: { busy: boolean; result: TradeIdeaResult | null; error: string | null; onClose: () => void }) {
-  // Close on Esc
+function MultiModelPopups({ results, onCloseOne, onCloseAll }: {
+  results: Record<string, ModelTradeIdea | null>
+  onCloseOne: (p: string) => void
+  onCloseAll: () => void
+}) {
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose, busy])
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseAll() }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [onCloseAll])
 
-  // Live phase updates from the backend (DuckDB snapshot → Claude call → result).
-  // Backend emits `trade_idea_phase` with { label, elapsed_secs } at each step.
-  const [phase, setPhase] = useState<{ label: string; elapsed: number } | null>(null)
-  const [phaseLog, setPhaseLog] = useState<{ label: string; elapsed: number }[]>([])
-  const [elapsedSecs, setElapsedSecs] = useState(0)
-  useEffect(() => {
-    if (!busy) return
-    setPhase(null)
-    setPhaseLog([])
-    setElapsedSecs(0)
-    const startedAt = Date.now()
-    let unlisten: UnlistenFn | null = null
-    let cancelled = false
-    ;(async () => {
-      const fn = await listen<{ label: string; elapsed_secs: number }>('trade_idea_phase', (e) => {
-        const entry = { label: e.payload.label, elapsed: e.payload.elapsed_secs }
-        setPhase(entry)
-        setPhaseLog((prev) => [...prev, entry])
-      })
-      if (cancelled) fn(); else unlisten = fn
-    })()
-    // Local 1s stopwatch — independent of backend emits so the clock keeps moving.
-    const id = window.setInterval(() => {
-      setElapsedSecs(Math.floor((Date.now() - startedAt) / 1000))
-    }, 1000)
-    return () => {
-      cancelled = true
-      if (unlisten) unlisten()
-      window.clearInterval(id)
-    }
-  }, [busy])
-
-  const mm = Math.floor(elapsedSecs / 60)
-  const ss = elapsedSecs % 60
-  const elapsedStr = `${mm}:${ss.toString().padStart(2, '0')}`
+  const shown = TRADER_PROVIDERS.filter(p => p in results)
+  if (shown.length === 0) return null
 
   return (
-    <div className="modal-backdrop" onClick={busy ? undefined : onClose}>
-      <div className="modal trade-idea-modal" onClick={(e) => e.stopPropagation()}>
-        {!busy && (
-          <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
-        )}
-        {busy && (
-          <div className="trade-idea-loading">
-            <div className="spinner" />
-            <div className="trade-idea-loading-text">
-              <strong>Asking Claude for an XAUUSD trade idea… ({elapsedStr})</strong>
-              <div className="muted small">
-                {phase?.label ?? 'Starting up — gathering snapshot from DuckDB…'}
-              </div>
-              {phaseLog.length > 1 && (
-                <ul className="phase-log">
-                  {phaseLog.slice(0, -1).map((p, i) => (
-                    <li key={i} className="muted small">
-                      <span className="phase-check">✓</span> {p.label}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        )}
-        {!busy && error && (
-          <div className="trade-idea-body">
-            <h2 className="modal-title">Error</h2>
-            <pre className="err" style={{ whiteSpace: 'pre-wrap' }}>{error}</pre>
-          </div>
-        )}
-        {!busy && result && (
-          <div className="trade-idea-body">
-            {result.parsed && <TradeIdeaCard idea={result.parsed} />}
-            {result.parsed && <TradeIdeaChart idea={result.parsed} />}
-            <div className="markdown-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {result.markdown}
-              </ReactMarkdown>
-            </div>
-            <div className="muted small trade-idea-footer">
-              {result.ok
-                ? `Model: ${result.model} · ${(result.duration_ms / 1000).toFixed(1)}s`
-                : 'Failed — see message above'}
-            </div>
-          </div>
-        )}
+    <div className="popups-backdrop" onClick={onCloseAll}>
+      <div className="popups-row" onClick={e => e.stopPropagation()}>
+        {shown.map((p, i) => (
+          <ModelPopupCard key={p} provider={p} idea={results[p] ?? null} index={i} onClose={() => onCloseOne(p)} />
+        ))}
       </div>
     </div>
   )
 }
 
-// Trade-idea structured card — at-a-glance view of the agent's structured
-// output (bias badge, levels, conviction, next catalyst). Renders above the
-// markdown rationale in the modal.
-function TradeIdeaCard({ idea }: { idea: TradeIdea }) {
-  const bias = (idea.bias || 'FLAT').toUpperCase()
-  const biasClass =
-    bias === 'LONG' ? 'bias-long'
-    : bias === 'SHORT' ? 'bias-short'
-    : 'bias-flat'
+function ModelPopupCard({ provider, idea, onClose }: {
+  provider: string; idea: ModelTradeIdea | null; index: number; onClose: () => void
+}) {
+  const [qty, setQty] = useState(1)
+  const [confirming, setConfirming] = useState(false)
+  const [placing, setPlacing] = useState(false)
+  const [order, setOrder] = useState<OrderResult | null>(null)
+  // Editable order levels — seeded from the idea, then the trader can adjust.
+  const [entryPx, setEntryPx] = useState<number | null>(null)
+  const [slPx, setSlPx] = useState<number | null>(null)
+  const [tpPx, setTpPx] = useState<number | null>(null)
 
-  const conv = (idea.conviction || '').toLowerCase()
-  const convClass =
-    conv === 'high' ? 'conv-high'
-    : conv === 'medium' || conv === 'med' ? 'conv-medium'
-    : 'conv-low'
+  const loading = idea == null
+  const bias = (idea?.bias || '').toUpperCase()
+  const tradeable = bias === 'LONG' || bias === 'SHORT'
+  const side = bias === 'LONG' ? 'BUY' : 'SELL'
+  const sideClass = side === 'BUY' ? 'value-gain' : 'value-loss'
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  // The idea's original entry (zone midpoint) — anchor for SL/TP shifting.
+  const origEntry = idea && idea.entry_low != null && idea.entry_high != null
+    ? (idea.entry_low + idea.entry_high) / 2
+    : (idea?.entry_low ?? idea?.entry_high ?? null)
+  const entryZone = idea && (idea.entry_low != null || idea.entry_high != null)
+    ? (idea.entry_low != null && idea.entry_high != null && idea.entry_low !== idea.entry_high
+        ? `${fmtNum(idea.entry_low)} – ${fmtNum(idea.entry_high)}`
+        : fmtNum(idea.entry_low ?? idea.entry_high))
+    : '—'
 
-  const pct = (p: number | null, ref: number | null): string => {
-    if (p == null || ref == null || ref === 0) return ''
-    return ` (${((p - ref) / ref * 100).toFixed(2)}%)`
-  }
-  const cur = idea.current_price
-  const entry = idea.entry_low != null && idea.entry_high != null
-    ? (idea.entry_low === idea.entry_high
-        ? fmtNum(idea.entry_low)
-        : `${fmtNum(idea.entry_low)} – ${fmtNum(idea.entry_high)}`)
-    : (idea.entry_note ?? '—')
-
-  return (
-    <div className="trade-card">
-      <div className="trade-card-header">
-        <span className={`bias-badge ${biasClass}`}>{bias}</span>
-        <span className="trade-card-pair">XAUUSD</span>
-        {idea.timeframe && <span className="trade-card-timeframe">{idea.timeframe}</span>}
-        {idea.conviction && (
-          <span className={`conv-pill ${convClass}`}>conviction: {idea.conviction}</span>
-        )}
-        {idea.market_state && (
-          <span className="market-state-pill">{idea.market_state}</span>
-        )}
-      </div>
-
-      <div className="trade-card-grid">
-        <div className="trade-card-cell">
-          <div className="trade-card-label">Current</div>
-          <div className="trade-card-value">{fmtNum(cur)}</div>
-        </div>
-        <div className="trade-card-cell">
-          <div className="trade-card-label">Entry</div>
-          <div className="trade-card-value">{entry}</div>
-        </div>
-        <div className="trade-card-cell">
-          <div className="trade-card-label">Stop</div>
-          <div className="trade-card-value">
-            <span className="value-loss">{fmtNum(idea.stop)}</span>
-            <span className="trade-card-sub">{pct(idea.stop, cur)}</span>
-          </div>
-        </div>
-        <div className="trade-card-cell">
-          <div className="trade-card-label">Target 1</div>
-          <div className="trade-card-value">
-            <span className="value-gain">{fmtNum(idea.target1)}</span>
-            <span className="trade-card-sub">{pct(idea.target1, cur)}
-              {idea.rr1 != null && ` · R:R ${idea.rr1.toFixed(1)}:1`}
-            </span>
-          </div>
-        </div>
-        <div className="trade-card-cell">
-          <div className="trade-card-label">Target 2</div>
-          <div className="trade-card-value">
-            <span className="value-gain">{fmtNum(idea.target2)}</span>
-            <span className="trade-card-sub">{pct(idea.target2, cur)}
-              {idea.rr2 != null && ` · R:R ${idea.rr2.toFixed(1)}:1`}
-            </span>
-          </div>
-        </div>
-        <div className="trade-card-cell">
-          <div className="trade-card-label">ATR(14, H1)</div>
-          <div className="trade-card-value">
-            {fmtNum(idea.atr_h1)}
-            {idea.vol_regime && <span className="trade-card-sub"> · {idea.vol_regime}</span>}
-          </div>
-        </div>
-      </div>
-
-      {(idea.next_catalyst_name || idea.invalidation_note) && (
-        <div className="trade-card-footer-row">
-          {idea.next_catalyst_name && (
-            <div className="trade-card-foot">
-              <strong>Next catalyst:</strong> {idea.next_catalyst_name}
-              {idea.next_catalyst_utc && (
-                <span className="trade-card-sub"> · {formatTime(idea.next_catalyst_utc)} UTC</span>
-              )}
-            </div>
-          )}
-          {idea.invalidation_note && (
-            <div className="trade-card-foot">
-              <strong>Invalidation:</strong> {idea.invalidation_note}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Mini candle chart with horizontal lines for entry zone / stop / targets.
-// Pulls the last 60 H1 bars for XAUUSD via the same get_trendbars command
-// the dashboard uses, then overlays the structured levels as priceLines.
-function TradeIdeaChart({ idea }: { idea: TradeIdea }) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-
+  // Seed the editable levels once the model's setup arrives.
   useEffect(() => {
-    let cancelled = false
-    let cleanup: (() => void) | null = null
-
-    ;(async () => {
-      const [{ createChart, CandlestickSeries }, candles] = await Promise.all([
-        import('lightweight-charts'),
-        invoke<Candle[]>('get_trendbars', { symbol: 'XAUUSD', timeframe: 'H1', count: 60 }),
-      ])
-      if (cancelled || !containerRef.current) return
-
-      const chart = createChart(containerRef.current, {
-        layout: {
-          background: { color: '#15171c' },
-          textColor: '#d4d4d8',
-          attributionLogo: false,
-        },
-        grid: {
-          vertLines: { color: '#1f2128' },
-          horzLines: { color: '#1f2128' },
-        },
-        timeScale: {
-          timeVisible: true,
-          secondsVisible: false,
-          borderColor: '#25272d',
-          rightOffset: 4,
-          barSpacing: 5,
-        },
-        rightPriceScale: { borderColor: '#25272d' },
-        autoSize: true,
-        handleScroll: false,
-        handleScale: false,
-      })
-      const series = chart.addSeries(CandlestickSeries, {
-        upColor: '#2dd47b', downColor: '#f87171',
-        borderUpColor: '#2dd47b', borderDownColor: '#f87171',
-        wickUpColor: '#2dd47b', wickDownColor: '#f87171',
-      })
-
-      const sorted = [...candles].sort((a, b) => a.time - b.time)
-      series.setData(sorted.map(c => ({
-        time: c.time as any,
-        open: c.open, high: c.high, low: c.low, close: c.close,
-      })))
-
-      const addLine = (price: number | null, color: string, label: string, lineStyle = 2) => {
-        if (price == null) return
-        series.createPriceLine({
-          price,
-          color,
-          lineWidth: 1,
-          lineStyle: lineStyle as any,
-          axisLabelVisible: true,
-          title: label,
-        })
-      }
-
-      // Entry zone: two solid lines at low and high. They visually band the
-      // entry region. Stop = red dashed. Targets = green dashed.
-      addLine(idea.entry_low, '#facc15', 'Entry lo', 0)
-      addLine(idea.entry_high, '#facc15', 'Entry hi', 0)
-      addLine(idea.stop, '#f87171', 'Stop', 2)
-      addLine(idea.target1, '#2dd47b', 'T1', 2)
-      addLine(idea.target2, '#2dd47b', 'T2', 2)
-      if (idea.current_price != null) {
-        addLine(idea.current_price, '#60a5fa', 'Now', 0)
-      }
-
-      chart.timeScale().fitContent()
-
-      cleanup = () => {
-        try { chart.remove() } catch { /* ignore */ }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-      if (cleanup) cleanup()
-    }
+    if (!idea) return
+    setEntryPx(origEntry != null ? r2(origEntry) : null)
+    setSlPx(idea.stop)
+    setTpPx(idea.target1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idea])
 
+  // Moving the entry shifts SL & TP by the same delta (keeps the idea's R:R).
+  const onEntryChange = (v: number) => {
+    setEntryPx(v)
+    if (origEntry != null && Number.isFinite(v)) {
+      const delta = v - origEntry
+      if (idea?.stop != null) setSlPx(r2(idea.stop + delta))
+      if (idea?.target1 != null) setTpPx(r2(idea.target1 + delta))
+    }
+  }
+
+  const confirmOrder = async () => {
+    setPlacing(true)
+    try {
+      const r = await invoke<OrderResult>('place_gold_order', {
+        side: bias, oz: qty, entry: entryPx, stop: slPx, target1: tpPx,
+      })
+      setOrder(r)
+    } catch (e) {
+      setOrder({
+        sent: false, side, symbol: 'XAUUSD', oz: qty, ctrader_volume: 0,
+        order_type: 'MARKET', entry: null, sl: null, tp: null, status: null, error: String(e),
+      })
+    } finally {
+      setPlacing(false)
+      setConfirming(false)
+    }
+  }
+
   return (
-    <div className="trade-chart-wrap">
-      <div className="trade-chart-label">XAUUSD H1 · last 60 bars · levels overlaid</div>
-      <div ref={containerRef} className="trade-chart" />
+    <div className="model-popup">
+      <div className="model-popup-head">
+        <span className="model-popup-name">{provider}</span>
+        {idea && idea.model && <span className="model-popup-model">{idea.model}</span>}
+        <button className="modal-close sm" onClick={onClose} aria-label="Close">×</button>
+      </div>
+      {loading ? (
+        <div className="model-popup-loading"><div className="spinner sm" /><span>thinking…</span></div>
+      ) : idea.ok ? (
+        <>
+          <div className="model-popup-bias">
+            <span className={`bias-badge ${biasClassOf(bias)}`}>{bias || 'FLAT'}</span>
+            {idea.strategy && <span className="strategy-pill">{idea.strategy}</span>}
+          </div>
+          <div className="model-levels">
+            <div className="lvl"><span className="lvl-k">Entry</span><span className="lvl-v">{entryZone}</span></div>
+            <div className="lvl"><span className="lvl-k">SL</span><span className="lvl-v value-loss">{fmtNum(idea.stop)}</span></div>
+            <div className="lvl"><span className="lvl-k">TP1</span><span className="lvl-v value-gain">{fmtNum(idea.target1)}</span></div>
+            <div className="lvl"><span className="lvl-k">TP2</span><span className="lvl-v value-gain">{fmtNum(idea.target2)}</span></div>
+          </div>
+          {idea.rationale && <div className="model-popup-rationale">{idea.rationale}</div>}
+
+          {tradeable && (
+            <div className="model-order">
+              {order ? (
+                <div className="order-result">
+                  <div className={order.sent ? 'value-gain' : 'err'}>
+                    {order.sent ? `✓ order placed${order.status ? ' · ' + order.status : ''}` : '✗ not placed'}
+                  </div>
+                  <div className="small">
+                    <span className={sideClass}>{order.side}</span> {order.oz} oz · vol {order.ctrader_volume} · {order.order_type}
+                    {order.entry != null && <> @ {fmtNum(order.entry)}</>}
+                  </div>
+                  {(order.sl != null || order.tp != null) && (
+                    <div className="small">SL {fmtNum(order.sl)} · TP {fmtNum(order.tp)}</div>
+                  )}
+                  {order.error && <div className="err small">{order.error}</div>}
+                  <button className="btn-sm" onClick={() => setOrder(null)}>New order</button>
+                </div>
+              ) : confirming ? (
+                <div className="order-confirm">
+                  <div className="small">
+                    ⚠ <strong>LIVE</strong> order — <strong className={sideClass}>{side}</strong> {qty} oz XAUUSD
+                    {entryPx != null ? <> @ entry {fmtNum(entryPx)} (pending)</> : <> at market</>}
+                    {slPx != null && <> · SL {fmtNum(slPx)}</>}
+                    {tpPx != null && <> · TP {fmtNum(tpPx)}</>}
+                  </div>
+                  <div className="order-confirm-actions">
+                    <button className="btn-sm btn-go" onClick={confirmOrder} disabled={placing}>
+                      {placing ? 'Placing…' : 'Confirm & send'}
+                    </button>
+                    <button className="btn-sm" onClick={() => setConfirming(false)} disabled={placing}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="order-place">
+                  <div className="order-fields">
+                    <label className="order-fld small">
+                      Entry
+                      <input type="number" step="0.01" value={entryPx ?? ''}
+                        onChange={e => onEntryChange(parseFloat(e.target.value))} />
+                    </label>
+                    <label className="order-fld small">
+                      SL
+                      <input type="number" step="0.01" value={slPx ?? ''}
+                        onChange={e => setSlPx(e.target.value === '' ? null : parseFloat(e.target.value))} />
+                    </label>
+                    <label className="order-fld small">
+                      TP
+                      <input type="number" step="0.01" value={tpPx ?? ''}
+                        onChange={e => setTpPx(e.target.value === '' ? null : parseFloat(e.target.value))} />
+                    </label>
+                    <label className="order-fld small">
+                      Qty (oz)
+                      <select value={qty} onChange={e => setQty(Number(e.target.value))}>
+                        {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <button className={`btn-sm order-go ${side === 'BUY' ? 'btn-buy' : 'btn-sell'}`} onClick={() => setConfirming(true)}>
+                    {side} {qty} oz {entryPx != null ? `@ ${fmtNum(entryPx)}` : 'market'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="model-popup-foot muted small">{(idea.duration_ms / 1000).toFixed(1)}s</div>
+        </>
+      ) : (
+        <div className="model-popup-error">
+          <div className="err">⚠ {idea.error ?? 'failed'}</div>
+          <div className="muted small">{(idea.duration_ms / 1000).toFixed(1)}s</div>
+        </div>
+      )}
     </div>
   )
 }
 
-function formatAge(secs: number): string {
-  if (secs < 0) return 'future?'
-  if (secs < 60) return `${secs}s`
-  if (secs < 3600) return `${Math.floor(secs / 60)}m`
-  if (secs < 86400) {
-    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60)
-    return `${h}h${m ? ` ${m}m` : ''}`
+function biasClassOf(b: string): string {
+  const x = (b || '').toUpperCase()
+  return x === 'LONG' ? 'bias-long' : x === 'SHORT' ? 'bias-short' : 'bias-flat'
+}
+
+// Live positions + pending orders, fed by the cTrader reconcile/execution stream.
+// P/L is computed client-side from the current bid so it ticks in real time.
+function PositionsView({ positions, orders, tick, auto }: {
+  positions: OpenPosition[]; orders: PendingOrder[]; tick: Tick | null; auto: AutoState
+}) {
+  const px = tick?.bid ?? null
+  const [autoOz, setAutoOz] = useState(1)
+  const setAutoTrade = (enabled: boolean, oz: number) => {
+    invoke('set_auto_trade', { enabled, oz }).catch(() => {})
   }
-  const d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600)
-  return `${d}d${h ? ` ${h}h` : ''}`
+  const pnlOf = (p: OpenPosition): number | null => {
+    if (px == null || p.entry == null) return null
+    return (px - p.entry) * p.oz * (p.side === 'BUY' ? 1 : -1)
+  }
+  // Live distance from current price to a pending order's entry, in price units.
+  const distOf = (o: PendingOrder): number | null => {
+    if (px == null || o.price == null) return null
+    return Math.abs(px - o.price)
+  }
+
+  // "Is this order still relevant?" review flow.
+  const [reviewOrder, setReviewOrder] = useState<PendingOrder | null>(null)
+  const [review, setReview] = useState<OrderReview | null>(null)
+  const [reviewBusy, setReviewBusy] = useState(false)
+  const [cancelBusy, setCancelBusy] = useState(false)
+  const closeReview = () => { setReviewOrder(null); setReview(null); setReviewBusy(false); setCancelBusy(false) }
+  const startReview = async (o: PendingOrder) => {
+    setReviewOrder(o); setReview(null); setReviewBusy(true)
+    try {
+      const r = await invoke<OrderReview>('review_pending_order', {
+        orderId: o.id, side: o.side, entry: o.price, stop: o.sl, target1: o.tp,
+      })
+      setReview(r)
+    } catch (e) {
+      setReview({ ok: false, recommendation: null, confidence: null, reason: null, error: String(e), duration_ms: 0 })
+    } finally { setReviewBusy(false) }
+  }
+  const doCancel = async () => {
+    if (!reviewOrder) return
+    setCancelBusy(true)
+    try {
+      await invoke<string>('cancel_order', { orderId: reviewOrder.id })
+      closeReview()
+    } catch (e) {
+      setReview(r => r ? { ...r, error: 'Cancel failed: ' + String(e) } : r)
+      setCancelBusy(false)
+    }
+  }
+
+  // Open-position analysis flow (HOLD / ADJUST SL-TP / CLOSE).
+  const [analyzePos, setAnalyzePos] = useState<OpenPosition | null>(null)
+  const [posReview, setPosReview] = useState<PositionReview | null>(null)
+  const [posBusy, setPosBusy] = useState(false)
+  const [actionBusy, setActionBusy] = useState(false)
+  const closeAnalyze = () => { setAnalyzePos(null); setPosReview(null); setPosBusy(false); setActionBusy(false) }
+  const startAnalyze = async (p: OpenPosition) => {
+    setAnalyzePos(p); setPosReview(null); setPosBusy(true)
+    try {
+      const r = await invoke<PositionReview>('review_position', {
+        positionId: p.id, side: p.side, entry: p.entry, oz: p.oz, stop: p.sl, target1: p.tp,
+      })
+      setPosReview(r)
+    } catch (e) {
+      setPosReview({ ok: false, action: null, new_sl: null, new_tp: null, confidence: null, reason: null, error: String(e), duration_ms: 0 })
+    } finally { setPosBusy(false) }
+  }
+  const doClosePosition = async () => {
+    if (!analyzePos) return
+    setActionBusy(true)
+    try {
+      await invoke<string>('close_position', { positionId: analyzePos.id, oz: analyzePos.oz })
+      closeAnalyze()
+    } catch (e) {
+      setPosReview(r => r ? { ...r, error: 'Close failed: ' + String(e) } : r)
+      setActionBusy(false)
+    }
+  }
+  const doApplySltp = async () => {
+    if (!analyzePos || !posReview) return
+    setActionBusy(true)
+    try {
+      await invoke<string>('amend_position_sltp', {
+        positionId: analyzePos.id,
+        stopLoss: posReview.new_sl ?? analyzePos.sl,
+        takeProfit: posReview.new_tp ?? analyzePos.tp,
+      })
+      closeAnalyze()
+    } catch (e) {
+      setPosReview(r => r ? { ...r, error: 'Amend failed: ' + String(e) } : r)
+      setActionBusy(false)
+    }
+  }
+  const actionBadge = (a: string | null) =>
+    a === 'CLOSE' ? 'bias-short' : a === 'ADJUST' ? 'bias-flat' : 'bias-long'
+  const sideCls = (s: string) => s === 'BUY' ? 'value-gain' : 'value-loss'
+  const empty = positions.length === 0 && orders.length === 0
+  return (
+    <div className="positions-view">
+      <div className={`auto-panel ${auto.enabled ? 'on' : ''}`}>
+        <div className="auto-row">
+          <label className="auto-toggle">
+            <input type="checkbox" checked={auto.enabled} onChange={e => setAutoTrade(e.target.checked, autoOz)} />
+            <span>Auto-trade <strong>{auto.enabled ? 'ON' : 'OFF'}</strong></span>
+          </label>
+          <label className="order-fld small">
+            Size (oz)
+            <select value={autoOz} onChange={e => { const v = Number(e.target.value); setAutoOz(v); if (auto.enabled) setAutoTrade(true, v) }}>
+              {Array.from({ length: 10 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+          <span className="auto-status small">{auto.status}</span>
+        </div>
+        <p className="muted small">
+          Keeps one XAUUSD position at a time: when flat, asks Claude for a setup and places a
+          {' '}{autoOz}-oz pending order at its entry; cancels orders unfilled &gt;15 min; regenerates after each
+          position closes. <strong>Live money.</strong>
+        </p>
+      </div>
+
+      {empty && <div className="muted small" style={{ margin: '8px 2px' }}>No open positions or pending orders.</div>}
+
+      <h3>Open positions <span className="muted small">({positions.length})</span></h3>
+      {positions.length === 0 ? <div className="muted small">none</div> : (
+        <table className="positions-table">
+          <thead><tr>
+            <th>Symbol</th><th>Side</th><th>Oz</th><th>Entry</th><th>SL</th><th>TP</th><th>P/L (USD)</th><th></th>
+          </tr></thead>
+          <tbody>
+            {positions.map(p => {
+              const pnl = pnlOf(p)
+              return (
+                <tr key={p.id}>
+                  <td>{p.symbol}</td>
+                  <td><span className={sideCls(p.side)}>{p.side}</span></td>
+                  <td>{p.oz}</td>
+                  <td>{fmtNum(p.entry)}</td>
+                  <td className="value-loss">{fmtNum(p.sl)}</td>
+                  <td className="value-gain">{fmtNum(p.tp)}</td>
+                  <td className={pnl == null ? '' : pnl >= 0 ? 'value-gain' : 'value-loss'}>
+                    {pnl == null ? '—' : `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`}
+                  </td>
+                  <td><button className="btn-sm" onClick={() => startAnalyze(p)}>Analyze</button></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+
+      {analyzePos && (
+        <div className="modal-backdrop" onClick={actionBusy ? undefined : closeAnalyze}>
+          <div className="modal review-modal" onClick={e => e.stopPropagation()}>
+            <div className="model-popup-head">
+              <span className="model-popup-name">Analyze position #{analyzePos.id}</span>
+              <button className="modal-close sm" onClick={closeAnalyze} aria-label="Close">×</button>
+            </div>
+            <div className="review-body">
+              <div className="small">
+                <span className={sideCls(analyzePos.side)}>{analyzePos.side}</span> {analyzePos.oz} oz
+                {' '}· entry {fmtNum(analyzePos.entry)} · now {px == null ? '—' : px.toFixed(2)}
+                {(() => { const pl = pnlOf(analyzePos); return pl == null ? null : (
+                  <> · P/L <span className={pl >= 0 ? 'value-gain' : 'value-loss'}>{pl >= 0 ? '+' : ''}{pl.toFixed(2)}</span></>
+                )})()}
+              </div>
+              <div className="small">SL {fmtNum(analyzePos.sl)} · TP {fmtNum(analyzePos.tp)}</div>
+
+              {posBusy ? (
+                <div className="model-popup-loading"><div className="spinner sm" /><span>Claude is analyzing…</span></div>
+              ) : posReview ? (
+                posReview.ok ? (
+                  <>
+                    <div className="review-verdict">
+                      <span className={`bias-badge ${actionBadge(posReview.action)}`}>{posReview.action ?? '?'}</span>
+                      {posReview.confidence && <span className="conv-pill conv-medium">conviction: {posReview.confidence}</span>}
+                    </div>
+                    {posReview.action === 'ADJUST' && (posReview.new_sl != null || posReview.new_tp != null) && (
+                      <div className="small">
+                        Suggested: {posReview.new_sl != null ? <>SL <span className="value-loss">{fmtNum(posReview.new_sl)}</span></> : 'SL —'}
+                        {' · '}{posReview.new_tp != null ? <>TP <span className="value-gain">{fmtNum(posReview.new_tp)}</span></> : 'TP —'}
+                      </div>
+                    )}
+                    {posReview.reason && <div className="review-reason">{posReview.reason}</div>}
+                  </>
+                ) : (
+                  <div className="err small">⚠ {posReview.error ?? 'analysis failed'}</div>
+                )
+              ) : null}
+
+              <div className="order-confirm-actions" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+                <button className="btn-sm btn-buy" onClick={closeAnalyze} disabled={actionBusy}>Keep</button>
+                {posReview?.ok && posReview.action === 'ADJUST' && (posReview.new_sl != null || posReview.new_tp != null) && (
+                  <button className="btn-sm btn-go" onClick={doApplySltp} disabled={actionBusy || posBusy}>
+                    {actionBusy ? 'Applying…' : 'Apply SL/TP'}
+                  </button>
+                )}
+                <button className="btn-sm btn-sell" onClick={doClosePosition} disabled={actionBusy || posBusy}>
+                  {actionBusy ? 'Closing…' : 'Close position'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <h3 style={{ marginTop: 24 }}>Pending orders <span className="muted small">({orders.length})</span></h3>
+      {orders.length === 0 ? <div className="muted small">none</div> : (
+        <table className="positions-table">
+          <thead><tr>
+            <th>Symbol</th><th>Side</th><th>Type</th><th>Oz</th><th>Order</th><th>Now</th><th>Distance</th><th>SL</th><th>TP</th><th></th>
+          </tr></thead>
+          <tbody>
+            {orders.map(o => {
+              const dist = distOf(o)
+              return (
+                <tr key={o.id}>
+                  <td>{o.symbol}</td>
+                  <td><span className={sideCls(o.side)}>{o.side}</span></td>
+                  <td>{o.type}</td>
+                  <td>{o.oz}</td>
+                  <td>{fmtNum(o.price)}</td>
+                  <td>{px == null ? '—' : px.toFixed(2)}</td>
+                  <td>{dist == null ? '—' : dist.toFixed(2)}</td>
+                  <td className="value-loss">{fmtNum(o.sl)}</td>
+                  <td className="value-gain">{fmtNum(o.tp)}</td>
+                  <td><button className="btn-sm" onClick={() => startReview(o)}>Review</button></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+      <p className="muted small" style={{ marginTop: 16 }}>
+        Live from cTrader · P/L uses the current bid · refreshes on every fill / SL / TP.
+        Manage or close positions on the cTrader platform.
+      </p>
+
+      {reviewOrder && (
+        <div className="modal-backdrop" onClick={cancelBusy ? undefined : closeReview}>
+          <div className="modal review-modal" onClick={e => e.stopPropagation()}>
+            <div className="model-popup-head">
+              <span className="model-popup-name">Review order #{reviewOrder.id}</span>
+              <button className="modal-close sm" onClick={closeReview} aria-label="Close">×</button>
+            </div>
+            <div className="review-body">
+              <div className="small">
+                <span className={sideCls(reviewOrder.side)}>{reviewOrder.side}</span> {reviewOrder.type} {reviewOrder.oz} oz
+                {' '}@ {fmtNum(reviewOrder.price)} · now {px == null ? '—' : px.toFixed(2)}
+                {' '}· dist {(() => { const d = distOf(reviewOrder); return d == null ? '—' : d.toFixed(2) })()}
+              </div>
+              <div className="small">SL {fmtNum(reviewOrder.sl)} · TP {fmtNum(reviewOrder.tp)}</div>
+
+              {reviewBusy ? (
+                <div className="model-popup-loading"><div className="spinner sm" /><span>Claude is reviewing…</span></div>
+              ) : review ? (
+                review.ok ? (
+                  <>
+                    <div className="review-verdict">
+                      <span className={`bias-badge ${review.recommendation === 'CANCEL' ? 'bias-short' : 'bias-long'}`}>
+                        {review.recommendation ?? '?'}
+                      </span>
+                      {review.confidence && <span className="conv-pill conv-medium">conviction: {review.confidence}</span>}
+                    </div>
+                    {review.reason && <div className="review-reason">{review.reason}</div>}
+                  </>
+                ) : (
+                  <div className="err small">⚠ {review.error ?? 'review failed'}</div>
+                )
+              ) : null}
+
+              <div className="order-confirm-actions" style={{ marginTop: 12 }}>
+                <button className="btn-sm btn-buy" onClick={closeReview} disabled={cancelBusy}>Keep order</button>
+                <button className="btn-sm btn-sell" onClick={doCancel} disabled={cancelBusy || reviewBusy}>
+                  {cancelBusy ? 'Cancelling…' : 'Cancel order'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function formatTime(isoUtc: string): string {
