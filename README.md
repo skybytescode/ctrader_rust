@@ -176,3 +176,27 @@ auto-spawned by the Rust app on startup.
 Run with `cargo run` — the Rust app boots the Tauri webview, auto-spawns
 the econcal Node proxy on `:6000` and the Vite dev server on `:5173`,
 opens the WebSocket on `:6001`, and connects to cTrader OpenAPI.
+
+---
+
+## Debug utilities
+
+### `list_symbols` — broker instrument inventory
+
+One-shot binary that connects to the live cTrader endpoint using the same
+`.env` credentials as the main app, sends `ProtoOAApplicationAuthReq →
+AccountAuthReq → SymbolsListReq`, and prints the full inventory the broker
+returns. For every symbol it reports the `enabled` flag, category id, and
+description — and pulls out USD-index candidates (`DXY*`, `USDX`, `USDIDX`,
+etc.) plus the COMEX gold futures (`GC*`) with full details so you can see at
+a glance which are tradeable on your account vs. listed-but-disabled.
+
+```bash
+cargo run --bin list_symbols
+```
+
+Useful when you want to: check whether a particular instrument is available,
+discover the broker's true tickers (some futures use suffixes like `_M6` /
+`_Z6`), verify why a symbol shows in the cTrader UI but isn't reachable from
+the OpenAPI (`enabled=false` → broker has it gated for your account tier).
+Doesn't touch the running app or write anything to disk.
