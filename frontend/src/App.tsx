@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
@@ -90,7 +89,7 @@ type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTod
   | PositionsMsg | TradeEventMsg | AutoStatusMsg
 
 type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error'
-type Tab = 'dashboard' | 'calendar' | 'news' | 'trade-ideas' | 'positions'
+type Tab = 'dashboard' | 'calendar' | 'news' | 'trade-ideas' | 'positions' | 'automate'
 
 // One model's single intraday setup, as returned by get_gold_trade_ideas_multi
 // and streamed per-model over the `trade_idea_model` event.
@@ -111,7 +110,7 @@ type ModelTradeIdea = {
 }
 
 // The models we fan out to, in display order. Popups are keyed by provider.
-const TRADER_PROVIDERS = ['Claude', 'Gemini'] as const
+const TRADER_PROVIDERS = ['Claude', 'Gemini', 'Claude Blitz'] as const
 type TraderProvider = typeof TRADER_PROVIDERS[number]
 
 // Result of a live market-order placement (place_gold_order).
@@ -129,9 +128,180 @@ type OrderResult = {
   error: string | null
 }
 
+// Render a price with its final digit shown smaller (the "pipette").
+function PipPrice({ value, decimals }: { value: number; decimals: number }) {
+  const s = value.toFixed(decimals)
+  return <>{s.slice(0, -1)}<span className="pip">{s.slice(-1)}</span></>
+}
+
+// One instrument row in the sidebar: symbol, today's change, and live bid / ask /
+// spread. `decimals` controls price precision per symbol (XAUUSD → 2, EURUSD → 5).
+// `pipSize` (e.g. 0.0001 for EURUSD), when set, expresses the spread and change in
+// pips instead of raw price points. `dailyOpen` (today's D1 open) anchors the
+// daily change, with `lastClose` (the D1 close) as the price fallback when no live
+// tick is streaming (e.g. weekends). The bid is colored by tick direction.
+function InstrumentTile({ symbol, tick, prevBid, decimals, pipSize, dailyOpen, lastClose, selected, onSelect }: {
+  symbol: string
+  tick: Tick | null
+  prevBid: number | null
+  decimals: number
+  pipSize?: number
+  dailyOpen?: number
+  lastClose?: number
+  selected: boolean
+  onSelect?: () => void
+}) {
+  const spread = tick ? tick.ask - tick.bid : null
+  const spreadText = spread == null
+    ? '—'
+    : pipSize
+      ? `${(spread / pipSize).toFixed(1)} pips`
+      : spread.toFixed(decimals)
+  const dir = tick && prevBid != null
+    ? (tick.bid > prevBid ? 'up' : tick.bid < prevBid ? 'down' : 'flat')
+    : 'flat'
+
+  // Daily change vs today's open: pips for FX (pipSize set), else raw points,
+  // plus percent. Uses the live bid, falling back to the D1 close when the market
+  // is closed. Colored green (up) / red (down).
+  const price = tick ? tick.bid : lastClose ?? null
+  let changeText: string | null = null
+  let changeDir = 'flat'
+  if (price != null && dailyOpen) {
+    const change = price - dailyOpen
+    const main = pipSize ? (change / pipSize).toFixed(1) : change.toFixed(decimals)
+    const signed = change > 0 ? `+${main}` : main
+    const pct = (change / dailyOpen) * 100
+    const pctStr = `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%`
+    changeText = `${signed} (${pctStr})`
+    changeDir = change > 0 ? 'up' : change < 0 ? 'down' : 'flat'
+  }
+
+  return (
+    <li
+      className={`instrument ${selected ? 'selected' : 'active'}`}
+      onClick={onSelect}
+    >
+      <div className="sym">{symbol}</div>
+      {changeText && <div className={`change ${changeDir}`}>{changeText}</div>}
+      <div className={`row dir-${dir}`}>
+        <span className="label">Bid</span>
+        <span className="val">{tick ? <PipPrice value={tick.bid} decimals={decimals} /> : '—'}</span>
+      </div>
+      <div className="row">
+        <span className="label">Ask</span>
+        <span className="val">{tick ? <PipPrice value={tick.ask} decimals={decimals} /> : '—'}</span>
+      </div>
+      <div className="row spread">
+        <span className="label">Spread</span>
+        <span className="val">{spreadText}</span>
+      </div>
+    </li>
+  )
+}
+
+// Per-instrument Calendar / News relevance. Calendar events are filtered to the
+// pair's currencies; news is filtered by a keyword regex over tags + title. A
+// symbol absent from these maps (e.g. XAUUSD) shows the unfiltered global feed.
+const SYMBOL_CCYS: Record<string, string[]> = {
+  EURUSD: ['EUR', 'USD'],
+}
+const SYMBOL_NEWS_RE: Record<string, RegExp> = {
+  EURUSD: /\beur\b|\beuro\b|\becb\b|lagarde|eurozone|euro area|\busd\b|us dollar|greenback|\bfed\b|fomc|powell|federal reserve|nonfarm|payrolls/i,
+}
+
+// XRP 5-minute bot dashboard: live quote + start/close controls. The bot itself
+// is not wired up yet — the buttons toggle local UI state only.
+function XrpBotView({ tick }: { tick: Tick | null }) {
+  const [running, setRunning] = useState(false)
+  const [idea, setIdea] = useState<ModelTradeIdea | null>(null)
+  const [loading, setLoading] = useState(false)
+  const spread = tick ? tick.ask - tick.bid : null
+
+  const getSetup = async () => {
+    setLoading(true)
+    try {
+      setIdea(await invoke<ModelTradeIdea>('get_xrp_trade_idea'))
+    } catch (e) {
+      setIdea({
+        provider: 'XRP 5m', model: '', ok: false, bias: null, strategy: null,
+        entry_low: null, entry_high: null, stop: null, target1: null, target2: null,
+        rationale: null, error: String(e), duration_ms: 0,
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fmt = (n: number | null) => (n == null ? '—' : n.toFixed(4))
+  const biasClass = idea?.bias === 'LONG' ? 'long' : idea?.bias === 'SHORT' ? 'short' : 'flat'
+
+  return (
+    <div className="dashboard">
+      <h2>XRPUSD — 5-minute Bot</h2>
+      <p className="muted">Live price + the 5m agent's read. The bot loop (auto-execution, TP/SL management, 12% daily-loss stop) is not wired up yet — Start/Close toggle panel state only; "Get 5m Setup" is a read-only preview of what the agent proposes.</p>
+
+      <div className="xrp-quote">
+        <div><span className="label">Bid</span><strong>{tick ? tick.bid.toFixed(4) : '—'}</strong></div>
+        <div><span className="label">Ask</span><strong>{tick ? tick.ask.toFixed(4) : '—'}</strong></div>
+        <div><span className="label">Spread</span><strong>{spread != null ? spread.toFixed(4) : '—'}</strong></div>
+      </div>
+
+      <div className="bot-controls">
+        <button className="bot-btn bot-start" disabled={running} onClick={() => setRunning(true)}>Start Bot</button>
+        <button className="bot-btn bot-close" disabled={!running} onClick={() => setRunning(false)}>Close Bot</button>
+        <button className="bot-btn" disabled={loading} onClick={getSetup}>{loading ? 'Asking agent…' : 'Get 5m Setup'}</button>
+        <span className={`bot-status ${running ? 'on' : 'off'}`}>
+          {running ? 'Running (UI only)' : 'Stopped'}
+        </span>
+      </div>
+
+      {idea && (
+        <div className="xrp-idea">
+          {idea.ok ? (
+            <>
+              <div className="xrp-idea-head">
+                <span className={`idea-bias ${biasClass}`}>{idea.bias}</span>
+                <span className="idea-strategy">{idea.strategy}</span>
+                {idea.duration_ms > 0 && <span className="muted small">{(idea.duration_ms / 1000).toFixed(1)}s</span>}
+              </div>
+              {idea.bias !== 'FLAT' && (
+                <div className="xrp-idea-levels">
+                  <span>entry <strong>{fmt(idea.entry_low)}–{fmt(idea.entry_high)}</strong></span>
+                  <span>stop <strong>{fmt(idea.stop)}</strong></span>
+                  <span>tp1 <strong>{fmt(idea.target1)}</strong></span>
+                  <span>tp2 <strong>{fmt(idea.target2)}</strong></span>
+                </div>
+              )}
+              {idea.rationale && <p className="xrp-idea-rationale">{idea.rationale}</p>}
+            </>
+          ) : (
+            <p className="xrp-idea-error">error: {idea.error}</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Placeholder panel for features that are scaffolded but not yet implemented.
+function ComingSoon({ title, note }: { title: string; note?: string }) {
+  return (
+    <div className="dashboard">
+      <h2>{title}</h2>
+      <p className="muted">{note ?? 'Coming next.'}</p>
+    </div>
+  )
+}
+
 function App() {
-  const [tick, setTick] = useState<Tick | null>(null)
-  const [prevBid, setPrevBid] = useState<number | null>(null)
+  // Live ticks keyed by symbol (XAUUSD, EURUSD, …); prevBids holds the previous
+  // bid per symbol so each tile shows its own up/down direction.
+  const [ticks, setTicks] = useState<Record<string, Tick>>({})
+  const [prevBids, setPrevBids] = useState<Record<string, number>>({})
+  // Today's D1 bar (open + close) per sidebar symbol. `open` anchors the daily
+  // change; `close` is the price fallback when no live tick streams (weekends).
+  const [dailyBars, setDailyBars] = useState<Record<string, { open: number; close: number }>>({})
   const [conn, setConn] = useState<ConnState>('connecting')
   const [serverStatus, setServerStatus] = useState('')
   const [ecStatus, setEcStatus] = useState('')
@@ -167,9 +337,10 @@ function App() {
           const msg = JSON.parse(e.data) as Msg
           switch (msg.type) {
             case 'tick':
-              setTick((cur) => {
-                if (cur) setPrevBid(cur.bid)
-                return msg
+              setTicks((cur) => {
+                const prev = cur[msg.symbol]
+                if (prev) setPrevBids((pb) => ({ ...pb, [msg.symbol]: prev.bid }))
+                return { ...cur, [msg.symbol]: msg }
               })
               break
             case 'status':
@@ -214,10 +385,46 @@ function App() {
     }
   }, [])
 
-  const spread = tick ? tick.ask - tick.bid : null
-  const tickDir = tick && prevBid != null
-    ? (tick.bid > prevBid ? 'up' : tick.bid < prevBid ? 'down' : 'flat')
-    : 'flat'
+  // Poll today's D1 open for the sidebar symbols (anchors the daily change).
+  // Refreshed every 60s so it recovers after startup/market open and rolls over
+  // to the new day automatically.
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      for (const sym of ['XAUUSD', 'EURUSD', 'XRPUSD']) {
+        try {
+          const candles = await invoke<Candle[]>('get_trendbars', { symbol: sym, timeframe: 'D1', count: 1 })
+          const bar = candles.at(-1)
+          if (!cancelled && bar && bar.open > 0) {
+            setDailyBars((cur) => {
+              const prev = cur[sym]
+              if (prev && prev.open === bar.open && prev.close === bar.close) return cur
+              return { ...cur, [sym]: { open: bar.open, close: bar.close } }
+            })
+          }
+        } catch {
+          // symbol not yet subscribed / market closed — retry next cycle
+        }
+      }
+    }
+    load()
+    const id = window.setInterval(load, 60_000)
+    return () => { cancelled = true; window.clearInterval(id) }
+  }, [])
+
+  // XAUUSD is the primary instrument that drives the chart / positions / P-L.
+  const tick = ticks['XAUUSD'] ?? null
+  const eurTick = ticks['EURUSD'] ?? null
+  // The tick for whichever instrument is currently selected (drives its chart).
+  const selectedTick = selectedSymbol ? (ticks[selectedSymbol] ?? null) : null
+  const isXrp = selectedSymbol === 'XRPUSD'
+
+  // Calendar + News scoped to the selected instrument (EURUSD → EUR/USD only;
+  // XAUUSD and the unselected state → the full global feed).
+  const ccyFilter = selectedSymbol ? SYMBOL_CCYS[selectedSymbol] : undefined
+  const newsRe = selectedSymbol ? SYMBOL_NEWS_RE[selectedSymbol] : undefined
+  const shownEc = ccyFilter ? ecEvents.filter((e) => ccyFilter.includes(e.currency)) : ecEvents
+  const shownNews = newsRe ? newsArticles.filter((a) => newsRe.test(`${a.tags} ${a.title}`)) : newsArticles
 
   return (
     <div className="app">
@@ -229,24 +436,37 @@ function App() {
 
         <h2 className="section">Trading Bots</h2>
         <ul className="instruments">
-          <li
-            className={`instrument ${selectedSymbol === 'XAUUSD' ? 'selected' : 'active'}`}
-            onClick={() => { setSelectedSymbol('XAUUSD'); setTab('dashboard'); }}
-          >
-            <div className="sym">{tick?.symbol ?? 'XAUUSD'}</div>
-            <div className={`row dir-${tickDir}`}>
-              <span className="label">Bid</span>
-              <span className="val">{tick ? tick.bid.toFixed(2) : '—'}</span>
-            </div>
-            <div className="row">
-              <span className="label">Ask</span>
-              <span className="val">{tick ? tick.ask.toFixed(2) : '—'}</span>
-            </div>
-            <div className="row spread">
-              <span className="label">Spread</span>
-              <span className="val">{spread != null ? spread.toFixed(2) : '—'}</span>
-            </div>
-          </li>
+          <InstrumentTile
+            symbol="XAUUSD"
+            tick={tick}
+            prevBid={prevBids['XAUUSD'] ?? null}
+            decimals={2}
+            dailyOpen={dailyBars['XAUUSD']?.open}
+            lastClose={dailyBars['XAUUSD']?.close}
+            selected={selectedSymbol === 'XAUUSD'}
+            onSelect={() => { setSelectedSymbol('XAUUSD'); setTab('dashboard'); }}
+          />
+          <InstrumentTile
+            symbol="EURUSD"
+            tick={eurTick}
+            prevBid={prevBids['EURUSD'] ?? null}
+            decimals={5}
+            pipSize={0.0001}
+            dailyOpen={dailyBars['EURUSD']?.open}
+            lastClose={dailyBars['EURUSD']?.close}
+            selected={selectedSymbol === 'EURUSD'}
+            onSelect={() => { setSelectedSymbol('EURUSD'); setTab('dashboard'); }}
+          />
+          <InstrumentTile
+            symbol="XRPUSD"
+            tick={ticks['XRPUSD'] ?? null}
+            prevBid={prevBids['XRPUSD'] ?? null}
+            decimals={4}
+            dailyOpen={dailyBars['XRPUSD']?.open}
+            lastClose={dailyBars['XRPUSD']?.close}
+            selected={selectedSymbol === 'XRPUSD'}
+            onSelect={() => { setSelectedSymbol('XRPUSD'); setTab('dashboard'); }}
+          />
         </ul>
 
         <footer className="footer">
@@ -261,21 +481,32 @@ function App() {
       <main className="content">
         <nav className="tabs">
           <button className={tab === 'dashboard' ? 'tab active' : 'tab'} onClick={() => setTab('dashboard')}>Dashboard</button>
-          <button className={tab === 'calendar' ? 'tab active' : 'tab'} onClick={() => setTab('calendar')}>
-            Calendar
-            {ecEvents.length > 0 && <span className="badge">{ecEvents.length}</span>}
-          </button>
-          <button className={tab === 'news' ? 'tab active' : 'tab'} onClick={() => setTab('news')}>
-            News
-            {newsArticles.length > 0 && <span className="badge">{newsArticles.length}</span>}
-          </button>
-          <button className={tab === 'trade-ideas' ? 'tab active' : 'tab'} onClick={() => setTab('trade-ideas')}>
-            Trade Ideas
-          </button>
-          <button className={tab === 'positions' ? 'tab active' : 'tab'} onClick={() => setTab('positions')}>
-            Positions
-            {(positions.length + orders.length) > 0 && <span className="badge">{positions.length + orders.length}</span>}
-          </button>
+          {/* XRP is a self-contained bot view — just a Dashboard, no calendar/news/ideas. */}
+          {!isXrp && (
+            <>
+              <button className={tab === 'calendar' ? 'tab active' : 'tab'} onClick={() => setTab('calendar')}>
+                Calendar
+                {shownEc.length > 0 && <span className="badge">{shownEc.length}</span>}
+              </button>
+              <button className={tab === 'news' ? 'tab active' : 'tab'} onClick={() => setTab('news')}>
+                News
+                {shownNews.length > 0 && <span className="badge">{shownNews.length}</span>}
+              </button>
+              <button className={tab === 'trade-ideas' ? 'tab active' : 'tab'} onClick={() => setTab('trade-ideas')}>
+                Trade Ideas
+              </button>
+              {selectedSymbol === 'EURUSD' ? (
+                <button className={tab === 'automate' ? 'tab active' : 'tab'} onClick={() => setTab('automate')}>
+                  Automate_Trading
+                </button>
+              ) : (
+                <button className={tab === 'positions' ? 'tab active' : 'tab'} onClick={() => setTab('positions')}>
+                  Positions
+                  {(positions.length + orders.length) > 0 && <span className="badge">{positions.length + orders.length}</span>}
+                </button>
+              )}
+            </>
+          )}
         </nav>
 
         {tradeBanner && (
@@ -287,16 +518,25 @@ function App() {
 
         <section className="panel">
           {tab === 'dashboard' && (
-            selectedSymbol === 'XAUUSD'
-              ? <ChartView symbol="XAUUSD" tick={tick} />
-              : <DashboardView tick={tick} />
+            isXrp
+              ? <XrpBotView tick={selectedTick} />
+              : (selectedSymbol === 'XAUUSD' || selectedSymbol === 'EURUSD')
+                ? <ChartView symbol={selectedSymbol} tick={selectedTick} />
+                : <DashboardView tick={tick} />
           )}
-          {tab === 'calendar' && <CalendarView events={ecEvents} status={ecStatus} />}
+          {tab === 'calendar' && <CalendarView events={shownEc} status={ecStatus} />}
           {tab === 'news' && (
-            <NewsView articles={newsArticles} status={newsStatus} onOpen={setOpenArticle} />
+            <NewsView articles={shownNews} status={newsStatus} onOpen={setOpenArticle} />
           )}
-          {tab === 'trade-ideas' && <TradeIdeasView />}
+          {tab === 'trade-ideas' && (
+            selectedSymbol === 'EURUSD'
+              ? <ComingSoon title="EURUSD Trade Ideas" note="Multi-model EURUSD trade ideas are the next step." />
+              : <TradeIdeasView />
+          )}
           {tab === 'positions' && <PositionsView positions={positions} orders={orders} tick={tick} auto={auto} />}
+          {tab === 'automate' && (
+            <ComingSoon title="Automate Trading — EURUSD" note="The 24/5 EURUSD auto-trading controls will live here." />
+          )}
         </section>
 
         {openArticle && (
@@ -381,7 +621,15 @@ function computeOverlays(candles: Candle[]):
   return { vwap, ema }
 }
 
+type VolumeLevel = { price: number; kind: string; scope: string; week: string; label: string; volume: number }
+type VolumeSnapshot = { now_utc: string; price: number | null; atr_intraday: number | null; levels: VolumeLevel[]; m15_recent: unknown[] }
+
 function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
+  // Per-symbol display config. EURUSD prices need 5 decimals; the volume-profile
+  // feature is XAUUSD-only (backed by an XAUUSD-specific command).
+  const decimals = symbol === 'EURUSD' ? 5 : 2
+  const minMove = 1 / Math.pow(10, decimals)
+  const showVolume = symbol === 'XAUUSD'
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<any>(null)
   const seriesRef = useRef<any>(null)
@@ -425,6 +673,102 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
   // bid without needing `tick` in its deps (which would refetch on every tick).
   const tickRef = useRef<Tick | null>(tick)
   useEffect(() => { tickRef.current = tick }, [tick])
+
+  // ── Volume levels overlay (this week + last week POC / value area) ─────────
+  const [volOn, setVolOn] = useState(false)
+  const [volLevels, setVolLevels] = useState<VolumeLevel[]>([])
+  const [volIdea, setVolIdea] = useState<ModelTradeIdea | null>(null)
+  const [volLoading, setVolLoading] = useState(false)
+  const [volError, setVolError] = useState<string | null>(null)
+  const priceLinesRef = useRef<any[]>([])
+  const volSnapRef = useRef<VolumeSnapshot | null>(null)
+  const volLevelsRef = useRef<VolumeLevel[]>([])
+  const volPollRef = useRef<number | null>(null)
+
+  // Draw one horizontal price line per volume level on the candle series.
+  // Colour by recency (today = cyan, this week = gold, last week = gray);
+  // POC solid + bold, VAH/VAL dashed.
+  const drawVolumeLevels = (levels: VolumeLevel[]) => {
+    const s = seriesRef.current
+    if (!s) return
+    for (const pl of priceLinesRef.current) { try { s.removePriceLine(pl) } catch { /* ignore */ } }
+    priceLinesRef.current = []
+    for (const lv of levels) {
+      const color = lv.scope === 'today' ? '#22d3ee' : lv.week === 'this' ? '#f4c430' : '#9ca3af'
+      const isPoc = lv.kind === 'POC'
+      try {
+        const pl = s.createPriceLine({
+          price: lv.price, color,
+          lineWidth: isPoc ? 2 : 1,
+          lineStyle: isPoc ? 0 : 2,   // 0 = solid, 2 = dashed
+          axisLabelVisible: true,
+          title: `${lv.kind} ${lv.label}`,
+        })
+        priceLinesRef.current.push(pl)
+      } catch { /* series may be mid-rebuild */ }
+    }
+  }
+
+  const clearVolumeLevels = () => {
+    const s = seriesRef.current
+    if (s) for (const pl of priceLinesRef.current) { try { s.removePriceLine(pl) } catch { /* ignore */ } }
+    priceLinesRef.current = []
+  }
+
+  const refreshVolLevels = async () => {
+    try {
+      const snap = await invoke<VolumeSnapshot>('get_volume_levels')
+      volSnapRef.current = snap
+      volLevelsRef.current = snap.levels
+      setVolLevels(snap.levels)
+      drawVolumeLevels(snap.levels)
+      setVolError(null)
+    } catch (e) {
+      setVolError(String(e))
+      console.error('volume levels:', e)
+    }
+  }
+
+  const askVolumeClaude = async () => {
+    if (!volSnapRef.current) return
+    setVolLoading(true)
+    try {
+      const idea = await invoke<ModelTradeIdea>('get_volume_trade_idea', { snapshot: volSnapRef.current })
+      setVolIdea(idea)
+    } catch (e) {
+      setVolIdea({
+        provider: 'Claude Volume', model: '', ok: false, bias: null, strategy: null,
+        entry_low: null, entry_high: null, stop: null, target1: null, target2: null,
+        rationale: null, error: String(e), duration_ms: 0,
+      })
+    } finally {
+      setVolLoading(false)
+    }
+  }
+
+  const toggleVolume = async () => {
+    if (volOn) {
+      setVolOn(false)
+      clearVolumeLevels()
+      setVolLevels([]); setVolIdea(null); setVolError(null)
+      volSnapRef.current = null; volLevelsRef.current = []
+      if (volPollRef.current) { window.clearInterval(volPollRef.current); volPollRef.current = null }
+      return
+    }
+    setVolOn(true)
+    await refreshVolLevels()
+    askVolumeClaude()  // fire-and-forget; the lines are already drawn
+    volPollRef.current = window.setInterval(refreshVolLevels, 60_000)  // live refresh
+  }
+
+  // Redraw levels after the chart is rebuilt (a TF switch recreates the series).
+  useEffect(() => {
+    if (volOn) { priceLinesRef.current = []; drawVolumeLevels(volLevelsRef.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartGen])
+
+  // Stop the live-refresh timer on unmount.
+  useEffect(() => () => { if (volPollRef.current) window.clearInterval(volPollRef.current) }, [])
 
   // Seed VWAP session refs from a candle array. cumPV/cumV cover CLOSED bars in
   // the current session day (everything in the day except the last bar);
@@ -520,6 +864,7 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
         upColor: '#2dd47b',  downColor: '#f87171',
         borderUpColor: '#2dd47b', borderDownColor: '#f87171',
         wickUpColor: '#2dd47b',   wickDownColor: '#f87171',
+        priceFormat: { type: 'price', precision: decimals, minMove },
       })
       // VWAP (yellow) + 8 EMA (blue) overlays. Always create the series so
       // the lifecycle is identical across TFs; hide on non-intraday TFs by
@@ -921,10 +1266,20 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
               {t}
             </button>
           ))}
+          {showVolume && (
+            <button
+              className={`chart-tf-btn ${volOn ? 'active' : ''}`}
+              onClick={toggleVolume}
+              disabled={loading}
+              title="Volume levels — this week + last week POC / value area, live + Claude read"
+            >
+              {volOn ? `Vol ✓ (${volLevels.length})` : 'Vol Levels'}
+            </button>
+          )}
         </div>
         {tick && (
           <span className="chart-price">
-            bid <strong>{tick.bid.toFixed(2)}</strong> · ask <strong>{tick.ask.toFixed(2)}</strong>
+            bid <strong>{tick.bid.toFixed(decimals)}</strong> · ask <strong>{tick.ask.toFixed(decimals)}</strong>
           </span>
         )}
       </div>
@@ -933,6 +1288,38 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
       {error && <div className="chart-overlay err">Error: {error}</div>}
       {loadingMore && !loading && (
         <div className="chart-loadmore">Loading older bars…</div>
+      )}
+      {volOn && (
+        <div style={{ position: 'absolute', top: 56, right: 12, width: 300, maxWidth: '42%', background: '#16181d', border: '1px solid #2a2d35', borderRadius: 8, padding: '10px 12px', zIndex: 20, fontSize: 13 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <strong>Claude Volume{volIdea?.model ? ` · ${volIdea.model}` : ''}</strong>
+            <span>
+              <button onClick={askVolumeClaude} disabled={volLoading || volLevels.length === 0} title="Re-ask" style={{ marginRight: 8, cursor: 'pointer', background: 'none', border: 'none', color: '#d4d4d8' }}>↻</button>
+              <button onClick={toggleVolume} title="Close" style={{ cursor: 'pointer', background: 'none', border: 'none', color: '#d4d4d8' }}>×</button>
+            </span>
+          </div>
+          {volError ? (
+            <div style={{ color: '#f87171' }}>error: {volError}</div>
+          ) : volLevels.length === 0 ? (
+            <div className="muted">fetching volume levels…</div>
+          ) : volLoading && !volIdea ? (
+            <div className="muted">{volLevels.length} levels drawn · analyzing…</div>
+          ) : volIdea?.ok ? (
+            <>
+              <div style={{ fontWeight: 700, color: volIdea.bias === 'LONG' ? '#2dd47b' : volIdea.bias === 'SHORT' ? '#f87171' : '#9ca3af' }}>
+                {volIdea.bias} · {volIdea.strategy}
+              </div>
+              {volIdea.bias !== 'FLAT' && (
+                <div style={{ margin: '4px 0' }}>
+                  Entry {volIdea.entry_low ?? '–'}–{volIdea.entry_high ?? '–'} · SL {volIdea.stop ?? '–'} · TP {volIdea.target1 ?? '–'}/{volIdea.target2 ?? '–'}
+                </div>
+              )}
+              <div className="muted">{volIdea.rationale}</div>
+            </>
+          ) : (
+            <div style={{ color: '#f87171' }}>{volIdea?.error ?? 'no response'}</div>
+          )}
+        </div>
       )}
     </div>
   )
@@ -1140,47 +1527,37 @@ function ArticleModal({ article, onClose }: { article: NewsArticle; onClose: () 
   )
 }
 
+// One button per model. Each pulls a fresh live snapshot and runs only that
+// model on demand (no fan-out), so a slow model never blocks the others.
+const PROVIDER_BLURB: Record<string, string> = {
+  'Claude': 'multi-strategy',
+  'Gemini': 'VWAP+8EMA',
+  'Claude Blitz': '1m scalper',
+}
+
 function TradeIdeasView() {
   const [open, setOpen] = useState(false)
   const [results, setResults] = useState<Record<string, ModelTradeIdea | null>>({})
-  const [running, setRunning] = useState(false)
+  const [running, setRunning] = useState<Record<string, boolean>>({})
 
-  const run = async () => {
-    // Open all 4 popups immediately in a loading state, then fill each as its
-    // `trade_idea_model` event arrives (fast models show first).
-    setResults({ Claude: null, Gemini: null, DeepSeek: null, Qwen: null })
+  const runOne = async (provider: string) => {
+    setResults(prev => ({ ...prev, [provider]: null }))   // show that card in loading state
     setOpen(true)
-    setRunning(true)
-    let unlisten: UnlistenFn | null = null
+    setRunning(prev => ({ ...prev, [provider]: true }))
     try {
-      unlisten = await listen<ModelTradeIdea>('trade_idea_model', (e) => {
-        const r = e.payload
-        setResults(prev => ({ ...prev, [r.provider]: r }))
-      })
-      const all = await invoke<ModelTradeIdea[]>('get_gold_trade_ideas_multi')
-      // Fallback: make sure every provider is filled even if an event was missed.
-      setResults(prev => {
-        const next = { ...prev }
-        for (const r of all) next[r.provider] = r
-        return next
-      })
+      const r = await invoke<ModelTradeIdea>('get_gold_trade_idea', { provider })
+      setResults(prev => ({ ...prev, [provider]: r }))
     } catch (err) {
-      setResults(prev => {
-        const next = { ...prev }
-        for (const p of TRADER_PROVIDERS) {
-          if (!next[p]) {
-            next[p] = {
-              provider: p, model: '', ok: false, bias: null, strategy: null,
-              entry_low: null, entry_high: null, stop: null, target1: null, target2: null,
-              rationale: null, error: String(err), duration_ms: 0,
-            }
-          }
-        }
-        return next
-      })
+      setResults(prev => ({
+        ...prev,
+        [provider]: {
+          provider, model: '', ok: false, bias: null, strategy: null,
+          entry_low: null, entry_high: null, stop: null, target1: null, target2: null,
+          rationale: null, error: String(err), duration_ms: 0,
+        },
+      }))
     } finally {
-      if (unlisten) unlisten()
-      setRunning(false)
+      setRunning(prev => ({ ...prev, [provider]: false }))
     }
   }
 
@@ -1193,16 +1570,18 @@ function TradeIdeasView() {
 
   return (
     <div className="archive">
-      <h3>XAUUSD Trade Ideas — 4-model day plan</h3>
+      <h3>XAUUSD Trade Ideas</h3>
       <p className="muted">
-        Sends the same live VWAP + 8 EMA snapshot to four models in parallel —
-        Claude, Gemini, DeepSeek, Qwen — and pops up each one's single intraday
-        setup (bias · entry · SL · TP) as it answers. Read-only · target &lt; 20s.
+        Pull a single live setup from any model on demand — each button fetches a
+        fresh snapshot and runs just that model (bias · entry · SL · TP).
+        Read-only.
       </p>
       <div className="archive-actions">
-        <button className="btn" onClick={run} disabled={running}>
-          {running ? 'Asking 4 models…' : 'Gold_Trade_Ideas'}
-        </button>
+        {TRADER_PROVIDERS.map(p => (
+          <button key={p} className="btn" onClick={() => runOne(p)} disabled={running[p]}>
+            {running[p] ? `${p}…` : `${p} · ${PROVIDER_BLURB[p] ?? ''}`}
+          </button>
+        ))}
       </div>
       {open && (
         <MultiModelPopups results={results} onCloseOne={closeOne} onCloseAll={closeAll} />

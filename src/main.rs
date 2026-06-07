@@ -27,6 +27,8 @@ pub mod data_retrieval;
 pub mod ec_realtime;
 pub mod news_realtime;
 pub mod news_sentiment;
+pub mod volume_profile;
+pub mod strategy;
 
 use db::{Candle, CandleDatabase};
 use data_retrieval::{
@@ -1191,6 +1193,73 @@ async fn run_price_refresh_loop(symbol: String, shared_db: SharedDb) {
     }
 }
 
+// ── Live tick recorder ───────────────────────────────────────────────────────
+// Persist every XAUUSD bid/ask/spread tick to DuckDB with a rolling 2-week
+// window. Ticks are buffered in memory and flushed in small batches so we never
+// take the DB lock per tick; old rows are pruned periodically.
+const TICK_RETENTION_DAYS: i64 = 14;
+const TICK_FLUSH_SECS: u64 = 2;
+const TICK_PRUNE_SECS: u64 = 300;
+const TICK_TABLE: &str = "xauusd_ticks_live";
+const CREATE_TICK_TABLE: &str =
+    "CREATE TABLE IF NOT EXISTS xauusd_ticks_live (timestamp_ms BIGINT, bid DOUBLE, ask DOUBLE, spread DOUBLE);";
+
+static TICK_BUF: std::sync::OnceLock<std::sync::Mutex<Vec<(i64, f64, f64)>>> = std::sync::OnceLock::new();
+fn tick_buf() -> &'static std::sync::Mutex<Vec<(i64, f64, f64)>> {
+    TICK_BUF.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+/// Buffer one XAUUSD tick — called from the price bridge on every spot update.
+/// Cheap (push under a short-lived lock); the writer task does the I/O.
+fn record_xauusd_tick(bid: f64, ask: f64) {
+    if let Ok(mut b) = tick_buf().lock() {
+        if b.len() < 1_000_000 {  // safety cap if the writer ever stalls
+            b.push((chrono::Utc::now().timestamp_millis(), bid, ask));
+        }
+    }
+}
+
+/// Background writer: flush buffered ticks into `xauusd_ticks_live` every few
+/// seconds and prune rows older than the retention window. Runs for the life of
+/// the process.
+async fn run_tick_recorder(db_mutex: SharedDb) {
+    use std::time::{Duration, Instant};
+    let mut last_prune = Instant::now();
+    loop {
+        tokio::time::sleep(Duration::from_secs(TICK_FLUSH_SECS)).await;
+
+        let batch: Vec<(i64, f64, f64)> = match tick_buf().lock() {
+            Ok(mut b) if !b.is_empty() => std::mem::take(&mut *b),
+            _ => Vec::new(),
+        };
+        let do_prune = last_prune.elapsed() >= Duration::from_secs(TICK_PRUNE_SECS);
+        if batch.is_empty() && !do_prune { continue; }
+        if do_prune { last_prune = Instant::now(); }
+
+        let db = db_mutex.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            let Ok(_lock) = db.lock() else { return };
+            let Ok(conn) = duckdb::Connection::open(DB_PATH) else { return };
+            let _ = conn.execute_batch(CREATE_TICK_TABLE);
+            if !batch.is_empty() {
+                if let Ok(mut stmt) = conn.prepare(&format!("INSERT INTO {TICK_TABLE} VALUES (?,?,?,?)")) {
+                    for (ts, bid, ask) in &batch {
+                        let _ = stmt.execute(duckdb::params![ts, bid, ask, ask - bid]);
+                    }
+                }
+            }
+            if do_prune {
+                let cutoff = chrono::Utc::now().timestamp_millis()
+                    - TICK_RETENTION_DAYS * 24 * 3600 * 1000;
+                let _ = conn.execute(
+                    &format!("DELETE FROM {TICK_TABLE} WHERE timestamp_ms < ?"),
+                    duckdb::params![cutoff],
+                );
+            }
+        }).await;
+    }
+}
+
 // ── Trade Ideas: live snapshot helpers + 4-model fan-out ─────────────
 
 /// Fetch `count` trendbars for `symbol_id` at `period` ending now, live from
@@ -1219,6 +1288,52 @@ async fn fetch_trendbars_for_snapshot(
         Ok(Err(_))      => Err("chart request was cancelled".into()),
         Err(_)          => Err("cTrader response timeout".into()),
     }
+}
+
+/// Fetch trendbars for an explicit [from_ms, to_ms] window (oldest-first). Same
+/// live cTrader path as the snapshot fetch, but with an explicit time range —
+/// used to gather the multi-day M5 history for the volume profile.
+async fn fetch_trendbars_range(
+    symbol_id: i64,
+    period: openapi::ProtoOaTrendbarPeriod,
+    from_ms: i64,
+    to_ms: i64,
+    count: u32,
+) -> Result<Vec<Candle>, String> {
+    let tx = CHART_REQ_TX.get().ok_or("chart channel not initialised")?;
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    tx.send(ChartRequest { symbol_id, period, from_ms, to_ms, count, reply: reply_tx })
+        .await
+        .map_err(|e| format!("send chart req: {}", e))?;
+    match tokio::time::timeout(std::time::Duration::from_secs(30), reply_rx).await {
+        Ok(Ok(Ok(mut bars))) => { bars.sort_by_key(|c| c.timestamp); Ok(bars) }
+        Ok(Ok(Err(e))) => Err(e),
+        Ok(Err(_))      => Err("chart request was cancelled".into()),
+        Err(_)          => Err("cTrader response timeout".into()),
+    }
+}
+
+/// Fetch ~`days` of M5 candles live from cTrader for the volume profile, in
+/// ~5-day chunks to stay under the broker's per-request trendbar cap. Returns
+/// oldest-first, de-duplicated by timestamp.
+async fn fetch_m5_window(symbol_id: i64, days: i64) -> Vec<Candle> {
+    use openapi::ProtoOaTrendbarPeriod as P;
+    let day_ms = 24 * 60 * 60 * 1000;
+    let now = chrono::Utc::now().timestamp_millis();
+    let start = now - days * day_ms;
+    let mut all: Vec<Candle> = Vec::new();
+    let mut end = now;
+    while end > start {
+        let chunk_start = (end - 5 * day_ms).max(start);
+        let count = (((end - chunk_start) / (5 * 60 * 1000)) as u32) + 16;
+        if let Ok(mut bars) = fetch_trendbars_range(symbol_id, P::M5, chunk_start, end, count).await {
+            all.append(&mut bars);
+        }
+        end = chunk_start;
+    }
+    all.sort_by_key(|c| c.timestamp);
+    all.dedup_by_key(|c| c.timestamp);
+    all
 }
 
 /// Serialize a candle slice into compact `{ts,o,h,l,c}` JSON objects (oldest-first).
@@ -1294,6 +1409,155 @@ fn atr_simple(bars: &[Candle], n: usize) -> Option<f64> {
     Some(round2(sum / take as f64))
 }
 
+// ── Trend-scalp indicators (Claude Blitz) ────────────────────────────────────
+
+/// EMA(period) of a close series; returns the final value. Seeds with the SMA
+/// of the first `period` closes for stability, then walks the standard EMA
+/// recurrence. None if there aren't at least `period` closes.
+fn ema_last(closes: &[f64], period: usize) -> Option<f64> {
+    if period == 0 || closes.len() < period { return None; }
+    let alpha = 2.0 / (period as f64 + 1.0);
+    let mut ema = closes[..period].iter().sum::<f64>() / period as f64;
+    for &c in &closes[period..] {
+        ema = alpha * c + (1.0 - alpha) * ema;
+    }
+    Some(round2(ema))
+}
+
+/// Wilder's ADX(period) from candle bars — measures TREND STRENGTH (not
+/// direction). Needs ~2×period+1 bars. Computed in Rust because LLMs estimate
+/// the multi-step Wilder smoothing unreliably from raw OHLC.
+fn adx_wilder(bars: &[Candle], period: usize) -> Option<f64> {
+    let n = bars.len();
+    if period == 0 || n < period * 2 + 1 { return None; }
+
+    // Per-bar True Range and directional movement (indices 1..n).
+    let mut tr = Vec::with_capacity(n - 1);
+    let mut plus_dm = Vec::with_capacity(n - 1);
+    let mut minus_dm = Vec::with_capacity(n - 1);
+    for i in 1..n {
+        let (h, l) = (bars[i].high, bars[i].low);
+        let (ph, pl, pc) = (bars[i - 1].high, bars[i - 1].low, bars[i - 1].close);
+        let up = h - ph;
+        let down = pl - l;
+        plus_dm.push(if up > down && up > 0.0 { up } else { 0.0 });
+        minus_dm.push(if down > up && down > 0.0 { down } else { 0.0 });
+        tr.push((h - l).max((h - pc).abs()).max((l - pc).abs()));
+    }
+
+    // Wilder smoothing: seed = sum of first `period`, then s = s - s/period + x.
+    let smooth = |v: &[f64]| -> Vec<f64> {
+        let mut out = Vec::new();
+        if v.len() < period { return out; }
+        let mut s: f64 = v[..period].iter().sum();
+        out.push(s);
+        for &x in &v[period..] {
+            s = s - s / period as f64 + x;
+            out.push(s);
+        }
+        out
+    };
+    let str_ = smooth(&tr);
+    let sdm_p = smooth(&plus_dm);
+    let sdm_m = smooth(&minus_dm);
+    if str_.is_empty() { return None; }
+
+    // DX per smoothed step, then Wilder-average DX into ADX.
+    let mut dx = Vec::with_capacity(str_.len());
+    for i in 0..str_.len() {
+        if str_[i] == 0.0 { dx.push(0.0); continue; }
+        let di_p = 100.0 * sdm_p[i] / str_[i];
+        let di_m = 100.0 * sdm_m[i] / str_[i];
+        let sum = di_p + di_m;
+        dx.push(if sum == 0.0 { 0.0 } else { 100.0 * (di_p - di_m).abs() / sum });
+    }
+    if dx.len() < period { return None; }
+    let mut adx = dx[..period].iter().sum::<f64>() / period as f64;
+    for &d in &dx[period..] {
+        adx = (adx * (period as f64 - 1.0) + d) / period as f64;
+    }
+    Some((adx * 10.0).round() / 10.0)
+}
+
+/// Short-term direction of a correlated instrument: returns (last_close,
+/// pct_change_over_lookback_bars, "up"|"down"|"flat"). Used for the USDJPY /
+/// XAGUSD context filter. ±0.05% dead-band keeps noise from reading as a trend.
+fn series_dir(bars: &[Candle], lookback: usize) -> (Option<f64>, Option<f64>, &'static str) {
+    let Some(last) = bars.last() else { return (None, None, "flat") };
+    if bars.len() < 2 { return (Some(round2(last.close)), None, "flat"); }
+    let k = bars.len().saturating_sub(lookback + 1);
+    let ref_close = bars[k].close;
+    if ref_close == 0.0 { return (Some(round2(last.close)), None, "flat"); }
+    let chg = (last.close - ref_close) / ref_close * 100.0;
+    let dir = if chg > 0.05 { "up" } else if chg < -0.05 { "down" } else { "flat" };
+    (Some(round2(last.close)), Some((chg * 100.0).round() / 100.0), dir)
+}
+
+/// Coarse UTC session label for the scalp context filter.
+fn session_label(now: chrono::DateTime<chrono::Utc>) -> &'static str {
+    use chrono::Timelike;
+    match now.hour() {
+        22..=23 | 0..=5 => "Asia",
+        6..=12          => "London",
+        13..=15         => "London+NY overlap",
+        16..=19         => "NY pm",
+        _               => "late NY / pre-Asia",
+    }
+}
+
+#[cfg(test)]
+mod blitz_indicator_tests {
+    use super::*;
+    use db::Candle;
+
+    fn c(close: f64, high: f64, low: f64) -> Candle {
+        Candle::new(0, close, high, low, close, 100)
+    }
+
+    #[test]
+    fn ema_constant_series_equals_constant() {
+        let closes = vec![100.0; 60];
+        assert!((ema_last(&closes, 50).unwrap() - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn ema_none_when_too_few_bars() {
+        assert!(ema_last(&[1.0, 2.0, 3.0], 50).is_none());
+    }
+
+    #[test]
+    fn adx_high_on_strong_uptrend() {
+        // Strictly rising highs/lows → all +DM, no -DM → ADX should be very high.
+        let bars: Vec<Candle> = (0..40)
+            .map(|i| { let b = 2000.0 + i as f64 * 5.0; c(b + 3.5, b + 4.0, b + 0.5) })
+            .collect();
+        let adx = adx_wilder(&bars, 14).expect("enough bars");
+        assert!(adx > 50.0, "strong trend ADX should be high, got {}", adx);
+    }
+
+    #[test]
+    fn adx_low_on_flat_range() {
+        // Constant highs/lows → no directional movement → ADX ~0 (range).
+        let bars: Vec<Candle> = (0..40).map(|_| c(2000.0, 2001.0, 1999.0)).collect();
+        let adx = adx_wilder(&bars, 14).expect("enough bars");
+        assert!(adx < 20.0, "range ADX should be low, got {}", adx);
+    }
+
+    #[test]
+    fn adx_none_when_too_few_bars() {
+        let bars: Vec<Candle> = (0..10).map(|_| c(2000.0, 2001.0, 1999.0)).collect();
+        assert!(adx_wilder(&bars, 14).is_none());
+    }
+
+    #[test]
+    fn series_dir_reads_direction() {
+        let up: Vec<Candle> = (0..20).map(|i| c(2000.0 + i as f64, 2000.0, 2000.0)).collect();
+        assert_eq!(series_dir(&up, 12).2, "up");
+        let down: Vec<Candle> = (0..20).map(|i| c(2000.0 - i as f64, 2000.0, 2000.0)).collect();
+        assert_eq!(series_dir(&down, 12).2, "down");
+    }
+}
+
 /// Build two live snapshots in one pass:
 ///   - `compact` — tiny (latest M1 + M5 + scalar levels + a few headlines) for
 ///     the small/fast models (Gemini, DeepSeek, Qwen) so they stay under ~20 s.
@@ -1304,14 +1568,34 @@ fn atr_simple(bars: &[Candle], n: usize) -> Option<f64> {
 async fn build_trade_snapshots(
     db_mutex: &SharedDb,
     symbol_id: i64,
-) -> Result<(serde_json::Value, serde_json::Value), String> {
+) -> Result<(serde_json::Value, serde_json::Value, serde_json::Value), String> {
     use openapi::ProtoOaTrendbarPeriod as P;
-    let (m1, m5, m15, h1, d1) = tokio::join!(
-        fetch_trendbars_for_snapshot(symbol_id, P::M1,  1,  30),
+    // Correlated instruments for the Blitz context filter: USDJPY (inverse to
+    // gold) and XAGUSD (silver, confirms). Resolve ids first so all fetches go
+    // in one concurrent batch below.
+    let (usdjpy_id, xagusd_id) = match symbol_map().lock() {
+        Ok(m) => (m.get("USDJPY").copied(), m.get("XAGUSD").copied()),
+        Err(_) => (None, None),
+    };
+    // ALL fetches in a single concurrent batch so the whole snapshot is ready in
+    // ~one round-trip BEFORE any model is called — Claude never waits on a fetch,
+    // it reads the finished JSON. M15 = 220 bars so EMA50/EMA200 + ADX(14) are
+    // computable on the M15 trend frame for the Blitz 1-min scalper; M1 = 60 for
+    // entry timing. Live from cTrader (no DB cache).
+    let (m1, m5, m15, h1, d1, usdjpy, xagusd) = tokio::join!(
+        fetch_trendbars_for_snapshot(symbol_id, P::M1,  1,  60),
         fetch_trendbars_for_snapshot(symbol_id, P::M5,  5,  288), // ~24h → correct session VWAP
-        fetch_trendbars_for_snapshot(symbol_id, P::M15, 15, 96),
+        fetch_trendbars_for_snapshot(symbol_id, P::M15, 15, 220),
         fetch_trendbars_for_snapshot(symbol_id, P::H1,  60, 30),
         fetch_trendbars_for_snapshot(symbol_id, P::D1,  60 * 24, 5),
+        async { match usdjpy_id {
+            Some(id) => fetch_trendbars_for_snapshot(id, P::H1, 60, 48).await.unwrap_or_default(),
+            None => Vec::new(),
+        } },
+        async { match xagusd_id {
+            Some(id) => fetch_trendbars_for_snapshot(id, P::H1, 60, 48).await.unwrap_or_default(),
+            None => Vec::new(),
+        } },
     );
     let m1 = m1.unwrap_or_default();
     let m5 = m5.unwrap_or_default();
@@ -1387,6 +1671,27 @@ async fn build_trade_snapshots(
         }).await.unwrap_or_default()
     };
 
+    // ── Blitz (1-min scalp) indicators, computed in Rust ──────────────────
+    // Triple-screen: trend = M15 (EMA50/200 + ADX), momentum = M5, entry = M1.
+    let m15_closes: Vec<f64> = m15.iter().map(|c| c.close).collect();
+    let ema50_m15 = ema_last(&m15_closes, 50);
+    let ema200_m15 = ema_last(&m15_closes, 200);
+    let adx_m15 = adx_wilder(&m15, 14);
+    let atr_m15 = atr_simple(&m15, 14);
+    let m1_closes: Vec<f64> = m1.iter().map(|c| c.close).collect();
+    let ema9_m1 = ema_last(&m1_closes, 9);
+    let ema20_m1 = ema_last(&m1_closes, 20);
+    let (usdjpy_last, usdjpy_chg, usdjpy_dir) = series_dir(&usdjpy, 12);
+    let (xagusd_last, xagusd_chg, xagusd_dir) = series_dir(&xagusd, 12);
+    let price_vs = |e: Option<f64>| -> Option<&'static str> {
+        match (price, e) { (Some(p), Some(e)) => Some(if p >= e { "above" } else { "below" }), _ => None }
+    };
+    let pvs_ema50 = price_vs(ema50_m15);
+    let pvs_ema200 = price_vs(ema200_m15);
+    let session = session_label(chrono::Utc::now());
+    let m1_recent_30 = if m1.len() > 30 { candles_to_json(&m1[m1.len() - 30..]) } else { candles_to_json(&m1) };
+    let m15_recent_48 = slice_tail(&m15_full, 48);
+
     let now_utc = chrono::Utc::now().to_rfc3339();
     let compact = serde_json::json!({
         "now_utc": now_utc,
@@ -1421,7 +1726,38 @@ async fn build_trade_snapshots(
         "calendar_next": calendar,
         "news_headlines": headlines,
     });
-    Ok((compact, full))
+    // Blitz: the 1-min scalp snapshot — pre-computed M15 trend/strength + M5
+    // momentum + M1 entry indicators + USDJPY/XAGUSD context (triple-screen).
+    let blitz = serde_json::json!({
+        "now_utc": now_utc,
+        "price": price,
+        "last_bar_ts_utc": last_ts_utc,
+        "session": session,
+        "m15_bias": {
+            "ema50": ema50_m15,
+            "ema200": ema200_m15,
+            "adx14": adx_m15,
+            "atr14": atr_m15,
+            "price_vs_ema50": pvs_ema50,
+            "price_vs_ema200": pvs_ema200,
+        },
+        "m5_momentum": { "ema8": ema8_m5, "vwap": vwap_now },
+        "m1_entry": { "ema9": ema9_m1, "ema20": ema20_m1 },
+        "session_high": sess_hi,
+        "session_low": sess_lo,
+        "prior_day": { "high": pdh, "low": pdl, "close": pdc },
+        "correlations": {
+            "usdjpy": { "last": usdjpy_last, "chg12h_pct": usdjpy_chg, "dir": usdjpy_dir },
+            "xagusd": { "last": xagusd_last, "chg12h_pct": xagusd_chg, "dir": xagusd_dir },
+            "note": "USDJPY moves inverse to gold; XAGUSD (silver) confirms gold direction",
+        },
+        "m1_recent": m1_recent_30,     // {ts,o,h,l,c} — entry timing
+        "m5_recent": m5_recent_24,     // {ts,o,h,l,c,vwap,ema8} — momentum
+        "m15_recent": m15_recent_48,   // {ts,o,h,l,c,vwap,ema8} — trend structure (HH/HL)
+        "calendar_next": calendar,
+        "news_headlines": headlines,
+    });
+    Ok((compact, full, blitz))
 }
 
 /// Tauri command behind `Gold_Trade_Ideas` — fan out to 4 models in parallel.
@@ -1442,9 +1778,10 @@ async fn get_gold_trade_ideas_multi(
             .ok_or_else(|| "XAUUSD not subscribed yet — wait a few seconds after connect.".to_string())?
     };
 
-    let (compact, full) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
+    let (compact, full, blitz) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
     // Claude runs the full multi-strategy playbook on the fuller snapshot;
-    // Gemini/DeepSeek/Qwen get a general day-trade prompt on the compact snapshot.
+    // Gemini gets a general day-trade prompt on the compact snapshot; Claude Blitz
+    // runs the trend-scalp playbook on the pre-computed scalp snapshot.
     let user_compact = format!(
         "Compact live snapshot (seconds old):\n```json\n{}\n```\n\nGive ONE intraday setup for right now. JSON only.",
         serde_json::to_string(&compact).unwrap_or_default()
@@ -1453,10 +1790,16 @@ async fn get_gold_trade_ideas_multi(
         "Live snapshot (seconds old):\n```json\n{}\n```\n\nClassify the regime, pick the best-fitting strategy, and give ONE intraday setup for right now. JSON only.",
         serde_json::to_string(&full).unwrap_or_default()
     );
+    let user_blitz = format!(
+        "Live 1-min scalp snapshot (seconds old; indicators pre-computed):\n```json\n{}\n```\n\nRun the triple-screen (M15 trend → M5 momentum → M1 entry) and give ONE 1-minute scalp setup for right now (or FLAT). JSON only.",
+        serde_json::to_string(&blitz).unwrap_or_default()
+    );
     let system_claude = ai::traders::gold_day_trader_prompt();
     let system_simple = ai::traders::SIMPLE_TRADER_PROMPT.to_string();
+    let system_blitz = ai::traders::blitz_prompt();
 
     let claude_model = std::env::var("CLAUDE_MODEL").unwrap_or_else(|_| "sonnet".to_string());
+    let blitz_model = std::env::var("CLAUDE_BLITZ_MODEL").unwrap_or_else(|_| "haiku".to_string());
     let gemini_key = std::env::var("GOOGLE_API_KEY").ok();
 
     enum Kind { Claude(String), Gemini(String, Option<String>) }
@@ -1464,6 +1807,7 @@ async fn get_gold_trade_ideas_multi(
     let jobs: Vec<(&str, Kind, String, String)> = vec![
         ("Claude", Kind::Claude(claude_model),                             system_claude, user_full),
         ("Gemini", Kind::Gemini("gemini-flash-latest".into(), gemini_key), system_simple, user_compact),
+        ("Claude Blitz", Kind::Claude(blitz_model),                        system_blitz,  user_blitz),
     ];
 
     let mut set = tokio::task::JoinSet::new();
@@ -1488,6 +1832,132 @@ async fn get_gold_trade_ideas_multi(
         if let Ok(r) = joined { out.push(r); }
     }
     Ok(out)
+}
+
+/// Per-idea Tauri command behind the three separate "idea" buttons. Builds the
+/// live snapshot and runs exactly ONE model (Claude · Gemini · Claude Blitz),
+/// returning its single setup. Each button runs alone on demand — no 3-way
+/// concurrency, so a slow model never blocks the others.
+#[tauri::command]
+async fn get_gold_trade_idea(
+    state: tauri::State<'_, AppState>,
+    provider: String,
+) -> Result<ai::traders::ModelTradeIdea, String> {
+    let symbol_id = {
+        let map = symbol_map().lock().map_err(|e| e.to_string())?;
+        map.get("XAUUSD").copied()
+            .ok_or_else(|| "XAUUSD not subscribed yet — wait a few seconds after connect.".to_string())?
+    };
+    let (compact, full, blitz) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
+
+    let idea = match provider.as_str() {
+        "Claude" => {
+            let user = format!(
+                "Live snapshot (seconds old):\n```json\n{}\n```\n\nClassify the regime, pick the best-fitting strategy, and give ONE intraday setup for right now. JSON only.",
+                serde_json::to_string(&full).unwrap_or_default()
+            );
+            let model = std::env::var("CLAUDE_MODEL").unwrap_or_else(|_| "sonnet".to_string());
+            ai::traders::run_claude_cli("Claude", &model, &ai::traders::gold_day_trader_prompt(), &user).await
+        }
+        "Gemini" => {
+            let user = format!(
+                "Compact live snapshot (seconds old):\n```json\n{}\n```\n\nGive ONE intraday setup for right now. JSON only.",
+                serde_json::to_string(&compact).unwrap_or_default()
+            );
+            match std::env::var("GOOGLE_API_KEY").ok() {
+                Some(k) => ai::traders::run_gemini("Gemini", "gemini-flash-latest", &k, ai::traders::SIMPLE_TRADER_PROMPT, &user).await,
+                None => ai::traders::ModelTradeIdea::error("Gemini", "gemini-flash-latest", "GOOGLE_API_KEY not set in .env"),
+            }
+        }
+        "Claude Blitz" => {
+            let user = format!(
+                "Live 1-min scalp snapshot (seconds old; indicators pre-computed):\n```json\n{}\n```\n\nRun the triple-screen (M15 trend → M5 momentum → M1 entry) and give ONE 1-minute scalp setup for right now (or FLAT). JSON only.",
+                serde_json::to_string(&blitz).unwrap_or_default()
+            );
+            let model = std::env::var("CLAUDE_BLITZ_MODEL").unwrap_or_else(|_| "haiku".to_string());
+            ai::traders::run_claude_cli("Claude Blitz", &model, &ai::traders::blitz_prompt(), &user).await
+        }
+        other => ai::traders::ModelTradeIdea::error(other, "", &format!("unknown provider '{}'", other)),
+    };
+    Ok(idea)
+}
+
+/// The XRP 5-minute agent (read-only): build the live XRPUSD snapshot, run it
+/// through Claude with the `xrp-5m` playbook, and return ONE setup. Places
+/// nothing — this is the preview the dashboard shows before any live loop runs.
+#[tauri::command]
+async fn get_xrp_trade_idea(
+    state: tauri::State<'_, AppState>,
+) -> Result<ai::traders::ModelTradeIdea, String> {
+    let symbol_id = {
+        let map = symbol_map().lock().map_err(|e| e.to_string())?;
+        map.get("XRPUSD").copied()
+            .ok_or_else(|| "XRPUSD not subscribed yet — restart the app to pick up the new subscription.".to_string())?
+    };
+    let (_compact, full, _blitz) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
+    let user = format!(
+        "Live XRPUSD snapshot (seconds old):\n```json\n{}\n```\n\nClassify the regime and the BTC tape, pick the best-fitting strategy, and give ONE 5-minute setup for right now (or FLAT). JSON only.",
+        serde_json::to_string(&full).unwrap_or_default()
+    );
+    let model = std::env::var("CLAUDE_MODEL").unwrap_or_else(|_| "sonnet".to_string());
+    Ok(ai::traders::run_claude_cli("XRP 5m", &model, &ai::traders::xrp_5m_prompt(), &user).await)
+}
+
+/// Compute the volume-by-price levels (per-day POC + today/yesterday + weekly
+/// composites with provenance) over the last 2 weeks of M5, plus the current
+/// price and recent M15 context. Returned to the chart to draw the lines AND
+/// passed back into `get_volume_trade_idea` so Claude reasons on the same data.
+#[tauri::command]
+async fn get_volume_levels(
+    _state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let symbol_id = {
+        let map = symbol_map().lock().map_err(|e| e.to_string())?;
+        map.get("XAUUSD").copied()
+            .ok_or_else(|| "XAUUSD not subscribed yet — wait a few seconds after connect.".to_string())?
+    };
+
+    let m5 = fetch_m5_window(symbol_id, 14).await;
+    if m5.is_empty() {
+        return Err("no candle data from cTrader (session reconnecting?)".into());
+    }
+    let now = chrono::Utc::now();
+    let levels = volume_profile::compute_levels(&m5, now, 0.5);
+
+    let live_bid = {
+        let bits = LATEST_XAUUSD_BID.load(std::sync::atomic::Ordering::Relaxed);
+        if bits != 0 { Some(f64::from_bits(bits)) } else { None }
+    };
+    let price = live_bid.or_else(|| m5.last().map(|c| c.close));
+
+    // Recent M15 context for the agent.
+    let m15 = fetch_trendbars_for_snapshot(symbol_id, openapi::ProtoOaTrendbarPeriod::M15, 15, 64)
+        .await.unwrap_or_default();
+    let m15_recent = if m15.len() > 32 { candles_to_json(&m15[m15.len() - 32..]) } else { candles_to_json(&m15) };
+    let atr_h1 = atr_simple(&m5, 12); // coarse intraday range gauge from M5
+
+    Ok(serde_json::json!({
+        "now_utc": now.to_rfc3339(),
+        "price": price,
+        "atr_intraday": atr_h1,
+        "levels": levels,
+        "m15_recent": m15_recent,
+    }))
+}
+
+/// Ask the Claude Volume agent for a setup that references the volume levels.
+/// Takes the snapshot returned by `get_volume_levels` (so the chart and Claude
+/// see identical levels and there's no second fetch).
+#[tauri::command]
+async fn get_volume_trade_idea(
+    snapshot: serde_json::Value,
+) -> Result<ai::traders::ModelTradeIdea, String> {
+    let user = format!(
+        "Live volume snapshot (seconds old; levels pre-computed):\n```json\n{}\n```\n\nUsing these volume levels, give ONE setup for right now (or FLAT). JSON only.",
+        serde_json::to_string(&snapshot).unwrap_or_default()
+    );
+    let model = std::env::var("CLAUDE_VOLUME_MODEL").unwrap_or_else(|_| "sonnet".to_string());
+    Ok(ai::traders::run_claude_cli("Claude Volume", &model, &ai::traders::volume_prompt(), &user).await)
 }
 
 /// Result of a LIVE order placement. `sent` is true once the broker accepts the
@@ -1671,7 +2141,7 @@ async fn auto_generate_and_place(db_mutex: &SharedDb) -> Result<bool, String> {
         let map = symbol_map().lock().map_err(|e| e.to_string())?;
         map.get("XAUUSD").copied().ok_or("XAUUSD not subscribed yet")?
     };
-    let (_compact, full) = build_trade_snapshots(db_mutex, symbol_id).await?;
+    let (_compact, full, _blitz) = build_trade_snapshots(db_mutex, symbol_id).await?;
     let system = ai::traders::gold_day_trader_prompt();
     let user = format!(
         "Live snapshot (seconds old):\n```json\n{}\n```\n\nClassify the regime, pick the best-fitting strategy, and give ONE intraday setup for right now. JSON only.",
@@ -1791,7 +2261,7 @@ async fn review_pending_order(
         map.get("XAUUSD").copied()
             .ok_or_else(|| "XAUUSD not subscribed yet.".to_string())?
     };
-    let (_compact, full) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
+    let (_compact, full, _blitz) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
     let user = format!(
         "Resting pending order #{}: {} XAUUSD @ entry {} · SL {} · TP {}.\n\n\
          Fresh live snapshot:\n```json\n{}\n```\n\n\
@@ -1838,7 +2308,7 @@ async fn review_position(
         let map = symbol_map().lock().map_err(|e| e.to_string())?;
         map.get("XAUUSD").copied().ok_or_else(|| "XAUUSD not subscribed yet.".to_string())?
     };
-    let (_compact, full) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
+    let (_compact, full, _blitz) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
     let f = |v: Option<f64>| v.map(|x| format!("{:.2}", x)).unwrap_or_else(|| "none".into());
     let user = format!(
         "Open position #{}: {} XAUUSD {} oz · entry {} · SL {} · TP {}.\n\n\
@@ -2313,6 +2783,7 @@ fn main() {
                         PriceUpdate::InstrumentPrice { symbol, bid, ask } => {
                             if symbol == "XAUUSD" {
                                 LATEST_XAUUSD_BID.store(bid.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                                record_xauusd_tick(bid, ask);
                             }
                             serde_json::json!({"type":"tick","symbol":symbol,"bid":bid,"ask":ask})
                         }
@@ -2366,8 +2837,15 @@ fn main() {
                     let serialized = json.to_string();
                     // Cache the latest per-type snapshot so new WS clients can replay.
                     if let Some(t) = json.get("type").and_then(|v| v.as_str()) {
+                        // Ticks are per-symbol; key them by "tick:<symbol>" so each
+                        // instrument's last price is replayed to new clients instead
+                        // of one symbol clobbering another in the cache.
+                        let key = match (t, json.get("symbol").and_then(|v| v.as_str())) {
+                            ("tick", Some(sym)) => format!("tick:{}", sym),
+                            _ => t.to_string(),
+                        };
                         if let Ok(mut cache) = snapshot_cache().lock() {
-                            cache.insert(t.to_string(), serialized.clone());
+                            cache.insert(key, serialized.clone());
                         }
                     }
                     let _ = bridge_tx.send(serialized);
@@ -2390,6 +2868,12 @@ fn main() {
                 let auto_tx = tx.clone();
                 let auto_db = db_for_async.clone();
                 tokio::spawn(async move { run_auto_trade_loop(auto_tx, auto_db).await; });
+            }
+
+            // Live tick recorder → xauusd_ticks_live (rolling 2-week window).
+            {
+                let tick_db = db_for_async.clone();
+                tokio::spawn(async move { run_tick_recorder(tick_db).await; });
             }
 
             // Run price streaming with reconnection
@@ -2427,6 +2911,10 @@ fn main() {
             fetch_article_body_on_demand,
             get_trendbars,
             get_gold_trade_ideas_multi,
+            get_gold_trade_idea,
+            get_xrp_trade_idea,
+            get_volume_levels,
+            get_volume_trade_idea,
             place_gold_order,
             review_pending_order,
             cancel_order,
@@ -2535,11 +3023,17 @@ async fn run_session(
     // Map symbol_id -> symbol_name for all subscribed instruments
     let mut symbol_id_to_name: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
 
-    // Symbols to subscribe to live spot prices (driven by CTRADER_SYMBOL env var)
-    let instruments_to_subscribe: Vec<&str> = vec![target_symbol.as_str()];
+    // Symbols to subscribe to live spot prices (driven by CTRADER_SYMBOL env var).
+    // EURUSD is always added so it shows in the sidebar alongside the primary symbol.
+    let mut instruments_to_subscribe: Vec<&str> = vec![target_symbol.as_str()];
+    for extra in ["EURUSD", "XRPUSD"] {
+        if !instruments_to_subscribe.contains(&extra) {
+            instruments_to_subscribe.push(extra);
+        }
+    }
     // All symbols whose IDs we need (cross-pairs for M1 data downloads, ID lookup only)
     let instruments_need_id: Vec<&str> = vec![
-        "EURUSD",
+        "EURUSD", "XRPUSD",
         "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "EURJPY", "XAUUSD",
     ];
 

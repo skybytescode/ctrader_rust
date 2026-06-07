@@ -29,16 +29,47 @@ All prices are USD floats. For FLAT set every level to null and use rationale to
 const GOLD_DAY_TRADER_SKILL: &str =
     include_str!("../../.claude/skills/gold-day-trader/SKILL.md");
 
-/// Claude's system prompt: the skill body with its YAML frontmatter removed.
-pub fn gold_day_trader_prompt() -> String {
-    let s = GOLD_DAY_TRADER_SKILL;
-    // Strip a leading `---\n … \n---\n` frontmatter block if present.
+/// The trend-scalping playbook — "Claude Blitz" system prompt only. Embedded
+/// from the reusable skill file at compile time; frontmatter stripped at runtime.
+const CLAUDE_BLITZ_SKILL: &str =
+    include_str!("../../.claude/skills/claude-blitz/SKILL.md");
+
+/// The volume-profile playbook — "Claude Volume" system prompt only.
+const CLAUDE_VOLUME_SKILL: &str =
+    include_str!("../../.claude/skills/claude-volume/SKILL.md");
+
+/// The professional XRPUSD 5-minute playbook — "XRP 5m" agent system prompt.
+const XRP_5M_SKILL: &str =
+    include_str!("../../.claude/skills/xrp-5m/SKILL.md");
+
+/// Strip a leading `---\n … \n---\n` YAML frontmatter block from a skill body.
+fn strip_frontmatter(s: &str) -> String {
     if let Some(rest) = s.strip_prefix("---") {
         if let Some(end) = rest.find("\n---") {
             return rest[end + 4..].trim_start().to_string();
         }
     }
     s.to_string()
+}
+
+/// Claude's system prompt: the skill body with its YAML frontmatter removed.
+pub fn gold_day_trader_prompt() -> String {
+    strip_frontmatter(GOLD_DAY_TRADER_SKILL)
+}
+
+/// Claude Blitz's system prompt: the trend-scalping skill body (frontmatter removed).
+pub fn blitz_prompt() -> String {
+    strip_frontmatter(CLAUDE_BLITZ_SKILL)
+}
+
+/// Claude Volume's system prompt: the volume-profile skill body (frontmatter removed).
+pub fn volume_prompt() -> String {
+    strip_frontmatter(CLAUDE_VOLUME_SKILL)
+}
+
+/// XRP 5m agent's system prompt: the XRP 5-minute skill body (frontmatter removed).
+pub fn xrp_5m_prompt() -> String {
+    strip_frontmatter(XRP_5M_SKILL)
 }
 
 /// One model's answer, ready to serialize to the frontend popup.
@@ -153,7 +184,12 @@ pub fn parse_model_output(provider: &str, model: &str, raw: &str, ms: u128) -> M
     }
 }
 
+/// Timeout for the Gemini HTTP call (fast).
 const PER_MODEL_TIMEOUT: Duration = Duration::from_secs(18);
+/// Timeout for the local `claude` CLI path. A COLD single-shot (no prompt cache
+/// yet) can take ~30s+; the old 18s cap killed it before it could complete and
+/// warm its cache, so it would time out forever. Give it real headroom.
+const CLAUDE_CLI_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Call Google Gemini via the generateContent REST endpoint. `responseMimeType`
 /// asks Gemini for raw JSON so there's nothing to unfence.
@@ -220,7 +256,7 @@ pub async fn claude_cli_raw(model: &str, system: &str, user: &str) -> Result<Str
         let _ = stdin.write_all(prompt.as_bytes()).await;
         let _ = stdin.shutdown().await;
     }
-    let out = match tokio::time::timeout(PER_MODEL_TIMEOUT, child.wait_with_output()).await {
+    let out = match tokio::time::timeout(CLAUDE_CLI_TIMEOUT, child.wait_with_output()).await {
         Ok(Ok(o)) => o,
         Ok(Err(e)) => return Err(format!("claude CLI: {}", e)),
         Err(_) => return Err("timed out".into()),

@@ -100,6 +100,72 @@ html, body, #root {
 .dir-down .val { color: #f87171; }
 .dir-flat .val { color: #e4e4e7; }
 
+.change {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.change.up { color: #2dd47b; }
+.change.down { color: #f87171; }
+.change.flat { color: #a1a1aa; }
+
+/* Pipette: the final digit of a price, rendered smaller and raised. */
+.val .pip {
+  font-size: 0.72em;
+  vertical-align: top;
+  opacity: 0.85;
+}
+
+/* XRP bot dashboard */
+.xrp-quote {
+  display: flex;
+  gap: 28px;
+  margin: 16px 0 24px;
+  font-variant-numeric: tabular-nums;
+}
+.xrp-quote > div { display: flex; flex-direction: column; gap: 4px; }
+.xrp-quote .label { color: #6b7280; font-size: 12px; }
+.xrp-quote strong { font-size: 20px; color: #e4e4e7; }
+
+.bot-controls { display: flex; align-items: center; gap: 12px; }
+.bot-btn {
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: 1px solid #2a2d35;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bot-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.bot-start { background: #143524; border-color: #1f5436; color: #2dd47b; }
+.bot-close { background: #3a1820; border-color: #5a2630; color: #f87171; }
+.bot-status { font-size: 13px; font-weight: 600; }
+.bot-status.on { color: #2dd47b; }
+.bot-status.off { color: #8b949e; }
+
+.xrp-idea {
+  margin-top: 22px;
+  max-width: 560px;
+  padding: 14px 16px;
+  background: #16181d;
+  border: 1px solid #2a2d35;
+  border-radius: 10px;
+}
+.xrp-idea-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.idea-bias { font-weight: 800; padding: 2px 10px; border-radius: 6px; font-size: 13px; }
+.idea-bias.long { background: #143524; color: #2dd47b; }
+.idea-bias.short { background: #3a1820; color: #f87171; }
+.idea-bias.flat { background: #25272d; color: #a1a1aa; }
+.idea-strategy { color: #e4e4e7; font-weight: 600; }
+.xrp-idea-levels {
+  display: flex; flex-wrap: wrap; gap: 18px;
+  font-variant-numeric: tabular-nums; font-size: 13px; color: #a1a1aa;
+  margin-bottom: 8px;
+}
+.xrp-idea-levels strong { color: #e4e4e7; }
+.xrp-idea-rationale { color: #c9ccd1; font-size: 13px; margin: 6px 0 0; }
+.xrp-idea-error { color: #f87171; font-size: 13px; margin: 0; }
+
 .footer {
   margin-top: auto;
   font-size: 11px;

@@ -260,11 +260,7 @@ pub fn write_ec_to_db(db: &duckdb::Connection, rows: &[EcRow]) -> Result<usize, 
         .unwrap_or(0) > 0;
 
     let mut historical_updated = 0usize;
-    if !hist_exists {
-        println!("EC: historical table not found, skipping upsert");
-        println!("EC: {} events in today table", inserted);
-        return Ok(inserted);
-    }
+    if hist_exists {
     for r in rows.iter().filter(|r| r.currency == "EUR" || r.currency == "USD") {
         // Try INSERT, on conflict UPDATE actual/forecast/previous/surprise/beats
         let upsert = "
@@ -310,11 +306,16 @@ pub fn write_ec_to_db(db: &duckdb::Connection, rows: &[EcRow]) -> Result<usize, 
             historical_updated += 1;
         }
     }
+    } else {
+        println!("EC: eurusd_economic_calendar not found — skipping legacy historical upsert");
+    }
 
-    // Also keep `xauusd_economic_calendar` current with today's gold-relevant
-    // events. The Calendar tab reads from this table now (filtered to today),
-    // so it must be refreshed on every live EC cycle alongside the legacy
-    // EUR/USD tables above. Filters to the gold currency set internally.
+    // Always refresh `xauusd_economic_calendar` — the Calendar tab reads from
+    // this table (filtered to today). It MUST run on every EC cycle even when
+    // the legacy `eurusd_economic_calendar` table is absent (e.g. on a rebuilt
+    // DB). An earlier early-return when that legacy table was missing skipped
+    // this upsert and left the Calendar tab permanently empty. Filters to the
+    // gold currency set internally.
     let xau_written = upsert_xauusd_ec(db, rows).unwrap_or(0);
 
     println!("EC: {} events in today table, {} upserted to historical, {} to xauusd_economic_calendar",

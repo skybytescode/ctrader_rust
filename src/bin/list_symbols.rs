@@ -50,6 +50,43 @@ async fn read_proto(
     Ok(openapi::ProtoMessage::decode(buf.as_slice())?)
 }
 
+/// Pretty-print a full symbol spec, focused on the cost model (commission vs
+/// spread-only). Commission precise rates are scaled by 10^8 (10^5 for percent).
+fn print_symbol_spec(name: &str, sym: &openapi::ProtoOaSymbol) {
+    let ct = sym.commission_type;
+    let ct_name = match ct {
+        Some(1) => "USD_PER_MILLION_USD".to_string(),
+        Some(2) => "USD_PER_LOT".to_string(),
+        Some(3) => "PERCENTAGE_OF_VALUE".to_string(),
+        Some(4) => "QUOTE_CCY_PER_LOT".to_string(),
+        Some(o) => format!("unknown({})", o),
+        None => "none".to_string(),
+    };
+    let precise = sym.precise_trading_commission_rate;
+    let interpreted = match (ct, precise) {
+        (Some(3), Some(p)) => format!("{}% of notional", p as f64 / 1e5),
+        (Some(1), Some(p)) => format!("{:.2} USD per 1M USD volume", p as f64 / 1e8),
+        (Some(2), Some(p)) => format!("{:.2} USD per lot", p as f64 / 1e8),
+        (Some(4), Some(p)) => format!("{:.2} quote-ccy per lot", p as f64 / 1e8),
+        _ => "n/a".to_string(),
+    };
+    let has_commission = sym.commission.unwrap_or(0) != 0
+        || sym.precise_trading_commission_rate.unwrap_or(0) != 0;
+    let verdict = if has_commission { "COMMISSION + (raw) SPREAD" } else { "SPREAD-ONLY (no commission)" };
+    let min_c = sym.precise_min_commission.map(|p| p as f64 / 1e8);
+
+    println!("\n  {name}");
+    println!("    digits={}  pipPosition={}  lotSize={:?}  measurementUnits={:?}",
+        sym.digits, sym.pip_position, sym.lot_size, sym.measurement_units);
+    println!("    volume: min={:?} step={:?} max={:?}",
+        sym.min_volume, sym.step_volume, sym.max_volume);
+    println!("    commission: type={} raw={:?} precise={:?} -> {}",
+        ct_name, sym.commission, precise, interpreted);
+    println!("    minCommission: precise={:?} (~{:?}) typeId={:?} asset={:?}",
+        sym.precise_min_commission, min_c, sym.min_commission_type, sym.min_commission_asset);
+    println!("    >>> COST MODEL: {}", verdict);
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     dotenv::dotenv().ok();
@@ -88,7 +125,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     ).await?;
 
     // 2) Read until we get the SymbolsListRes; send the chained requests inline.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    // id -> name for the symbols we later fetch full specs for (the SymbolByIdRes
+    // carries no symbol_name, only the id).
+    let mut id_to_name: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
     loop {
         let msg = tokio::time::timeout(
             deadline.saturating_duration_since(tokio::time::Instant::now()),
@@ -182,8 +222,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         println!("  (too many to list; first 30: {:?})",
                             disabled.iter().take(30).collect::<Vec<_>>());
                     }
-                    return Ok(());
+
+                    // Fetch the FULL spec (incl. commission) for the pair we trade,
+                    // to determine the cost model (commission + spread vs spread-only).
+                    let wanted = ["EURUSD", "XAUUSD", "XRPUSD"];
+                    let mut ids = Vec::new();
+                    for s in &res.symbol {
+                        if let Some(n) = &s.symbol_name {
+                            if wanted.contains(&n.as_str()) {
+                                id_to_name.insert(s.symbol_id, n.clone());
+                                ids.push(s.symbol_id);
+                            }
+                        }
+                    }
+                    if ids.is_empty() {
+                        println!("\n(EURUSD / XAUUSD not found for spec lookup)");
+                        return Ok(());
+                    }
+                    println!("\n-- Requesting full spec (commission) for {:?} --", wanted);
+                    write_proto(
+                        &mut tls,
+                        openapi::ProtoOaPayloadType::ProtoOaSymbolByIdReq as u32,
+                        openapi::ProtoOaSymbolByIdReq {
+                            payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaSymbolByIdReq as i32),
+                            ctid_trader_account_id: account_id,
+                            symbol_id: ids,
+                        },
+                    ).await?;
+                    // Don't return — wait for the SymbolByIdRes (2117) handler below.
                 }
+            }
+            2117 /* SymbolByIdRes */ => {
+                if let Some(payload) = &msg.payload {
+                    let res = openapi::ProtoOaSymbolByIdRes::decode(payload.as_slice())?;
+                    println!("\n=== Full symbol specs — cost model ===");
+                    for sym in &res.symbol {
+                        let name = id_to_name.get(&sym.symbol_id).cloned()
+                            .unwrap_or_else(|| format!("id {}", sym.symbol_id));
+                        print_symbol_spec(&name, sym);
+                    }
+                }
+                return Ok(());
             }
             2142 /* ErrorRes */ => {
                 if let Some(payload) = &msg.payload {
