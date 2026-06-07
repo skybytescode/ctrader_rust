@@ -165,6 +165,18 @@ auto-spawned by the Rust app on startup.
 
 ## Prerequisites
 
+- **The `econcal` proxy** — a **separate repo**, not included in this clone
+  (the `econcal/` folder is git-ignored here). The Rust app auto-spawns
+  `econcal/econcal.js` on startup, so you must clone it into the project root
+  before first run:
+
+  ```sh
+  git clone https://github.com/skybytescode/econcal.git econcal
+  cd econcal && npm install   # or: yarn
+  ```
+
+  Keep it in sync separately with `git -C econcal pull`. (Upstream is
+  `caiguanhao/econcal`, available as the `upstream` remote.)
 - **Node.js** installed (the Rust app auto-spawns `econcal/econcal.js` and
   the Vite dev server on startup; both need `node` / `npm` on PATH)
 - **cTrader OpenAPI credentials** in a `.env` file at the project root:
