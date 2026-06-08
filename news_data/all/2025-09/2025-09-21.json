@@ -1,0 +1,19 @@
+{
+  "articles": [
+    {
+      "article_id": "b55d3eed-1284-4fe7-96d2-f175b5c922f3",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-09-21T23:05:06",
+      "summary": "The USD/JPY pair holds steady near 148.00 during the early Asian session on Monday. The US Dollar (USD) strengthens against the Japanese Yen (JPY) as the US Federal Reserve (Fed) cut interest rates last week but signaled gradual easing in the future.",
+      "tags": "BOJ,Majors,USDJPY,Macroeconomics",
+      "title": "USD/JPY flat lines near 148.00 as traders await Fedspeak",
+      "url": "https://www.fxstreet.com/news/usd-jpy-flat-lines-near-14800-as-traders-await-fedspeak-202509212305",
+      "weekday": 6
+    }
+  ],
+  "count": 1,
+  "date": "2025-09-21",
+  "generated_at": "2026-05-22T00:02:01.675323400+00:00"
+}

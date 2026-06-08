@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-01-17",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "db5a5e7f-ee24-4c8f-a1a6-1d61907c70b6__2015-01-17T13:50:00Z",
+      "event_id": "db5a5e7f-ee24-4c8f-a1a6-1d61907c70b6",
+      "event_name": "Fed's Lockhart speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 13,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-01-17T13:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:42.476745100+00:00"
+}

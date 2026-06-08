@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2017-12-24",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "FI",
+      "currency": "EUR",
+      "event_date_id": "783bb4b1-e5dd-4a83-8f9f-93ce85608643__2017-12-24T00:00:00Z",
+      "event_id": "783bb4b1-e5dd-4a83-8f9f-93ce85608643",
+      "event_name": "Christmas Eve",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2017-12-24T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "SK",
+      "currency": "EUR",
+      "event_date_id": "d3265ded-cf96-43b0-a5be-1464c5b50c96__2017-12-24T00:00:00Z",
+      "event_id": "d3265ded-cf96-43b0-a5be-1464c5b50c96",
+      "event_name": "Christmas Eve ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2017-12-24T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:50.899980800+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2019-02-09",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "a3750ab1-3421-4060-9711-ad827c8f0419__2019-02-09T00:00:00Z",
+      "event_id": "a3750ab1-3421-4060-9711-ad827c8f0419",
+      "event_name": "Chinese New Year",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2019-02-09T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:55.077939+00:00"
+}

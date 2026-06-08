@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2009-04-12",
+  "events": [
+    {
+      "actual": -0.3,
+      "actual_raw": "-0.3",
+      "beats_forecast": -1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "99d900ab-251a-4fa2-b568-15dd9f818e17__2009-04-12T23:50:00Z",
+      "event_id": "99d900ab-251a-4fa2-b568-15dd9f818e17",
+      "event_name": "Producer Price Index (MoM)",
+      "forecast": -0.2,
+      "forecast_raw": "-0.2",
+      "hour_utc": 23,
+      "previous": -0.5,
+      "previous_raw": "-0.5",
+      "surprise": -0.09999999999999998,
+      "timestamp_utc": "2009-04-12T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": -2.5,
+      "actual_raw": "-2.5",
+      "beats_forecast": -1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "860a04a9-5837-4015-84af-aaae87e4fc0a__2009-04-12T23:50:00Z",
+      "event_id": "860a04a9-5837-4015-84af-aaae87e4fc0a",
+      "event_name": "Producer Price Index (YoY)",
+      "forecast": -1.8,
+      "forecast_raw": "-1.8",
+      "hour_utc": 23,
+      "previous": -1.6,
+      "previous_raw": "-1.6",
+      "surprise": -0.7,
+      "timestamp_utc": "2009-04-12T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:25.277521900+00:00"
+}

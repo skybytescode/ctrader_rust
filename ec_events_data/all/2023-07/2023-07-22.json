@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2023-07-22",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "ES",
+      "currency": "EUR",
+      "event_date_id": "0f17ca66-dde9-425e-8970-7ebde1b41779__2023-07-22T23:00:00Z",
+      "event_id": "0f17ca66-dde9-425e-8970-7ebde1b41779",
+      "event_name": "General Election",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-07-22T23:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:08.022203600+00:00"
+}

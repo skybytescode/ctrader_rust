@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2011-01-16",
+  "events": [
+    {
+      "actual": 0.2,
+      "actual_raw": "0.2",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "af3e8205-d32b-4f5d-8096-64b0aad9d3f8__2011-01-16T23:30:00Z",
+      "event_id": "af3e8205-d32b-4f5d-8096-64b0aad9d3f8",
+      "event_name": "TD-MI Inflation Gauge (MoM)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 0.4,
+      "previous_raw": "0.4",
+      "surprise": null,
+      "timestamp_utc": "2011-01-16T23:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": 3.8,
+      "actual_raw": "3.8",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "afa5e8a8-cee2-4890-ba45-1ffac1555a1e__2011-01-16T23:30:00Z",
+      "event_id": "afa5e8a8-cee2-4890-ba45-1ffac1555a1e",
+      "event_name": "TD-MI Inflation Gauge (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 3.9,
+      "previous_raw": "3.9",
+      "surprise": null,
+      "timestamp_utc": "2011-01-16T23:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:31.552891600+00:00"
+}

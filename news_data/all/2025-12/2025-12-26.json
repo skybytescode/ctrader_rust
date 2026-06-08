@@ -1,0 +1,55 @@
+{
+  "articles": [
+    {
+      "article_id": "f9927432-5db4-4792-996e-7c121c99b44e",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 5,
+      "published_utc": "2025-12-26T05:00:36",
+      "summary": "Singapore Industrial Production (MoM) fell from previous 11.5% to -10.2% in November",
+      "tags": "Housing,Singapore,IndustrialProduction",
+      "title": "Singapore Industrial Production (MoM) fell from previous 11.5% to -10.2% in November",
+      "url": "https://www.fxstreet.com/news/singapore-industrial-production-mom-fell-from-previous-115-to-102-in-november-202512260500",
+      "weekday": 4
+    },
+    {
+      "article_id": "6976a690-fe85-4c2b-ae34-aaf584c3400a",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 5,
+      "published_utc": "2025-12-26T05:00:36",
+      "summary": "Singapore Industrial Production (YoY) registered at 14.3% above expectations (14.2%) in November",
+      "tags": "Singapore,IndustrialProduction",
+      "title": "Singapore Industrial Production (YoY) registered at 14.3% above expectations (14.2%) in November",
+      "url": "https://www.fxstreet.com/news/singapore-industrial-production-yoy-registered-at-143-above-expectations-142-in-november-202512260500",
+      "weekday": 4
+    },
+    {
+      "article_id": "0349c741-f674-46e7-a57b-af2977bb1930",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 11,
+      "published_utc": "2025-12-26T11:34:31",
+      "summary": "India FX Reserves, USD up to $693.32B in December 15 from previous $688.95B",
+      "tags": "Liquidity,India",
+      "title": "India FX Reserves, USD up to $693.32B in December 15 from previous $688.95B",
+      "url": "https://www.fxstreet.com/news/india-fx-reserves-usd-up-to-69332b-in-december-15-from-previous-68895b-202512261134",
+      "weekday": 4
+    },
+    {
+      "article_id": "409d7a9b-1eff-4c4b-aee1-ea9805211138",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 16,
+      "published_utc": "2025-12-26T16:00:55",
+      "summary": "Russia Unemployment Rate below forecasts (2.2%) in November: Actual (2.1%)",
+      "tags": "RussianFederation,Employment",
+      "title": "Russia Unemployment Rate below forecasts (2.2%) in November: Actual (2.1%)",
+      "url": "https://www.fxstreet.com/news/russia-unemployment-rate-below-forecasts-22-in-november-actual-21-202512261600",
+      "weekday": 4
+    }
+  ],
+  "count": 4,
+  "date": "2025-12-26",
+  "generated_at": "2026-05-22T00:09:31.469834300+00:00"
+}

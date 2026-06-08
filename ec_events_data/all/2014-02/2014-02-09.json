@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2014-02-09",
+  "events": [
+    {
+      "actual": 2.3,
+      "actual_raw": "2.3",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "39ec94c2-2a41-46c4-b5e6-702c6cedffa5__2014-02-09T23:50:00Z",
+      "event_id": "39ec94c2-2a41-46c4-b5e6-702c6cedffa5",
+      "event_name": "Bank Lending (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 2.3,
+      "previous_raw": "2.3",
+      "surprise": null,
+      "timestamp_utc": "2014-02-09T23:50:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": -638.6,
+      "actual_raw": "-638.6",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "c3e65991-95b2-4f8e-8eae-12348778f9ad__2014-02-09T23:50:00Z",
+      "event_id": "c3e65991-95b2-4f8e-8eae-12348778f9ad",
+      "event_name": "Current Account n.s.a.",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": -592.8,
+      "previous_raw": "-592.8",
+      "surprise": null,
+      "timestamp_utc": "2014-02-09T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:39.910991200+00:00"
+}

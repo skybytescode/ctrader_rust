@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2014-09-21",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CH",
+      "currency": "CHF",
+      "event_date_id": "feddf6fa-0912-489f-a2a8-6ad5b1b241dd__2014-09-21T00:00:00Z",
+      "event_id": "feddf6fa-0912-489f-a2a8-6ad5b1b241dd",
+      "event_name": "Swiss Federal Fast",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2014-09-21T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "18e69351-f9b5-4157-a3e4-a4286d644dad__2014-09-21T00:00:00Z",
+      "event_id": "18e69351-f9b5-4157-a3e4-a4286d644dad",
+      "event_name": "G20 Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2014-09-21T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:41.459394500+00:00"
+}

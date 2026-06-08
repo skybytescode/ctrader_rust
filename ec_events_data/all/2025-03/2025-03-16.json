@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2025-03-16",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "IE",
+      "currency": "EUR",
+      "event_date_id": "79f57b69-c77e-4b26-a816-3e757e63baa2__2025-03-16T23:00:00Z",
+      "event_id": "79f57b69-c77e-4b26-a816-3e757e63baa2",
+      "event_name": "St Patrick's Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-03-16T23:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:12.660637500+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2019-05-04",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "ca467b1b-a31f-443d-8771-051ce1b20771__2019-05-04T15:00:00Z",
+      "event_id": "ca467b1b-a31f-443d-8771-051ce1b20771",
+      "event_name": "Children's Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2019-05-04T15:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:55.858118600+00:00"
+}

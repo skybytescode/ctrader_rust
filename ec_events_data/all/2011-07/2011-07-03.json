@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2011-07-03",
+  "events": [
+    {
+      "actual": 17.0,
+      "actual_raw": "17",
+      "beats_forecast": 1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "60171ab3-7419-49ae-9117-eae6f1e8a128__2011-07-03T23:50:00Z",
+      "event_id": "60171ab3-7419-49ae-9117-eae6f1e8a128",
+      "event_name": "Monetary Base (YoY)",
+      "forecast": 16.4,
+      "forecast_raw": "16.4",
+      "hour_utc": 23,
+      "previous": 16.2,
+      "previous_raw": "16.2",
+      "surprise": 0.6000000000000014,
+      "timestamp_utc": "2011-07-03T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:32.929337200+00:00"
+}

@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2018-06-02",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "IT",
+      "currency": "EUR",
+      "event_date_id": "b7a51c23-a468-4a8a-a696-ccfbf3c3581c__2018-06-02T00:00:00Z",
+      "event_id": "b7a51c23-a468-4a8a-a696-ccfbf3c3581c",
+      "event_name": "Republic Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2018-06-02T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "7f5399d1-0373-48f4-9ff8-2defc7c2a407__2018-06-02T00:00:00Z",
+      "event_id": "7f5399d1-0373-48f4-9ff8-2defc7c2a407",
+      "event_name": "G7 Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2018-06-02T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:52.548001200+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2013-06-01",
+  "events": [
+    {
+      "actual": 50.8,
+      "actual_raw": "50.8",
+      "beats_forecast": 1,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "6e0be41a-08d2-43d8-a649-a02c7eb89629__2013-06-01T01:00:00Z",
+      "event_id": "6e0be41a-08d2-43d8-a649-a02c7eb89629",
+      "event_name": "NBS Manufacturing PMI",
+      "forecast": 50.1,
+      "forecast_raw": "50.1",
+      "hour_utc": 1,
+      "previous": 50.6,
+      "previous_raw": "50.6",
+      "surprise": 0.6999999999999957,
+      "timestamp_utc": "2013-06-01T01:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:38.094750600+00:00"
+}

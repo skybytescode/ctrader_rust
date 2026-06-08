@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2012-01-22",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "23e8af74-68c8-499b-8426-85c46fbfde36__2012-01-22T08:48:05Z",
+      "event_id": "23e8af74-68c8-499b-8426-85c46fbfde36",
+      "event_name": "Chinese New Year Eve ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 8,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2012-01-22T08:48:05",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:34.318587700+00:00"
+}

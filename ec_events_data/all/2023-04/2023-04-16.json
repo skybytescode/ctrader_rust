@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2023-04-16",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "0d332666-9d39-47d6-9986-97de648c52eb__2023-04-16T00:00:00Z",
+      "event_id": "0d332666-9d39-47d6-9986-97de648c52eb",
+      "event_name": "IMF Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-04-16T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "GR",
+      "currency": "EUR",
+      "event_date_id": "f8c018f9-64f3-44de-8687-0adc384aa79f__2023-04-16T22:00:00Z",
+      "event_id": "f8c018f9-64f3-44de-8687-0adc384aa79f",
+      "event_name": "Orthodox Easter Monday ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-04-16T22:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:07.242246600+00:00"
+}

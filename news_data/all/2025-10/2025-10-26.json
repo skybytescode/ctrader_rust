@@ -1,0 +1,55 @@
+{
+  "articles": [
+    {
+      "article_id": "a3b284f4-3009-4041-b6d4-fbd1424cb732",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-10-26T22:57:08",
+      "summary": "Top Chinese and US economic officials on Sunday have agreed on the framework of a potential trade deal that will be discussed when US President Donald Trump and Chinese President Xi Jinping meet later this week, CNBC reported on Sunday.",
+      "tags": "China,TradeWar,UnitedStates,Macroeconomics",
+      "title": "US and China tee up sweeping trade deal ahead of Trump–Xi meeting",
+      "url": "https://www.fxstreet.com/news/us-and-china-tee-up-sweeping-trade-deal-ahead-of-trump-xi-meeting-202510262257",
+      "weekday": 6
+    },
+    {
+      "article_id": "b663eb8e-d59f-429e-99e6-84a505b17082",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-10-26T23:17:10",
+      "summary": "The USD/JPY pair extends the rally to around 153.15 during the early Asian session on Monday. The Japanese Yen (JPY) softens against the US Dollar (USD) amid improved risk sentiment as the US and China have agreed on the framework of a potential trade deal.  ",
+      "tags": "Majors,USDJPY,Macroeconomics",
+      "title": "USD/JPY gathers strength above 153.00 on potential US-China trade deal",
+      "url": "https://www.fxstreet.com/news/usd-jpy-gathers-strength-above-15300-on-potential-us-china-trade-deal-202510262317",
+      "weekday": 6
+    },
+    {
+      "article_id": "9dd4b44a-54bd-4467-b929-0c48573bb750",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-10-26T23:25:15",
+      "summary": "European Central Bank (ECB) Governing Council member José Luis Escrivá said that he is satisfied with current settings for borrowing costs, Bloomberg reported on Sunday.",
+      "tags": "ECB,CentralBanks,InterestRate,Macroeconomics",
+      "title": "ECB's Escriva: Current level of rates is appropriate",
+      "url": "https://www.fxstreet.com/news/ecbs-escriva-current-level-of-rates-is-appropriate-202510262325",
+      "weekday": 6
+    },
+    {
+      "article_id": "35b32f48-f403-41bd-ad3c-7fee1441c35d",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-10-26T23:51:31",
+      "summary": "Japan Corporate Service Price Index (YoY) rose from previous 2.7% to 3% in September",
+      "tags": "Prices,Consumption,Japan",
+      "title": "Japan Corporate Service Price Index (YoY) rose from previous 2.7% to 3% in September",
+      "url": "https://www.fxstreet.com/news/japan-corporate-service-price-index-yoy-rose-from-previous-27-to-3-in-september-202510262351",
+      "weekday": 6
+    }
+  ],
+  "count": 4,
+  "date": "2025-10-26",
+  "generated_at": "2026-05-22T00:04:46.286630400+00:00"
+}

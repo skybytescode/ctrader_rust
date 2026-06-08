@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2020-01-12",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "1b0404fa-6615-4abe-bb50-b5eeeb4c6eb6__2020-01-12T15:00:00Z",
+      "event_id": "1b0404fa-6615-4abe-bb50-b5eeeb4c6eb6",
+      "event_name": "Coming-of-Age Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2020-01-12T15:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "3f05dfdf-e521-44c9-9368-27c8950715b7__2020-01-12T15:00:00Z",
+      "event_id": "3f05dfdf-e521-44c9-9368-27c8950715b7",
+      "event_name": "Bank Holiday",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2020-01-12T15:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:57.621748900+00:00"
+}

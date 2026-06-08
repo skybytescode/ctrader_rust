@@ -1,0 +1,127 @@
+{
+  "articles": [
+    {
+      "article_id": "a75f2410-5210-4e07-8dd3-75174632dfd5",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 5,
+      "published_utc": "2025-12-25T05:04:44",
+      "summary": "Japan Construction Orders (YoY) climbed from previous -10.1% to 9.5% in November",
+      "tags": "Manufacturing,Japan",
+      "title": "Japan Construction Orders (YoY) climbed from previous -10.1% to 9.5% in November",
+      "url": "https://www.fxstreet.com/news/japan-construction-orders-yoy-climbed-from-previous-101-to-95-in-november-202512250504",
+      "weekday": 3
+    },
+    {
+      "article_id": "00d7ec66-490f-498e-85e7-17c108702feb",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-12-25T23:30:03",
+      "summary": "Japan Tokyo CPI ex Fresh Food (YoY) came in at 2.3% below forecasts (2.5%) in December",
+      "tags": "CPI,Japan",
+      "title": "Japan Tokyo CPI ex Fresh Food (YoY) came in at 2.3% below forecasts (2.5%) in December",
+      "url": "https://www.fxstreet.com/news/japan-tokyo-cpi-ex-fresh-food-yoy-came-in-at-23-below-forecasts-25-in-december-202512252330",
+      "weekday": 3
+    },
+    {
+      "article_id": "055cfeff-6a8d-4d47-84e1-2235d385dcdc",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-12-25T23:30:04",
+      "summary": "Japan Jobs / Applicants Ratio meets expectations (1.18) in November",
+      "tags": "Japan,Employment",
+      "title": "Japan Jobs / Applicants Ratio meets expectations (1.18) in November",
+      "url": "https://www.fxstreet.com/news/japan-jobs-applicants-ratio-meets-expectations-118-in-november-202512252330",
+      "weekday": 3
+    },
+    {
+      "article_id": "4c19ca60-4eb9-4086-872b-e5258a657211",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-12-25T23:30:04",
+      "summary": "Japan Tokyo Consumer Price Index (YoY) dipped from previous 2.7% to 2% in December",
+      "tags": "CPI,Japan",
+      "title": "Japan Tokyo Consumer Price Index (YoY) dipped from previous 2.7% to 2% in December",
+      "url": "https://www.fxstreet.com/news/japan-tokyo-consumer-price-index-yoy-dipped-from-previous-27-to-2-in-december-202512252330",
+      "weekday": 3
+    },
+    {
+      "article_id": "818113cc-828f-4ec8-85f1-dc377109c11c",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-12-25T23:30:35",
+      "summary": "Japan Tokyo CPI ex Food, Energy (YoY) dipped from previous 2.8% to 2.3% in December",
+      "tags": "CPI,Japan",
+      "title": "Japan Tokyo CPI ex Food, Energy (YoY) dipped from previous 2.8% to 2.3% in December",
+      "url": "https://www.fxstreet.com/news/japan-tokyo-cpi-ex-food-energy-yoy-dipped-from-previous-28-to-23-in-december-202512252330",
+      "weekday": 3
+    },
+    {
+      "article_id": "8b4de3ac-d6c0-4108-835c-ccc5223179b7",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-12-25T23:30:36",
+      "summary": "Japan Unemployment Rate meets forecasts (2.6%) in November",
+      "tags": "Japan,Employment,USDJPY",
+      "title": "Japan Unemployment Rate meets forecasts (2.6%) in November",
+      "url": "https://www.fxstreet.com/news/japan-unemployment-rate-meets-forecasts-26-in-november-202512252330",
+      "weekday": 3
+    },
+    {
+      "article_id": "9f4f27fc-a934-4f84-9eaa-cd1dee04d44d",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-12-25T23:50:06",
+      "summary": "Japan Industrial Production (MoM) below forecasts (-2%) in November: Actual (-2.6%)",
+      "tags": "Japan,USDJPY,IndustrialProduction",
+      "title": "Japan Industrial Production (MoM) below forecasts (-2%) in November: Actual (-2.6%)",
+      "url": "https://www.fxstreet.com/news/japan-industrial-production-mom-below-forecasts-2-in-november-actual-26-202512252350",
+      "weekday": 3
+    },
+    {
+      "article_id": "7caf0c9c-6755-4bbe-abb1-9945ebe51335",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-12-25T23:50:37",
+      "summary": "Japan Retail Trade (YoY) above expectations (0.9%) in November: Actual (1%)",
+      "tags": "RetailSales,Japan",
+      "title": "Japan Retail Trade (YoY) above expectations (0.9%) in November: Actual (1%)",
+      "url": "https://www.fxstreet.com/news/japan-retail-trade-yoy-above-expectations-09-in-november-actual-1-202512252350",
+      "weekday": 3
+    },
+    {
+      "article_id": "80c142f8-5940-4593-892b-892cbf102e7a",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-12-25T23:50:40",
+      "summary": "Japan Industrial Production (YoY) dipped from previous 1.6% to -2.1% in November",
+      "tags": "Japan,USDJPY,IndustrialProduction",
+      "title": "Japan Industrial Production (YoY) dipped from previous 1.6% to -2.1% in November",
+      "url": "https://www.fxstreet.com/news/japan-industrial-production-yoy-dipped-from-previous-16-to-21-in-november-202512252350",
+      "weekday": 3
+    },
+    {
+      "article_id": "e4187a07-bbb7-49b5-9646-8685098ba81d",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-12-25T23:51:18",
+      "summary": "Japan Retail Trade s.a (MoM) down to 0.6% in November from previous 1.6%",
+      "tags": "RetailSales,Japan",
+      "title": "Japan Retail Trade s.a (MoM) down to 0.6% in November from previous 1.6%",
+      "url": "https://www.fxstreet.com/news/japan-retail-trade-sa-mom-down-to-06-in-november-from-previous-16-202512252351",
+      "weekday": 3
+    }
+  ],
+  "count": 10,
+  "date": "2025-12-25",
+  "generated_at": "2026-05-22T00:09:30.370116600+00:00"
+}

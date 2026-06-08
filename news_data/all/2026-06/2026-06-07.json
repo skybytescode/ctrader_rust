@@ -1,0 +1,103 @@
+{
+  "articles": [
+    {
+      "article_id": "5fcbbf2f-e88d-463a-8172-b80bd506626a",
+      "author": "FXStreet Team",
+      "body": null,
+      "hour_utc": 17,
+      "published_utc": "2026-06-07T17:00:20",
+      "summary": "China Foreign Exchange Reserves (MoM): $3.442T (May) vs $3.411T",
+      "tags": "ForeignTrade,China",
+      "title": "China Foreign Exchange Reserves (MoM): $3.442T (May) vs $3.411T",
+      "url": "https://www.fxstreet.com/news/china-foreign-exchange-reserves-mom-3442t-may-vs-3411t-202606071700",
+      "weekday": 6
+    },
+    {
+      "article_id": "3a72b2a7-cbed-4dd3-930c-010b4ebfea0a",
+      "author": "Lallalit Srijandorn",
+      "body": null,
+      "hour_utc": 22,
+      "published_utc": "2026-06-07T22:54:46",
+      "summary": "US President Donald Trump said that he would tell Israeli Prime Minister Benjamin Netanyahu not to strike back after Iran fired a salvo of missiles at Israeli targets in retaliation for an attack on the outskirts of Beirut, Reuters reported on Sunday.",
+      "tags": "MiddleEast,Oil,Iran,WTI,Israel",
+      "title": "US President Donald Trump says he will ask Netanyahu not to strike back at Iran",
+      "url": "https://www.fxstreet.com/news/us-president-donald-trump-says-he-will-ask-netanyahu-not-to-strike-back-at-iran-202606072254",
+      "weekday": 6
+    },
+    {
+      "article_id": "5bc8797a-7774-4b38-a6db-66dd1de2aca9",
+      "author": "Lallalit Srijandorn",
+      "body": null,
+      "hour_utc": 23,
+      "published_utc": "2026-06-07T23:15:29",
+      "summary": "The AUD/USD pair remains under selling pressure near 0.7035 during the early Asian session on Monday. The Australian Dollar (AUD) extends the decline against the US Dollar (USD) amid escalating tensions in the Middle East and stronger-than-expected US economic data. ",
+      "tags": "MiddleEast,NFP,Majors,AUDUSD,Macroeconomics",
+      "title": "Australian Dollar softens as Middle East tensions, stronger jobs report boost US Dollar ",
+      "url": "https://www.fxstreet.com/news/australian-dollar-softens-as-middle-east-tensions-stronger-jobs-report-boost-us-dollar-202606072315",
+      "weekday": 6
+    },
+    {
+      "article_id": "086df6d3-3a9e-460f-a42a-4ac9462d97dc",
+      "author": "FXStreet Team",
+      "body": null,
+      "hour_utc": 23,
+      "published_utc": "2026-06-07T23:50:02",
+      "summary": "Japan Bank Lending (YoY) above forecasts (5.6%) in May: Actual (5.7%)",
+      "tags": "Japan",
+      "title": "Japan Bank Lending (YoY) above forecasts (5.6%) in May: Actual (5.7%)",
+      "url": "https://www.fxstreet.com/news/japan-bank-lending-yoy-above-forecasts-56-in-may-actual-57-202606072350",
+      "weekday": 6
+    },
+    {
+      "article_id": "aef607e8-3a04-4c15-a47e-b41166ab2078",
+      "author": "FXStreet Team",
+      "body": null,
+      "hour_utc": 23,
+      "published_utc": "2026-06-07T23:52:11",
+      "summary": "Japan Gross Domestic Product (QoQ) registered at 0.5% above expectations (0.3%) in 1Q",
+      "tags": "GDP,Japan,USDJPY",
+      "title": "Japan Gross Domestic Product (QoQ) registered at 0.5% above expectations (0.3%) in 1Q",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-qoq-registered-at-05-above-expectations-03-in-1q-202606072352",
+      "weekday": 6
+    },
+    {
+      "article_id": "4558f315-8685-42de-899e-e2697841cb6e",
+      "author": "FXStreet Team",
+      "body": null,
+      "hour_utc": 23,
+      "published_utc": "2026-06-07T23:52:34",
+      "summary": "Japan Gross Domestic Product Annualized came in at 1.8%, above expectations (1.3%) in 1Q",
+      "tags": "GDP,Japan",
+      "title": "Japan Gross Domestic Product Annualized came in at 1.8%, above expectations (1.3%) in 1Q",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-annualized-came-in-at-18-above-expectations-13-in-1q-202606072352",
+      "weekday": 6
+    },
+    {
+      "article_id": "fe948650-2c96-414b-9ae8-b17bf015fe60",
+      "author": "FXStreet Team",
+      "body": null,
+      "hour_utc": 23,
+      "published_utc": "2026-06-07T23:53:29",
+      "summary": "Japan Current Account n.s.a. registered at ¥3907B above expectations (¥3137B) in April",
+      "tags": "TradeBalance,Japan,CurrentAccount",
+      "title": "Japan Current Account n.s.a. registered at ¥3907B above expectations (¥3137B) in April",
+      "url": "https://www.fxstreet.com/news/japan-current-account-nsa-registered-at-y3907b-above-expectations-y3137b-in-april-202606072353",
+      "weekday": 6
+    },
+    {
+      "article_id": "a6468b90-e3cc-46ee-8c9e-29480b7436cf",
+      "author": "FXStreet Team",
+      "body": null,
+      "hour_utc": 23,
+      "published_utc": "2026-06-07T23:54:32",
+      "summary": "Japan Gross Domestic Product Deflator (YoY) below expectations (3.4%) in 1Q: Actual (3.2%)",
+      "tags": "GDP,Japan",
+      "title": "Japan Gross Domestic Product Deflator (YoY) below expectations (3.4%) in 1Q: Actual (3.2%)",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-deflator-yoy-below-expectations-34-in-1q-actual-32-202606072354",
+      "weekday": 6
+    }
+  ],
+  "count": 8,
+  "date": "2026-06-07",
+  "generated_at": "2026-06-08T13:23:57.995442900+00:00"
+}

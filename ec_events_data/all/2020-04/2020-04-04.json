@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2020-04-04",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "37e18943-ce63-4121-9891-6b0df753e55e__2020-04-04T16:00:00Z",
+      "event_id": "37e18943-ce63-4121-9891-6b0df753e55e",
+      "event_name": "Daylight Saving Time Ends",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 16,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2020-04-04T16:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:58.279485600+00:00"
+}

@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2020-09-06",
+  "events": [
+    {
+      "actual": 42.5,
+      "actual_raw": "42.5",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de__2020-09-06T22:30:00Z",
+      "event_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de",
+      "event_name": "AiG Performance of Services Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 44.0,
+      "previous_raw": "44",
+      "surprise": null,
+      "timestamp_utc": "2020-09-06T22:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": 1398.5,
+      "actual_raw": "1398.5",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "9f94c00a-9463-4dbb-be65-48e5bc3f7721__2020-09-06T23:50:00Z",
+      "event_id": "9f94c00a-9463-4dbb-be65-48e5bc3f7721",
+      "event_name": "JP Foreign Reserves",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 1402.5,
+      "previous_raw": "1402.5",
+      "surprise": null,
+      "timestamp_utc": "2020-09-06T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:59.389239500+00:00"
+}

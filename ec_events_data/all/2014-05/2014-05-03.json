@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2014-05-03",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "b0ee8479-301e-4311-b22d-7ec23e1022ca__2014-05-03T00:00:00Z",
+      "event_id": "b0ee8479-301e-4311-b22d-7ec23e1022ca",
+      "event_name": "Constitution Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2014-05-03T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    },
+    {
+      "actual": 54.8,
+      "actual_raw": "54.8",
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "015034aa-965a-401a-a3ef-924fe5047153__2014-05-03T01:00:00Z",
+      "event_id": "015034aa-965a-401a-a3ef-924fe5047153",
+      "event_name": "NBS Non-Manufacturing PMI",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 1,
+      "previous": 54.5,
+      "previous_raw": "54.5",
+      "surprise": null,
+      "timestamp_utc": "2014-05-03T01:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:40.559609400+00:00"
+}

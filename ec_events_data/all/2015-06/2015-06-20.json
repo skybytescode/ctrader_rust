@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-06-20",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "FI",
+      "currency": "EUR",
+      "event_date_id": "599a9d84-f449-4d00-bcca-a1ee7771b3a9__2015-06-20T00:00:00Z",
+      "event_id": "599a9d84-f449-4d00-bcca-a1ee7771b3a9",
+      "event_name": "Midsummer day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-06-20T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:43.978057100+00:00"
+}

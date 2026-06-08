@@ -1,0 +1,55 @@
+{
+  "articles": [
+    {
+      "article_id": "6d1faca6-7325-4240-a6e4-e2436173fa67",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-11-02T22:54:53",
+      "summary": "Australia S&P Global Manufacturing PMI remains at 49.7 in October",
+      "tags": "Australia,PMI",
+      "title": "Australia S&P Global Manufacturing PMI remains at 49.7 in October",
+      "url": "https://www.fxstreet.com/news/australia-sp-global-manufacturing-pmi-remains-at-497-in-october-202511022254",
+      "weekday": 6
+    },
+    {
+      "article_id": "e269e346-b84d-4327-a752-8edafe0325c7",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-02T23:05:46",
+      "summary": "The USD/JPY pair trades with mild gains near 154.05 during the early Asian session on Monday. The Japanese Yen (JPY) softens against the US Dollar (USD) as the Bank of Japan (BoJ) disappointed traders hoping for a more hawkish stance on future rate hikes.",
+      "tags": "Majors,USDJPY,Macroeconomics",
+      "title": "USD/JPY holds positive ground above 154.00 on Powell's cautious remarks",
+      "url": "https://www.fxstreet.com/news/usd-jpy-holds-positive-ground-above-15400-on-powells-cautious-remarks-202511022305",
+      "weekday": 6
+    },
+    {
+      "article_id": "55d01aa4-62e3-40bc-809b-47a2a4faa6a9",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-02T23:21:59",
+      "summary": "The Organization of the Petroleum Exporting Countries and its allies (OPEC+) on Sunday agreed to a modest oil output hike for December and a pause output increases in the first quarter (Q1) of next year, Reuters reported on Sunday.",
+      "tags": "Oil,OPEC,WTI,Commodities,Macroeconomics",
+      "title": "OPEC+ agrees to pause output hikes next year amid glut fears",
+      "url": "https://www.fxstreet.com/news/opec-agrees-to-pause-output-hikes-next-year-amid-glut-fears-202511022321",
+      "weekday": 6
+    },
+    {
+      "article_id": "c04851bb-170e-4008-9ede-50a2939b8493",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-02T23:42:16",
+      "summary": "US President Donald Trump said late Sunday that he’s not really considering giving Ukraine Tomahawk missiles.",
+      "tags": "MiddleEast,Oil,UnitedStates,Commodities,Macroeconomics",
+      "title": "US President Donald Trump: Not considering giving Ukraine Tomahawk missiles",
+      "url": "https://www.fxstreet.com/news/us-president-donald-trump-not-considering-giving-ukraine-tomahawk-missiles-202511022342",
+      "weekday": 6
+    }
+  ],
+  "count": 4,
+  "date": "2025-11-02",
+  "generated_at": "2026-05-22T00:05:29.333870700+00:00"
+}

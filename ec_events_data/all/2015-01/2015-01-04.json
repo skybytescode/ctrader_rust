@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-01-04",
+  "events": [
+    {
+      "actual": 46.9,
+      "actual_raw": "46.9",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "de5e708b-3a8c-4bf9-afd6-a2758462a141__2015-01-04T22:30:00Z",
+      "event_id": "de5e708b-3a8c-4bf9-afd6-a2758462a141",
+      "event_name": "AiG Performance of Mfg Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 50.1,
+      "previous_raw": "50.1",
+      "surprise": null,
+      "timestamp_utc": "2015-01-04T22:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:42.476745100+00:00"
+}

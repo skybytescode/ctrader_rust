@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2023-11-18",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CH",
+      "currency": "CHF",
+      "event_date_id": "69458fb5-021f-4b0a-a76a-c2876b825a3b__2023-11-18T09:00:00Z",
+      "event_id": "69458fb5-021f-4b0a-a76a-c2876b825a3b",
+      "event_name": "SNB's Chairman Jordan speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 9,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-11-18T09:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:08.922634700+00:00"
+}

@@ -1,0 +1,115 @@
+{
+  "articles": [
+    {
+      "article_id": "e2125007-cb72-415b-af60-8c05ac90a441",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2025-11-30T01:30:46",
+      "summary": "China NBS Non-Manufacturing PMI down to 49.5 in November from previous 50.1",
+      "tags": "China,PMI",
+      "title": "China NBS Non-Manufacturing PMI down to 49.5 in November from previous 50.1",
+      "url": "https://www.fxstreet.com/news/china-nbs-non-manufacturing-pmi-down-to-495-in-november-from-previous-501-202511300130",
+      "weekday": 6
+    },
+    {
+      "article_id": "b1056770-7889-4f45-ad44-0503617a4248",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2025-11-30T01:31:21",
+      "summary": "China NBS Manufacturing PMI in line with expectations (49.2) in November",
+      "tags": "China,PMI",
+      "title": "China NBS Manufacturing PMI in line with expectations (49.2) in November",
+      "url": "https://www.fxstreet.com/news/china-nbs-manufacturing-pmi-in-line-with-expectations-492-in-november-202511300131",
+      "weekday": 6
+    },
+    {
+      "article_id": "17f6f233-d8f2-46a8-a58a-c336639b788a",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-11-30T22:16:39",
+      "summary": "China’s official Manufacturing Purchasing Managers' Index (PMI) rose to 49.2 in November, compared to 49.0 in the previous reading. The reading came in line with the the market consensus in the reported month. ",
+      "tags": "China,PMI,Macroeconomics",
+      "title": "China's NBS Manufacturing PMI rises to 49.2 in November, Non-Manufacturing PMI eases to 49.5",
+      "url": "https://www.fxstreet.com/news/chinas-nbs-manufacturing-pmi-rises-to-492-in-november-non-manufacturing-pmi-eases-to-495-202511302216",
+      "weekday": 6
+    },
+    {
+      "article_id": "f56f1f71-9921-4c2d-9f8e-bbf474275b6b",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-30T23:01:08",
+      "summary": "Australia S&P Global Manufacturing PMI remains unchanged at 51.6 in November",
+      "tags": "Australia,PMI",
+      "title": "Australia S&P Global Manufacturing PMI remains unchanged at 51.6 in November",
+      "url": "https://www.fxstreet.com/news/australia-sp-global-manufacturing-pmi-remains-unchanged-at-516-in-november-202511302301",
+      "weekday": 6
+    },
+    {
+      "article_id": "ea4ae789-1694-40e9-80ef-461eaff5d707",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-30T23:19:50",
+      "summary": "The USD/JPY pair posts modest losses near 156.10 during the early Asian session on Monday. Traders raise bets that the US Federal Reserve (Fed) will cut interest rates again at the December policy meeting, which weighs on the US Dollar (USD) against the Japanese Yen (JPY).",
+      "tags": "Majors,USDJPY,Macroeconomics",
+      "title": "USD/JPY softens to near 156.00 ahead of BoJ's Ueda speech",
+      "url": "https://www.fxstreet.com/news/usd-jpy-softens-to-near-15600-ahead-of-bojs-ueda-speech-202511302319",
+      "weekday": 6
+    },
+    {
+      "article_id": "f7194be4-25dd-4c80-822b-fd3cadaa618b",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-30T23:37:22",
+      "summary": "The Organization of the Petroleum Exporting Countries and its allies (OPEC+) agreed on Sunday to maintain oil output levels unchanged for the first quarter of 2026, Reuters reported.",
+      "tags": "Oil,OPEC,Energy,WTI,Commodities",
+      "title": "OPEC+ holds oil output steady, approves capacity mechanism",
+      "url": "https://www.fxstreet.com/news/opec-holds-oil-output-steady-approves-capacity-mechanism-202511302337",
+      "weekday": 6
+    },
+    {
+      "article_id": "4bc13950-ebfc-4b66-8a6e-a16dc81383d4",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-30T23:51:22",
+      "summary": "US Secretary of State Marco Rubio said on Sunday that a meeting between the US and Ukrainian officials was \"very productive\", but more work remains to be done towards ending Russia's war in Ukraine, the Guardian reported. ",
+      "tags": "MiddleEast,UnitedStates,RussianFederation,Politics,Macroeconomics",
+      "title": "US Secretary of State Rubio says meeting with Ukrainians is very productive",
+      "url": "https://www.fxstreet.com/news/us-secretary-of-state-rubio-says-meeting-with-ukrainians-is-very-productive-202511302351",
+      "weekday": 6
+    },
+    {
+      "article_id": "69633f69-51db-457c-91eb-c796e0c34101",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-30T23:52:52",
+      "summary": "Japan Capital Spending came in at 2.9% below forecasts (5.9%) in 3Q",
+      "tags": "Japan,IndustrialProduction",
+      "title": "Japan Capital Spending came in at 2.9% below forecasts (5.9%) in 3Q",
+      "url": "https://www.fxstreet.com/news/japan-capital-spending-came-in-at-29-below-forecasts-59-in-3q-202511302352",
+      "weekday": 6
+    },
+    {
+      "article_id": "1475d4cf-aa1c-4104-8474-8a1f87012d29",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-30T23:59:01",
+      "summary": "US President Donald Trump confirmed that he recently spoke by telephone with Venezuelan President Nicolas Maduro, but declined to reveal details, Reuters reported on Sunday.",
+      "tags": "Oil,UnitedStates,Venezuela,Commodities,Macroeconomics",
+      "title": "US President Donald Trump confirms phone call with Venezuelan President Maduro",
+      "url": "https://www.fxstreet.com/news/us-president-donald-trump-confirms-phone-call-with-venezuelan-president-maduro-202511302359",
+      "weekday": 6
+    }
+  ],
+  "count": 9,
+  "date": "2025-11-30",
+  "generated_at": "2026-05-22T00:07:43.397310800+00:00"
+}

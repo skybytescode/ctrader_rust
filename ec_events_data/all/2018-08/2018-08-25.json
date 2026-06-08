@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2018-08-25",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "b688befc-8cb6-4871-b4f2-b269a0e4462d__2018-08-25T00:00:00Z",
+      "event_id": "b688befc-8cb6-4871-b4f2-b269a0e4462d",
+      "event_name": "Jackson Hole Symposium",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2018-08-25T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:53.239046100+00:00"
+}

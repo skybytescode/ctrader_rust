@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2012-09-22",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "7cde5a70-8e0f-4d23-a080-4d0b2f15a20e__2012-09-22T00:00:00Z",
+      "event_id": "7cde5a70-8e0f-4d23-a080-4d0b2f15a20e",
+      "event_name": "Autumnal Equinox Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2012-09-22T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:36.102181+00:00"
+}

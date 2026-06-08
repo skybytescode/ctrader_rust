@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2026-02-14",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "9dd4293c-754b-4956-a244-7b49bea538a2__2026-02-14T16:30:00Z",
+      "event_id": "9dd4293c-754b-4956-a244-7b49bea538a2",
+      "event_name": "ECB's President Lagarde speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 16,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2026-02-14T16:30:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:16.017179900+00:00"
+}

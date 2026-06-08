@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2022-02-06",
+  "events": [
+    {
+      "actual": 56.2,
+      "actual_raw": "56.2",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de__2022-02-06T21:30:00Z",
+      "event_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de",
+      "event_name": "AiG Performance of Services Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 21,
+      "previous": 49.6,
+      "previous_raw": "49.6",
+      "surprise": null,
+      "timestamp_utc": "2022-02-06T21:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": 1385.93,
+      "actual_raw": "1385.93",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "9f94c00a-9463-4dbb-be65-48e5bc3f7721__2022-02-06T23:50:00Z",
+      "event_id": "9f94c00a-9463-4dbb-be65-48e5bc3f7721",
+      "event_name": "JP Foreign Reserves",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 1405.75,
+      "previous_raw": "1405.75",
+      "surprise": null,
+      "timestamp_utc": "2022-02-06T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:03.173596800+00:00"
+}

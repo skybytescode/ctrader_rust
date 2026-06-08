@@ -1,0 +1,67 @@
+{
+  "articles": [
+    {
+      "article_id": "f49222a5-0098-4249-ba69-9f5b8964f93d",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 21,
+      "published_utc": "2025-10-19T21:45:37",
+      "summary": "New Zealand Consumer Price Index (YoY) meets expectations (3%) in 3Q",
+      "tags": "Consumption,CPI,NewZealand",
+      "title": "New Zealand Consumer Price Index (YoY) meets expectations (3%) in 3Q",
+      "url": "https://www.fxstreet.com/news/new-zealand-consumer-price-index-yoy-meets-expectations-3-in-3q-202510192145",
+      "weekday": 6
+    },
+    {
+      "article_id": "9f74cc38-a2f9-4401-bc5d-11f983634e0b",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-10-19T22:13:37",
+      "summary": "New Zealand’s Consumer Price Index (CPI) climbed 3.0% YoY in the third quarter (Q3) of 2025, compared with the 2.7% increase seen in the second quarter, according to the latest data published by Statistics New Zealand on Monday. The market consensus was for a growth of 3.0% in the reported period",
+      "tags": "CPI,Inflation,NewZealand,Macroeconomics",
+      "title": "New Zealand’s CPI inflation rises to 3.0% YoY in Q3, as expected",
+      "url": "https://www.fxstreet.com/news/new-zealands-cpi-inflation-rises-to-30-yoy-in-q3-as-expected-202510192213",
+      "weekday": 6
+    },
+    {
+      "article_id": "1296865c-90e5-43a3-be39-903d4e1055f7",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-10-19T23:04:24",
+      "summary": "The NZD/USD pair gathers strength to near 0.5730 during the early Asian session on Monday. The New Zealand Dollar (NZD) edges higher against the US Dollar (USD) after the release of consumer price inflation data.",
+      "tags": "CPI,Majors,NewZealand,NZDUSD,Macroeconomics",
+      "title": "NZD/USD gathers strength above 0.5700 after New Zealand’s CPI inflation data",
+      "url": "https://www.fxstreet.com/news/nzd-usd-gathers-strength-above-05700-after-new-zealands-cpi-inflation-data-202510192304",
+      "weekday": 6
+    },
+    {
+      "article_id": "b1129996-bdbf-4703-b877-e71a9cfa7712",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-10-19T23:47:16",
+      "summary": "United Kingdom Rightmove House Price Index (MoM): 0.3% (October) vs previous 0.4%",
+      "tags": "Consumption,Housing,UnitedKingdom",
+      "title": "United Kingdom Rightmove House Price Index (MoM): 0.3% (October) vs previous 0.4%",
+      "url": "https://www.fxstreet.com/news/united-kingdom-rightmove-house-price-index-mom-03-october-vs-previous-04-202510192347",
+      "weekday": 6
+    },
+    {
+      "article_id": "fe71ce11-b285-4e71-983e-43d14736ab23",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-10-19T23:47:37",
+      "summary": "United Kingdom Rightmove House Price Index (YoY) increased to 0.1% in October from previous -0.1%",
+      "tags": "Consumption,Housing,UnitedKingdom",
+      "title": "United Kingdom Rightmove House Price Index (YoY) increased to 0.1% in October from previous -0.1%",
+      "url": "https://www.fxstreet.com/news/united-kingdom-rightmove-house-price-index-yoy-increased-to-01-in-october-from-previous-01-202510192347",
+      "weekday": 6
+    }
+  ],
+  "count": 5,
+  "date": "2025-10-19",
+  "generated_at": "2026-05-22T00:04:19.598632500+00:00"
+}

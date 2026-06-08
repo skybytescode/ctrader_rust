@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2023-02-25",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "00af144b-836f-48e8-84ef-1cd2cb019003__2023-02-25T00:00:00Z",
+      "event_id": "00af144b-836f-48e8-84ef-1cd2cb019003",
+      "event_name": "G20 Finance Ministers and Central Bank Governors Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-02-25T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:06.689050100+00:00"
+}

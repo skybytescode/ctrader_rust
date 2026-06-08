@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2022-10-09",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "9d5d815b-5121-4ecf-ae8f-0b174e243872__2022-10-09T15:00:00Z",
+      "event_id": "9d5d815b-5121-4ecf-ae8f-0b174e243872",
+      "event_name": "Health-Sports Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-10-09T15:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    },
+    {
+      "actual": 48.0,
+      "actual_raw": "48",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de__2022-10-09T22:30:00Z",
+      "event_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de",
+      "event_name": "AiG Performance of Services Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 53.3,
+      "previous_raw": "53.3",
+      "surprise": null,
+      "timestamp_utc": "2022-10-09T22:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:05.420427+00:00"
+}

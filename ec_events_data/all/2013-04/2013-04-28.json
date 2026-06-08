@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2013-04-28",
+  "events": [
+    {
+      "actual": 0.3,
+      "actual_raw": "0.3",
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "7a262107-aa0b-478c-a0c4-49b2a8589738__2013-04-28T23:01:00Z",
+      "event_id": "7a262107-aa0b-478c-a0c4-49b2a8589738",
+      "event_name": "Hometrack Housing Prices s.a (MoM)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 0.3,
+      "previous_raw": "0.3",
+      "surprise": null,
+      "timestamp_utc": "2013-04-28T23:01:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:37.616843700+00:00"
+}

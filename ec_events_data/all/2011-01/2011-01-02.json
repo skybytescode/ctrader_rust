@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2011-01-02",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CH",
+      "currency": "CHF",
+      "event_date_id": "ceb8de85-a4a8-43fd-83a0-744d6902146b__2011-01-02T00:00:00Z",
+      "event_id": "ceb8de85-a4a8-43fd-83a0-744d6902146b",
+      "event_name": "Bank Holiday",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2011-01-02T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:31.552891600+00:00"
+}

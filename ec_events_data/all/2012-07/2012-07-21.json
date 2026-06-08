@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2012-07-21",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "BE",
+      "currency": "EUR",
+      "event_date_id": "da4b1e22-8e45-453e-b650-89edc1cd6b5d__2012-07-21T00:00:00Z",
+      "event_id": "da4b1e22-8e45-453e-b650-89edc1cd6b5d",
+      "event_name": "National holiday ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2012-07-21T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:35.677313500+00:00"
+}

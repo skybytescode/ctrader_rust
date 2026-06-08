@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2009-09-21",
+  "events": [
+    {
+      "actual": -6.2,
+      "actual_raw": "-6.2",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "631cbbdd-4350-4f77-969d-4c3414f5df09__2009-09-21T01:30:00Z",
+      "event_id": "631cbbdd-4350-4f77-969d-4c3414f5df09",
+      "event_name": "New Motor Vehicle Sales (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 1,
+      "previous": -10.4,
+      "previous_raw": "-10.4",
+      "surprise": null,
+      "timestamp_utc": "2009-09-21T01:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 0
+    },
+    {
+      "actual": 0.1,
+      "actual_raw": "0.1",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "61d61cf6-b65b-447e-a3d0-b1165a4a17ce__2009-09-21T01:30:00Z",
+      "event_id": "61d61cf6-b65b-447e-a3d0-b1165a4a17ce",
+      "event_name": "New Motor Vehicle Sales (MoM)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 1,
+      "previous": -6.9,
+      "previous_raw": "-6.9",
+      "surprise": null,
+      "timestamp_utc": "2009-09-21T01:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 0
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:26.509705100+00:00"
+}

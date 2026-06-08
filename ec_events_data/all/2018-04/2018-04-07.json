@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2018-04-07",
+  "events": [
+    {
+      "actual": 3.143,
+      "actual_raw": "3.143",
+      "beats_forecast": 1,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "856f19d9-fc4f-42ad-9aaa-1e9bbe5abda2__2018-04-07T08:00:00Z",
+      "event_id": "856f19d9-fc4f-42ad-9aaa-1e9bbe5abda2",
+      "event_name": "Foreign Exchange Reserves (MoM)",
+      "forecast": 3.14,
+      "forecast_raw": "3.14",
+      "hour_utc": 8,
+      "previous": 3.134,
+      "previous_raw": "3.134",
+      "surprise": 0.0029999999999996696,
+      "timestamp_utc": "2018-04-07T08:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:51.812338+00:00"
+}

@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2011-04-10",
+  "events": [
+    {
+      "actual": 0.139,
+      "actual_raw": "0.139",
+      "beats_forecast": 1,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "4a0cc9ac-105f-4053-a2ee-3b2345bc7ddb__2011-04-10T21:39:30Z",
+      "event_id": "4a0cc9ac-105f-4053-a2ee-3b2345bc7ddb",
+      "event_name": "Trade Balance USD",
+      "forecast": -3.35,
+      "forecast_raw": "-3.35",
+      "hour_utc": 21,
+      "previous": -7.3,
+      "previous_raw": "-7.3",
+      "surprise": 3.489,
+      "timestamp_utc": "2011-04-10T21:39:30",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": -2.3,
+      "actual_raw": "-2.3",
+      "beats_forecast": -1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "f01f715f-a71d-4599-bf04-6ceffe02b6fe__2011-04-10T23:50:00Z",
+      "event_id": "f01f715f-a71d-4599-bf04-6ceffe02b6fe",
+      "event_name": "Machinery Orders (MoM)",
+      "forecast": -0.9,
+      "forecast_raw": "-0.9",
+      "hour_utc": 23,
+      "previous": 4.2,
+      "previous_raw": "4.2",
+      "surprise": -1.4,
+      "timestamp_utc": "2011-04-10T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:32.217296200+00:00"
+}

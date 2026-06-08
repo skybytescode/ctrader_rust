@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2010-01-03",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "3f05dfdf-e521-44c9-9368-27c8950715b7__2010-01-03T00:00:00Z",
+      "event_id": "3f05dfdf-e521-44c9-9368-27c8950715b7",
+      "event_name": "Bank Holiday",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2010-01-03T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    },
+    {
+      "actual": 51.0,
+      "actual_raw": "51",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "de5e708b-3a8c-4bf9-afd6-a2758462a141__2010-01-03T22:30:00Z",
+      "event_id": "de5e708b-3a8c-4bf9-afd6-a2758462a141",
+      "event_name": "AiG Performance of Mfg Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 48.5,
+      "previous_raw": "48.5",
+      "surprise": null,
+      "timestamp_utc": "2010-01-03T22:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:27.428700200+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2009-05-24",
+  "events": [
+    {
+      "actual": -1.8,
+      "actual_raw": "-1.8",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "8f8d87d7-2479-4b87-9f05-6b7df2a52dfa__2009-05-24T23:50:00Z",
+      "event_id": "8f8d87d7-2479-4b87-9f05-6b7df2a52dfa",
+      "event_name": "All Industry Activity Index (MoM)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": -2.3,
+      "previous_raw": "-2.3",
+      "surprise": null,
+      "timestamp_utc": "2009-05-24T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:25.521663700+00:00"
+}

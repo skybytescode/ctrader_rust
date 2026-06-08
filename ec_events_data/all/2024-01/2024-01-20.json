@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2024-01-20",
+  "events": [
+    {
+      "actual": 5.1,
+      "actual_raw": "5.1",
+      "beats_forecast": 1,
+      "country_code": "SK",
+      "currency": "EUR",
+      "event_date_id": "063e32b8-9f7e-490e-9e5c-3dbbe5a3b675__2024-01-20T13:30:00Z",
+      "event_id": "063e32b8-9f7e-490e-9e5c-3dbbe5a3b675",
+      "event_name": "Unemployment Rate",
+      "forecast": 5.05,
+      "forecast_raw": "5.05",
+      "hour_utc": 13,
+      "previous": 5.0,
+      "previous_raw": "5",
+      "surprise": 0.04999999999999982,
+      "timestamp_utc": "2024-01-20T13:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:09.363709100+00:00"
+}

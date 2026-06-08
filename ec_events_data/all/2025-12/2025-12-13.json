@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2025-12-13",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "c5d3de6d-d688-48e6-93c3-06b3db317169__2025-12-13T15:00:00Z",
+      "event_id": "c5d3de6d-d688-48e6-93c3-06b3db317169",
+      "event_name": "ECB's Cipollone speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-12-13T15:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:15.397518100+00:00"
+}

@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2013-01-27",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CH",
+      "currency": "CHF",
+      "event_date_id": "4e6659ef-bc1b-4ba7-8ddd-8ed1722e650d__2013-01-27T00:00:00Z",
+      "event_id": "4e6659ef-bc1b-4ba7-8ddd-8ed1722e650d",
+      "event_name": "World Economic Forum - Davos",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2013-01-27T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": -0.4,
+      "actual_raw": "-0.4",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "8c164255-ac3a-40ef-bd56-df43f47d5b8a__2013-01-27T23:50:00Z",
+      "event_id": "8c164255-ac3a-40ef-bd56-df43f47d5b8a",
+      "event_name": "Corporate Service Price Index (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": -0.5,
+      "previous_raw": "-0.5",
+      "surprise": null,
+      "timestamp_utc": "2013-01-27T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:36.973687500+00:00"
+}

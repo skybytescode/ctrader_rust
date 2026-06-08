@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2022-01-01",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "5931c088-d6bb-4636-936b-14e28c351a56__2022-01-01T05:00:00Z",
+      "event_id": "5931c088-d6bb-4636-936b-14e28c351a56",
+      "event_name": "New Year's Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 5,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-01-01T05:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "IE",
+      "currency": "EUR",
+      "event_date_id": "74a4f02e-2e49-4fc3-9c8e-7bd27f5a92c7__2022-01-01T23:00:00Z",
+      "event_id": "74a4f02e-2e49-4fc3-9c8e-7bd27f5a92c7",
+      "event_name": "New Year's Holiday",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-01-01T23:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:02.948056300+00:00"
+}

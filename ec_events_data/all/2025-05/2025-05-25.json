@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2025-05-25",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "afc2452a-0957-4f10-9d10-cb4512ef838d__2025-05-25T18:40:00Z",
+      "event_id": "afc2452a-0957-4f10-9d10-cb4512ef838d",
+      "event_name": "Fed's Powell speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 18,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-05-25T18:40:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "6525a1a7-db61-43b9-8d4e-c3d5095be473__2025-05-25T23:00:00Z",
+      "event_id": "6525a1a7-db61-43b9-8d4e-c3d5095be473",
+      "event_name": "Spring Bank Holiday",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-05-25T23:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:13.335959900+00:00"
+}

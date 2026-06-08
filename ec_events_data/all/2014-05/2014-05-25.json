@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2014-05-25",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "c8c21d2b-88f1-487c-a96f-a8ced471b9c9__2014-05-25T00:00:00Z",
+      "event_id": "c8c21d2b-88f1-487c-a96f-a8ced471b9c9",
+      "event_name": "European Parliament Election",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2014-05-25T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "bc811898-14cb-432c-ab0b-31798e95cc74__2014-05-25T23:50:00Z",
+      "event_id": "bc811898-14cb-432c-ab0b-31798e95cc74",
+      "event_name": "BoJ Monetary Policy Meeting Minutes",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2014-05-25T23:50:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:40.559609400+00:00"
+}

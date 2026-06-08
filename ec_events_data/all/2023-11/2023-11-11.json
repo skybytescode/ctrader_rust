@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2023-11-11",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "85f4e78a-ee12-42bd-9d5f-5bcef59ca4da__2023-11-11T05:00:00Z",
+      "event_id": "85f4e78a-ee12-42bd-9d5f-5bcef59ca4da",
+      "event_name": "Veterans Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 5,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-11-11T05:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:08.922634700+00:00"
+}

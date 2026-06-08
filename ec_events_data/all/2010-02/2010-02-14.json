@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2010-02-14",
+  "events": [
+    {
+      "actual": 6.3,
+      "actual_raw": "6.3",
+      "beats_forecast": 1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "6ca644c2-2423-4b0a-afac-be3190415639__2010-02-14T23:50:00Z",
+      "event_id": "6ca644c2-2423-4b0a-afac-be3190415639",
+      "event_name": "Gross Domestic Product Annualized",
+      "forecast": 3.8,
+      "forecast_raw": "3.8",
+      "hour_utc": 23,
+      "previous": 0.0,
+      "previous_raw": "0",
+      "surprise": 2.5,
+      "timestamp_utc": "2010-02-14T23:50:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    },
+    {
+      "actual": 1.1,
+      "actual_raw": "1.1",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "523c3261-8d74-4252-a3fc-cb03c3e3b0b3__2010-02-14T23:50:00Z",
+      "event_id": "523c3261-8d74-4252-a3fc-cb03c3e3b0b3",
+      "event_name": "Gross Domestic Product (QoQ)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 0.0,
+      "previous_raw": "0",
+      "surprise": null,
+      "timestamp_utc": "2010-02-14T23:50:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:27.677046500+00:00"
+}

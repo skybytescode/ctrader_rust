@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2013-06-23",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EE",
+      "currency": "EUR",
+      "event_date_id": "52b1a8f7-9295-4896-a40e-1437713526cc__2013-06-23T00:00:00Z",
+      "event_id": "52b1a8f7-9295-4896-a40e-1437713526cc",
+      "event_name": "Victory Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2013-06-23T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    },
+    {
+      "actual": 0.7,
+      "actual_raw": "0.7",
+      "beats_forecast": null,
+      "country_code": "AT",
+      "currency": "EUR",
+      "event_date_id": "3d8bcee4-b164-4905-98c9-92d2763dd29c__2013-06-23T22:00:00Z",
+      "event_id": "3d8bcee4-b164-4905-98c9-92d2763dd29c",
+      "event_name": "Industrial Production (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": -1.7,
+      "previous_raw": "-1.7",
+      "surprise": null,
+      "timestamp_utc": "2013-06-23T22:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:38.094750600+00:00"
+}

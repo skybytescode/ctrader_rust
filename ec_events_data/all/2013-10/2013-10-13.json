@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2013-10-13",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "0d332666-9d39-47d6-9986-97de648c52eb__2013-10-13T00:00:00Z",
+      "event_id": "0d332666-9d39-47d6-9986-97de648c52eb",
+      "event_name": "IMF Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2013-10-13T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "d7ca619d-e804-4080-aed3-ec9f56f4edce__2013-10-13T00:00:00Z",
+      "event_id": "d7ca619d-e804-4080-aed3-ec9f56f4edce",
+      "event_name": "Chung Yeung Festival ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2013-10-13T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:38.995936500+00:00"
+}

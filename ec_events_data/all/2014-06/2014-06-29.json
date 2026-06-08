@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2014-06-29",
+  "events": [
+    {
+      "actual": 0.5,
+      "actual_raw": "0.5",
+      "beats_forecast": -1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "dd5110a8-aaaf-49e8-b7cb-ff3b90ed543d__2014-06-29T23:50:00Z",
+      "event_id": "dd5110a8-aaaf-49e8-b7cb-ff3b90ed543d",
+      "event_name": "Industrial Production (MoM)",
+      "forecast": 0.9,
+      "forecast_raw": "0.9",
+      "hour_utc": 23,
+      "previous": -2.8,
+      "previous_raw": "-2.8",
+      "surprise": -0.4,
+      "timestamp_utc": "2014-06-29T23:50:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": 0.8,
+      "actual_raw": "0.8",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "34003141-e6cf-4c81-939c-5e39e0170b33__2014-06-29T23:50:00Z",
+      "event_id": "34003141-e6cf-4c81-939c-5e39e0170b33",
+      "event_name": "Industrial Production (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 3.8,
+      "previous_raw": "3.8",
+      "surprise": null,
+      "timestamp_utc": "2014-06-29T23:50:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:40.766067700+00:00"
+}

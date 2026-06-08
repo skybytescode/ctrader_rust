@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2010-05-09",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "1245953f-00fb-47f9-be6b-a991d188f090__2010-05-09T23:50:00Z",
+      "event_id": "1245953f-00fb-47f9-be6b-a991d188f090",
+      "event_name": "BoJ Minutes",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2010-05-09T23:50:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:28.658914100+00:00"
+}

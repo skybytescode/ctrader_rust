@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2015-10-03",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "DE",
+      "currency": "EUR",
+      "event_date_id": "42c4520f-26c8-4d6b-8e8c-40e29de39dc8__2015-10-03T00:00:00Z",
+      "event_id": "42c4520f-26c8-4d6b-8e8c-40e29de39dc8",
+      "event_name": "Day of German Unity",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-10-03T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "cdf43a59-56e2-4367-a4b6-a1df2909a8f0__2015-10-03T15:00:00Z",
+      "event_id": "cdf43a59-56e2-4367-a4b6-a1df2909a8f0",
+      "event_name": "Fed's Dudley speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-10-03T15:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:44.870424500+00:00"
+}

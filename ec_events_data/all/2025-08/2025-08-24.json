@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2025-08-24",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "0beefc81-ebee-42ee-9348-d1db235ed504__2025-08-24T23:00:00Z",
+      "event_id": "0beefc81-ebee-42ee-9348-d1db235ed504",
+      "event_name": "Summer Bank Holiday",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-08-24T23:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:14.186740500+00:00"
+}

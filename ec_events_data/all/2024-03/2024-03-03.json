@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2024-03-03",
+  "events": [
+    {
+      "actual": 16.4,
+      "actual_raw": "16.4",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "23fe8eac-358f-42ef-b560-8c36b646b45c__2024-03-03T23:50:00Z",
+      "event_id": "23fe8eac-358f-42ef-b560-8c36b646b45c",
+      "event_name": "Capital Spending",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 3.4,
+      "previous_raw": "3.4",
+      "surprise": null,
+      "timestamp_utc": "2024-03-03T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": 2.4,
+      "actual_raw": "2.4",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "60171ab3-7419-49ae-9117-eae6f1e8a128__2024-03-03T23:50:00Z",
+      "event_id": "60171ab3-7419-49ae-9117-eae6f1e8a128",
+      "event_name": "Monetary Base (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 4.8,
+      "previous_raw": "4.8",
+      "surprise": null,
+      "timestamp_utc": "2024-03-03T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:09.802528500+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2022-07-02",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "7ede1f9b-0a76-4f91-8d47-cce9dc9a699c__2022-07-02T13:15:00Z",
+      "event_id": "7ede1f9b-0a76-4f91-8d47-cce9dc9a699c",
+      "event_name": "ECB's Schnabel speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 13,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-07-02T13:15:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:04.341498+00:00"
+}

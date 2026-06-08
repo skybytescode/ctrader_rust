@@ -1,0 +1,43 @@
+{
+  "articles": [
+    {
+      "article_id": "9fad6197-d910-4da5-9f69-3f1969aa46ec",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2025-05-10T01:31:42",
+      "summary": "China Consumer Price Index (YoY) meets forecasts (-0.1%) in April",
+      "tags": "Consumption,China,CPI,Inflation,USDCNY",
+      "title": "China Consumer Price Index (YoY) meets forecasts (-0.1%) in April",
+      "url": "https://www.fxstreet.com/news/china-consumer-price-index-yoy-meets-forecasts-01-in-april-202505100131",
+      "weekday": 5
+    },
+    {
+      "article_id": "7650f1e8-704c-434a-a3de-b9546bbb86c8",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2025-05-10T01:31:42",
+      "summary": "China Consumer Price Index (MoM) up to 0.1% in April from previous -0.4%",
+      "tags": "China,CPI,Inflation,USDCNY",
+      "title": "China Consumer Price Index (MoM) up to 0.1% in April from previous -0.4%",
+      "url": "https://www.fxstreet.com/news/china-consumer-price-index-mom-up-to-01-in-april-from-previous-04-202505100131",
+      "weekday": 5
+    },
+    {
+      "article_id": "7655a34e-0ec8-4bee-bbe1-90b15c8bd534",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2025-05-10T01:31:51",
+      "summary": "China Producer Price Index (YoY) below forecasts (-2.6%) in April: Actual (-2.7%)",
+      "tags": "China,PPI,Inflation,USDCNY",
+      "title": "China Producer Price Index (YoY) below forecasts (-2.6%) in April: Actual (-2.7%)",
+      "url": "https://www.fxstreet.com/news/china-producer-price-index-yoy-below-forecasts-26-in-april-actual-27-202505100131",
+      "weekday": 5
+    }
+  ],
+  "count": 3,
+  "date": "2025-05-10",
+  "generated_at": "2026-05-21T23:51:14.385603900+00:00"
+}

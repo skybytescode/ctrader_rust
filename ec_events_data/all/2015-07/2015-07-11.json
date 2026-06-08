@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-07-11",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "8184e98a-4ade-4eca-b140-226f6e1915ae__2015-07-11T10:00:00Z",
+      "event_id": "8184e98a-4ade-4eca-b140-226f6e1915ae",
+      "event_name": "Eurogroup Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 10,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-07-11T10:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:44.212357200+00:00"
+}

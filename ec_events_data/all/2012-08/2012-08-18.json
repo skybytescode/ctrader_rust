@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2012-08-18",
+  "events": [
+    {
+      "actual": -1.5,
+      "actual_raw": "-1.5",
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "704fa9ee-e4c6-4599-97d3-7f3f42bf7542__2012-08-18T04:10:04.017Z",
+      "event_id": "704fa9ee-e4c6-4599-97d3-7f3f42bf7542",
+      "event_name": "House Price Index ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 4,
+      "previous": -1.5,
+      "previous_raw": "-1.5",
+      "surprise": null,
+      "timestamp_utc": "2012-08-18T04:10:04",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:35.900741300+00:00"
+}

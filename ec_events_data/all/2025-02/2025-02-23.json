@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2025-02-23",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "DE",
+      "currency": "EUR",
+      "event_date_id": "0c847701-4b85-4946-b4e8-228318218b8d__2025-02-23T00:00:00Z",
+      "event_id": "0c847701-4b85-4946-b4e8-228318218b8d",
+      "event_name": "Federal Election",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-02-23T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:12.306052100+00:00"
+}

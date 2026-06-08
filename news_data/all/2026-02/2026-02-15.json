@@ -1,0 +1,79 @@
+{
+  "articles": [
+    {
+      "article_id": "25bbb524-dcf0-4014-bae4-6e3efb1556ff",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 21,
+      "published_utc": "2026-02-15T21:45:05",
+      "summary": "New Zealand Electronic Card Retail Sales  (MoM) declined to -1.1% in January from previous -0.1%",
+      "tags": "RetailSales,NewZealand,NZDUSD",
+      "title": "New Zealand Electronic Card Retail Sales  (MoM) declined to -1.1% in January from previous -0.1%",
+      "url": "https://www.fxstreet.com/news/new-zealand-electronic-card-retail-sales-mom-declined-to-11-in-january-from-previous-01-202602152145",
+      "weekday": 6
+    },
+    {
+      "article_id": "32a0579e-2c5c-4381-9f76-e9b0c61e98d9",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 21,
+      "published_utc": "2026-02-15T21:47:33",
+      "summary": "New Zealand Electronic Card Retail Sales (YoY) increased to 0.4% in January from previous -1%",
+      "tags": "RetailSales,NewZealand,NZDUSD",
+      "title": "New Zealand Electronic Card Retail Sales (YoY) increased to 0.4% in January from previous -1%",
+      "url": "https://www.fxstreet.com/news/new-zealand-electronic-card-retail-sales-yoy-increased-to-04-in-january-from-previous-1-202602152147",
+      "weekday": 6
+    },
+    {
+      "article_id": "8392105a-2fc0-44d0-b895-15c819f77161",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2026-02-15T23:14:17",
+      "summary": "New Zealand Business NZ PSI: 50.9 (January) vs previous 51.5",
+      "tags": "NewZealand,PMI",
+      "title": "New Zealand Business NZ PSI: 50.9 (January) vs previous 51.5",
+      "url": "https://www.fxstreet.com/news/new-zealand-business-nz-psi-509-january-vs-previous-515-202602152314",
+      "weekday": 6
+    },
+    {
+      "article_id": "af202710-8eb9-4d33-a05d-867a4027a122",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2026-02-15T23:50:00",
+      "summary": "Japan Gross Domestic Product Annualized registered at 0.2%, below expectations (1.6%) in 4Q",
+      "tags": "GDP,Japan",
+      "title": "Japan Gross Domestic Product Annualized registered at 0.2%, below expectations (1.6%) in 4Q",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-annualized-registered-at-02-below-expectations-16-in-4q-202602152350",
+      "weekday": 6
+    },
+    {
+      "article_id": "e0348692-e473-4650-a66b-79ceba3473a3",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2026-02-15T23:53:34",
+      "summary": "Japan Gross Domestic Product Deflator (YoY) remains unchanged at 3.4% in 4Q",
+      "tags": "GDP,Japan",
+      "title": "Japan Gross Domestic Product Deflator (YoY) remains unchanged at 3.4% in 4Q",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-deflator-yoy-remains-unchanged-at-34-in-4q-202602152353",
+      "weekday": 6
+    },
+    {
+      "article_id": "d5e48f12-7d39-4e49-b456-f1caddb7dab1",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2026-02-15T23:53:49",
+      "summary": "Japan Gross Domestic Product (QoQ) came in at 0.1% below forecasts (0.4%) in 4Q",
+      "tags": "GDP,Japan,USDJPY",
+      "title": "Japan Gross Domestic Product (QoQ) came in at 0.1% below forecasts (0.4%) in 4Q",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-qoq-came-in-at-01-below-forecasts-04-in-4q-202602152353",
+      "weekday": 6
+    }
+  ],
+  "count": 6,
+  "date": "2026-02-15",
+  "generated_at": "2026-05-22T13:51:44.133717600+00:00"
+}

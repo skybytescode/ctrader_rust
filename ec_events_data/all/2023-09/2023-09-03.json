@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2023-09-03",
+  "events": [
+    {
+      "actual": 1.2,
+      "actual_raw": "1.2",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "60171ab3-7419-49ae-9117-eae6f1e8a128__2023-09-03T23:50:00Z",
+      "event_id": "60171ab3-7419-49ae-9117-eae6f1e8a128",
+      "event_name": "Monetary Base (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": -1.3,
+      "previous_raw": "-1.3",
+      "surprise": null,
+      "timestamp_utc": "2023-09-03T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:08.470354300+00:00"
+}

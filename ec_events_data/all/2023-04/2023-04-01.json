@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2023-04-01",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "bc120ebd-b2ea-4c88-8109-d4e74d60f653__2023-04-01T06:30:00Z",
+      "event_id": "bc120ebd-b2ea-4c88-8109-d4e74d60f653",
+      "event_name": "ECB's De Guindos speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 6,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-04-01T06:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "37e18943-ce63-4121-9891-6b0df753e55e__2023-04-01T16:00:00Z",
+      "event_id": "37e18943-ce63-4121-9891-6b0df753e55e",
+      "event_name": "Daylight Saving Time Ends",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 16,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-04-01T16:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:07.242246600+00:00"
+}

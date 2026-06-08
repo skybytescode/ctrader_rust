@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2026-03-01",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "b5cee791-8ea3-4cc8-8fea-573f85b8851c__2026-03-01T15:00:00Z",
+      "event_id": "b5cee791-8ea3-4cc8-8fea-573f85b8851c",
+      "event_name": "ECB's Nagel speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2026-03-01T15:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "3766e161-8431-4a94-8a37-1257784bba6c__2026-03-01T22:00:00Z",
+      "event_id": "3766e161-8431-4a94-8a37-1257784bba6c",
+      "event_name": "S&P Global Manufacturing PMI",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 51.5,
+      "previous_raw": "51.5",
+      "surprise": null,
+      "timestamp_utc": "2026-03-01T22:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:16.321736300+00:00"
+}

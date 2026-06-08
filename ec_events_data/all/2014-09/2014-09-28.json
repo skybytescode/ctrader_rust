@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2014-09-28",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "992d0868-036b-4f5c-84fb-2a2a3ab689e5__2014-09-28T16:15:00Z",
+      "event_id": "992d0868-036b-4f5c-84fb-2a2a3ab689e5",
+      "event_name": "Former Fed's Chair Bernanke speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 16,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2014-09-28T16:15:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:41.459394500+00:00"
+}

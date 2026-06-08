@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2021-09-11",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "20f93562-e778-4f06-9af7-2eca6b6c77f0__2021-09-11T07:00:00Z",
+      "event_id": "20f93562-e778-4f06-9af7-2eca6b6c77f0",
+      "event_name": "EcoFin Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 7,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2021-09-11T07:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "bc120ebd-b2ea-4c88-8109-d4e74d60f653__2021-09-11T10:30:00Z",
+      "event_id": "bc120ebd-b2ea-4c88-8109-d4e74d60f653",
+      "event_name": "ECB's De Guindos speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 10,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2021-09-11T10:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:02.071469300+00:00"
+}

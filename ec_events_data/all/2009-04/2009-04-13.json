@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2009-04-13",
+  "events": [
+    {
+      "actual": -7.9,
+      "actual_raw": "-7.9",
+      "beats_forecast": -1,
+      "country_code": "DE",
+      "currency": "EUR",
+      "event_date_id": "78449d76-7d69-44de-8d14-60ebbf177abd__2009-04-13T06:00:00Z",
+      "event_id": "78449d76-7d69-44de-8d14-60ebbf177abd",
+      "event_name": "Wholesale Price Index (YoY)",
+      "forecast": 6.0,
+      "forecast_raw": "6",
+      "hour_utc": 6,
+      "previous": -6.0,
+      "previous_raw": "-6",
+      "surprise": -13.9,
+      "timestamp_utc": "2009-04-13T06:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 0
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:25.277521900+00:00"
+}

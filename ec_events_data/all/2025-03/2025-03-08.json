@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2025-03-08",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "83887e19-1352-453f-96e9-7406bc598f40__2025-03-08T00:30:00Z",
+      "event_id": "83887e19-1352-453f-96e9-7406bc598f40",
+      "event_name": "Fed's Daly speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-03-08T00:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:12.660637500+00:00"
+}

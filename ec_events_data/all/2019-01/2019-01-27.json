@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2019-01-27",
+  "events": [
+    {
+      "actual": 1.1,
+      "actual_raw": "1.1",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "8c164255-ac3a-40ef-bd56-df43f47d5b8a__2019-01-27T23:50:00Z",
+      "event_id": "8c164255-ac3a-40ef-bd56-df43f47d5b8a",
+      "event_name": "Corporate Service Price Index (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 1.2,
+      "previous_raw": "1.2",
+      "surprise": null,
+      "timestamp_utc": "2019-01-27T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "bc811898-14cb-432c-ab0b-31798e95cc74__2019-01-27T23:50:00Z",
+      "event_id": "bc811898-14cb-432c-ab0b-31798e95cc74",
+      "event_name": "BoJ Monetary Policy Meeting Minutes",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2019-01-27T23:50:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:54.805961800+00:00"
+}

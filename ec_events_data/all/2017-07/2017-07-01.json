@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2017-07-01",
+  "events": [
+    {
+      "actual": 337.9,
+      "actual_raw": "337.9",
+      "beats_forecast": null,
+      "country_code": "AT",
+      "currency": "EUR",
+      "event_date_id": "a55d5b38-6ca9-4846-9224-6040db3fba16__2017-07-01T00:00:00Z",
+      "event_id": "a55d5b38-6ca9-4846-9224-6040db3fba16",
+      "event_name": "Unemployment",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": 318.0,
+      "previous_raw": "318",
+      "surprise": null,
+      "timestamp_utc": "2017-07-01T00:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    },
+    {
+      "actual": 8.6,
+      "actual_raw": "8.6",
+      "beats_forecast": null,
+      "country_code": "AT",
+      "currency": "EUR",
+      "event_date_id": "7f131282-df0b-4d39-8545-55220de15619__2017-07-01T00:00:00Z",
+      "event_id": "7f131282-df0b-4d39-8545-55220de15619",
+      "event_name": "Unemployment Rate",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": 8.0,
+      "previous_raw": "8",
+      "surprise": null,
+      "timestamp_utc": "2017-07-01T00:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:49.809346200+00:00"
+}

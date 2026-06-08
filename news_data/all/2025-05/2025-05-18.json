@@ -1,0 +1,43 @@
+{
+  "articles": [
+    {
+      "article_id": "8c9531a2-0005-4a3d-a7eb-df14851fa5d1",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-05-18T22:32:31",
+      "summary": "New Zealand Business NZ PSI: 48.5 (April) vs previous 49.1",
+      "tags": "NewZealand,PMI",
+      "title": "New Zealand Business NZ PSI: 48.5 (April) vs previous 49.1",
+      "url": "https://www.fxstreet.com/news/new-zealand-business-nz-psi-485-april-vs-previous-491-202505182232",
+      "weekday": 6
+    },
+    {
+      "article_id": "74110f6b-1016-4242-bde7-be86dd871292",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-05-18T22:45:34",
+      "summary": "New Zealand Producer Price Index - Input (QoQ) above expectations (0.2%) in 1Q: Actual (2.9%)",
+      "tags": "PPI,NewZealand",
+      "title": "New Zealand Producer Price Index - Input (QoQ) above expectations (0.2%) in 1Q: Actual (2.9%)",
+      "url": "https://www.fxstreet.com/news/new-zealand-producer-price-index-input-qoq-above-expectations-02-in-1q-actual-29-202505182245",
+      "weekday": 6
+    },
+    {
+      "article_id": "28bb5da0-3d41-4f97-a64e-66121ea4f7b9",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-05-18T22:45:36",
+      "summary": "New Zealand Producer Price Index - Output (QoQ) registered at 2.1% above expectations (0.1%) in 1Q",
+      "tags": "PPI,NewZealand",
+      "title": "New Zealand Producer Price Index - Output (QoQ) registered at 2.1% above expectations (0.1%) in 1Q",
+      "url": "https://www.fxstreet.com/news/new-zealand-producer-price-index-output-qoq-registered-at-21-above-expectations-01-in-1q-202505182245",
+      "weekday": 6
+    }
+  ],
+  "count": 3,
+  "date": "2025-05-18",
+  "generated_at": "2026-05-21T23:51:44.352892+00:00"
+}

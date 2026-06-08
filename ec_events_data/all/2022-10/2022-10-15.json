@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2022-10-15",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "0d332666-9d39-47d6-9986-97de648c52eb__2022-10-15T00:00:00Z",
+      "event_id": "0d332666-9d39-47d6-9986-97de648c52eb",
+      "event_name": "IMF Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-10-15T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "50b24e99-a6b1-4d34-9122-e5899ecf7824__2022-10-15T17:15:00Z",
+      "event_id": "50b24e99-a6b1-4d34-9122-e5899ecf7824",
+      "event_name": "ECB's Lane speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 17,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-10-15T17:15:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:05.420427+00:00"
+}

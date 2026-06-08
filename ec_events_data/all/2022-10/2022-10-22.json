@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2022-10-22",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "9dd4293c-754b-4956-a244-7b49bea538a2__2022-10-22T09:00:00Z",
+      "event_id": "9dd4293c-754b-4956-a244-7b49bea538a2",
+      "event_name": "ECB's President Lagarde speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 9,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-10-22T09:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:05.420427+00:00"
+}

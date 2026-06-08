@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2018-02-04",
+  "events": [
+    {
+      "actual": 54.9,
+      "actual_raw": "54.9",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de__2018-02-04T22:30:00Z",
+      "event_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de",
+      "event_name": "AiG Performance of Services Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 52.0,
+      "previous_raw": "52",
+      "surprise": null,
+      "timestamp_utc": "2018-02-04T22:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:51.316212100+00:00"
+}

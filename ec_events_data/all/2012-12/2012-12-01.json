@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2012-12-01",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "PT",
+      "currency": "EUR",
+      "event_date_id": "dafc13c2-7d51-4bb1-9516-410a41327f78__2012-12-01T00:00:00Z",
+      "event_id": "dafc13c2-7d51-4bb1-9516-410a41327f78",
+      "event_name": "New Year's Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2012-12-01T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    },
+    {
+      "actual": 50.6,
+      "actual_raw": "50.6",
+      "beats_forecast": 0,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "6e0be41a-08d2-43d8-a649-a02c7eb89629__2012-12-01T01:00:00Z",
+      "event_id": "6e0be41a-08d2-43d8-a649-a02c7eb89629",
+      "event_name": "NBS Manufacturing PMI",
+      "forecast": 50.6,
+      "forecast_raw": "50.6",
+      "hour_utc": 1,
+      "previous": 50.2,
+      "previous_raw": "50.2",
+      "surprise": 0.0,
+      "timestamp_utc": "2012-12-01T01:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:36.767592700+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2022-06-11",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "e3e04894-3450-43ac-bbcb-5de5829b1d12__2022-06-11T07:10:00Z",
+      "event_id": "e3e04894-3450-43ac-bbcb-5de5829b1d12",
+      "event_name": "ECB's Elderson speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 7,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-06-11T07:10:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:04.113803100+00:00"
+}

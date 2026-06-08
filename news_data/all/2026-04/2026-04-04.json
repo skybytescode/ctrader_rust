@@ -1,0 +1,91 @@
+{
+  "articles": [
+    {
+      "article_id": "912c0d48-f1f0-47fe-bb31-74b077f2b245",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2026-04-04T01:46:29",
+      "summary": "Australia CFTC AUD NC Net Positions: $81.5K  vs $70.9K",
+      "tags": "Australia",
+      "title": "Australia CFTC AUD NC Net Positions: $81.5K  vs $70.9K",
+      "url": "https://www.fxstreet.com/news/australia-cftc-aud-nc-net-positions-815k-vs-709k-202604040146",
+      "weekday": 5
+    },
+    {
+      "article_id": "d13899dd-3354-4b7c-9f1c-e841204a9b8f",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2026-04-04T01:46:33",
+      "summary": "Japan CFTC JPY NC Net Positions: ¥-72.9K  vs previous ¥-62.8K",
+      "tags": "TradeBalance,Japan,COT",
+      "title": "Japan CFTC JPY NC Net Positions: ¥-72.9K  vs previous ¥-62.8K",
+      "url": "https://www.fxstreet.com/news/japan-cftc-jpy-nc-net-positions-y-729k-vs-previous-y-628k-202604040146",
+      "weekday": 5
+    },
+    {
+      "article_id": "efd75282-0d18-4ad9-b87a-8736953dd97d",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2026-04-04T01:46:42",
+      "summary": "United States CFTC S&P 500 NC Net Positions rose from previous $-80.9K to $-42.5K",
+      "tags": "UnitedStates,COT",
+      "title": "United States CFTC S&P 500 NC Net Positions rose from previous $-80.9K to $-42.5K",
+      "url": "https://www.fxstreet.com/news/united-states-cftc-sp-500-nc-net-positions-rose-from-previous-809k-to-425k-202604040146",
+      "weekday": 5
+    },
+    {
+      "article_id": "b6b1535e-8fc2-4597-89cc-c4cabf8e8b42",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2026-04-04T01:46:47",
+      "summary": "Eurozone CFTC EUR NC Net Positions down to €0.5K from previous €9.3K",
+      "tags": "TradeBalance,Eurozone",
+      "title": "Eurozone CFTC EUR NC Net Positions down to €0.5K from previous €9.3K",
+      "url": "https://www.fxstreet.com/news/eurozone-cftc-eur-nc-net-positions-down-to-eu05k-from-previous-eu93k-202604040146",
+      "weekday": 5
+    },
+    {
+      "article_id": "94b02e94-38e5-4f8b-9062-6a6e4e89bcd8",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2026-04-04T01:46:54",
+      "summary": "United States CFTC Oil NC Net Positions fell from previous 233.6K to 213.5K",
+      "tags": "UnitedStates,Liquidity,Commodities,COT",
+      "title": "United States CFTC Oil NC Net Positions fell from previous 233.6K to 213.5K",
+      "url": "https://www.fxstreet.com/news/united-states-cftc-oil-nc-net-positions-fell-from-previous-2336k-to-2135k-202604040146",
+      "weekday": 5
+    },
+    {
+      "article_id": "56009171-b7af-44e5-adf5-44dd084973ce",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2026-04-04T01:47:00",
+      "summary": "United Kingdom CFTC GBP NC Net Positions up to £-52.7K from previous £-58.4K",
+      "tags": "UnitedKingdom,Employment,COT",
+      "title": "United Kingdom CFTC GBP NC Net Positions up to £-52.7K from previous £-58.4K",
+      "url": "https://www.fxstreet.com/news/united-kingdom-cftc-gbp-nc-net-positions-up-to-ps-527k-from-previous-ps-584k-202604040147",
+      "weekday": 5
+    },
+    {
+      "article_id": "3e9a8169-3c9f-4db7-9346-449936c02455",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2026-04-04T01:47:07",
+      "summary": "United States CFTC Gold NC Net Positions down to $163.2K from previous $168.3K",
+      "tags": "UnitedStates,Gold",
+      "title": "United States CFTC Gold NC Net Positions down to $163.2K from previous $168.3K",
+      "url": "https://www.fxstreet.com/news/united-states-cftc-gold-nc-net-positions-down-to-1632k-from-previous-1683k-202604040147",
+      "weekday": 5
+    }
+  ],
+  "count": 7,
+  "date": "2026-04-04",
+  "generated_at": "2026-05-22T14:29:26.591799800+00:00"
+}

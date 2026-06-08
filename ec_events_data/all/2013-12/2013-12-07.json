@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2013-12-07",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "c4bfe0cb-72e2-495d-b0d9-3143d7c43d88__2013-12-07T02:00:00Z",
+      "event_id": "c4bfe0cb-72e2-495d-b0d9-3143d7c43d88",
+      "event_name": "BoJ's Governor Kuroda speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 2,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2013-12-07T02:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:39.472860300+00:00"
+}

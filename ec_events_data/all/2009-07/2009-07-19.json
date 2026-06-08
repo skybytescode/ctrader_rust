@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2009-07-19",
+  "events": [
+    {
+      "actual": 0.6,
+      "actual_raw": "0.6",
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "33ec865e-791a-48ea-bca1-07c9e034c81a__2009-07-19T23:01:00Z",
+      "event_id": "33ec865e-791a-48ea-bca1-07c9e034c81a",
+      "event_name": "Rightmove House Price Index (MoM)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": -0.4,
+      "previous_raw": "-0.4",
+      "surprise": null,
+      "timestamp_utc": "2009-07-19T23:01:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:25.987809+00:00"
+}

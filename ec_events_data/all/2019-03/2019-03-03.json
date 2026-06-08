@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2019-03-03",
+  "events": [
+    {
+      "actual": -0.9,
+      "actual_raw": "-0.9",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "81948027-ebbd-4f18-abd0-b87ff3783609__2019-03-03T23:46:00Z",
+      "event_id": "81948027-ebbd-4f18-abd0-b87ff3783609",
+      "event_name": "ANZ Job Advertisements",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": -1.7,
+      "previous_raw": "-1.7",
+      "surprise": null,
+      "timestamp_utc": "2019-03-03T23:46:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": 4.6,
+      "actual_raw": "4.6",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "60171ab3-7419-49ae-9117-eae6f1e8a128__2019-03-03T23:50:00Z",
+      "event_id": "60171ab3-7419-49ae-9117-eae6f1e8a128",
+      "event_name": "Monetary Base (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 4.7,
+      "previous_raw": "4.7",
+      "surprise": null,
+      "timestamp_utc": "2019-03-03T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:55.398990700+00:00"
+}

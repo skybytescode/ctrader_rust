@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2019-10-12",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "ES",
+      "currency": "EUR",
+      "event_date_id": "94c5bd69-49a9-43cd-a54b-eb1594362f67__2019-10-12T00:00:00Z",
+      "event_id": "94c5bd69-49a9-43cd-a54b-eb1594362f67",
+      "event_name": "Spanish National Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2019-10-12T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:56.950242100+00:00"
+}

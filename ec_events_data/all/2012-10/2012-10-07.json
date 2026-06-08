@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2012-10-07",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "0e625854-0117-4639-af26-24ebb1ec2e18__2012-10-07T23:00:00Z",
+      "event_id": "0e625854-0117-4639-af26-24ebb1ec2e18",
+      "event_name": "RBA's Governor Stevens speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2012-10-07T23:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:36.323859+00:00"
+}

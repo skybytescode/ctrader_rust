@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2013-05-18",
+  "events": [
+    {
+      "actual": 4.9,
+      "actual_raw": "4.9",
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "704fa9ee-e4c6-4599-97d3-7f3f42bf7542__2013-05-18T01:30:00Z",
+      "event_id": "704fa9ee-e4c6-4599-97d3-7f3f42bf7542",
+      "event_name": "House Price Index ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 1,
+      "previous": 3.6,
+      "previous_raw": "3.6",
+      "surprise": null,
+      "timestamp_utc": "2013-05-18T01:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "992d0868-036b-4f5c-84fb-2a2a3ab689e5__2013-05-18T15:00:00Z",
+      "event_id": "992d0868-036b-4f5c-84fb-2a2a3ab689e5",
+      "event_name": "Former Fed's Chair Bernanke speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2013-05-18T15:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:37.846211600+00:00"
+}

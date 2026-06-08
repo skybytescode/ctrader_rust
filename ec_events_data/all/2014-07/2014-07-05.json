@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2014-07-05",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "SK",
+      "currency": "EUR",
+      "event_date_id": "948d4389-7f51-417f-9d04-c8ce1e81afe7__2014-07-05T00:00:00Z",
+      "event_id": "948d4389-7f51-417f-9d04-c8ce1e81afe7",
+      "event_name": "St Cyril and Methodius Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2014-07-05T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:40.983771300+00:00"
+}

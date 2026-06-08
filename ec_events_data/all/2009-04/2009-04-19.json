@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2009-04-19",
+  "events": [
+    {
+      "actual": 1.8,
+      "actual_raw": "1.8",
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "33ec865e-791a-48ea-bca1-07c9e034c81a__2009-04-19T23:01:00Z",
+      "event_id": "33ec865e-791a-48ea-bca1-07c9e034c81a",
+      "event_name": "Rightmove House Price Index (MoM)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 0.9,
+      "previous_raw": "0.9",
+      "surprise": null,
+      "timestamp_utc": "2009-04-19T23:01:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": -7.3,
+      "actual_raw": "-7.3",
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "273c8527-b53c-4048-9dfe-d678eb23b260__2009-04-19T23:01:00Z",
+      "event_id": "273c8527-b53c-4048-9dfe-d678eb23b260",
+      "event_name": "Rightmove House Price Index (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": -9.0,
+      "previous_raw": "-9",
+      "surprise": null,
+      "timestamp_utc": "2009-04-19T23:01:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:25.277521900+00:00"
+}

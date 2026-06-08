@@ -1,0 +1,103 @@
+{
+  "articles": [
+    {
+      "article_id": "dd6aac03-9b1a-4646-8320-4ae55d3ce9dd",
+      "author": "FXStreet Team",
+      "body": null,
+      "hour_utc": 1,
+      "published_utc": "2026-05-31T01:30:26",
+      "summary": "China NBS Non-Manufacturing PMI came in at 50.1, above forecasts (49.5) in May",
+      "tags": "China,PMI",
+      "title": "China NBS Non-Manufacturing PMI came in at 50.1, above forecasts (49.5) in May",
+      "url": "https://www.fxstreet.com/news/china-nbs-non-manufacturing-pmi-came-in-at-501-above-forecasts-495-in-may-202605310130",
+      "weekday": 6
+    },
+    {
+      "article_id": "f16bc5fb-6969-41ba-ac74-90c5ff697228",
+      "author": "FXStreet Team",
+      "body": null,
+      "hour_utc": 1,
+      "published_utc": "2026-05-31T01:30:31",
+      "summary": "China NBS Manufacturing PMI meets forecasts (50) in May",
+      "tags": "China,PMI",
+      "title": "China NBS Manufacturing PMI meets forecasts (50) in May",
+      "url": "https://www.fxstreet.com/news/china-nbs-manufacturing-pmi-meets-forecasts-50-in-may-202605310130",
+      "weekday": 6
+    },
+    {
+      "article_id": "6630a26c-8419-49b7-a1bc-20a7e593fad4",
+      "author": "Lallalit Srijandorn",
+      "body": null,
+      "hour_utc": 22,
+      "published_utc": "2026-05-31T22:42:54",
+      "summary": "Iranian Foreign Minister Abbas Araghchi said that talks and message exchanges with the United States (US) were ongoing but stressed that no assessment of negotiations could be made until a clear outcome was reached, Reuters reported on Sunday.",
+      "tags": "MiddleEast,Oil,Iran,UnitedStates,Macroeconomics",
+      "title": "Iran says talks with the US are ongoing, no nuclear commitments made",
+      "url": "https://www.fxstreet.com/news/iran-says-talks-with-the-us-are-ongoing-no-nuclear-commitments-made-202605312242",
+      "weekday": 6
+    },
+    {
+      "article_id": "2b06e7fe-3191-4cac-a06b-6ac47f02e4f8",
+      "author": "Lallalit Srijandorn",
+      "body": null,
+      "hour_utc": 22,
+      "published_utc": "2026-05-31T22:50:27",
+      "summary": "China’s official Manufacturing Purchasing Managers' Index (PMI) eased to 50.0 in May, compared to 50.3 in the previous reading. The reading came in line with the market consensus of 50.0 in the reported month. ",
+      "tags": "China,EconomicIndicator,AUDUSD,PMI,Macroeconomics",
+      "title": "China's NBS Manufacturing PMI eases to 50.0 in May, Non-Manufacturing PMI rises to 50.1",
+      "url": "https://www.fxstreet.com/news/chinas-nbs-manufacturing-pmi-eases-to-500-in-may-non-manufacturing-pmi-rises-to-501-202605312250",
+      "weekday": 6
+    },
+    {
+      "article_id": "6d64693b-bc1d-4634-969d-9ba62f0b8b6e",
+      "author": "FXStreet Team",
+      "body": null,
+      "hour_utc": 23,
+      "published_utc": "2026-05-31T23:00:34",
+      "summary": "Australia S&P Global Manufacturing PMI came in at 50.7, above expectations (50.2) in May",
+      "tags": "Australia,PMI",
+      "title": "Australia S&P Global Manufacturing PMI came in at 50.7, above expectations (50.2) in May",
+      "url": "https://www.fxstreet.com/news/australia-sp-global-manufacturing-pmi-came-in-at-507-above-expectations-502-in-may-202605312300",
+      "weekday": 6
+    },
+    {
+      "article_id": "649f2146-7ce4-4e44-94b8-1a1c5e51d82c",
+      "author": "Lallalit Srijandorn",
+      "body": null,
+      "hour_utc": 23,
+      "published_utc": "2026-05-31T23:13:15",
+      "summary": "Gold price (XAU/USD) declines to near $4,535, snapping the two-day winning streak during the early Asian session on Monday. The precious metal loses ground amid the lack of progress in the US-Iran peace negotiations.",
+      "tags": "MiddleEast,XAUUSD,Gold,Commodities,Macroeconomics",
+      "title": "Gold drifts lower as stalled US-Iran talks, hawkish Fed outlook pressure prices",
+      "url": "https://www.fxstreet.com/news/gold-drifts-lower-as-stalled-us-iran-talks-hawkish-fed-outlook-pressure-prices-202605312313",
+      "weekday": 6
+    },
+    {
+      "article_id": "96f49fbe-c296-4d82-bc18-2a17f3755617",
+      "author": "FXStreet Team",
+      "body": null,
+      "hour_utc": 23,
+      "published_utc": "2026-05-31T23:51:38",
+      "summary": "Japan Capital Spending came in at 0%, below expectations (4.1%) in 1Q",
+      "tags": "Japan,IndustrialProduction",
+      "title": "Japan Capital Spending came in at 0%, below expectations (4.1%) in 1Q",
+      "url": "https://www.fxstreet.com/news/japan-capital-spending-came-in-at-0-below-expectations-41-in-1q-202605312351",
+      "weekday": 6
+    },
+    {
+      "article_id": "5cc726c4-53a2-4531-87ef-7dba5eedb732",
+      "author": "Lallalit Srijandorn",
+      "body": null,
+      "hour_utc": 23,
+      "published_utc": "2026-05-31T23:54:49",
+      "summary": "The AUD/USD pair holds steady around 0.7185 during the early Asian trading hours on Monday. Traders continue to assess the developments surrounding the US-Iran peace negotiations. Also, China’s RatingDog Manufacturing Purchasing Managers Index (PMI) report for May will be released later on Monday. ",
+      "tags": "MiddleEast,Majors,AUDUSD,PMI,Macroeconomics",
+      "title": "Australian Dollar flatlines below 0.7200 as US-Iran talks continue, China PMI looms",
+      "url": "https://www.fxstreet.com/news/australian-dollar-flatlines-below-07200-as-us-iran-talks-continue-china-pmi-looms-202605312354",
+      "weekday": 6
+    }
+  ],
+  "count": 8,
+  "date": "2026-05-31",
+  "generated_at": "2026-06-08T13:23:57.866053400+00:00"
+}

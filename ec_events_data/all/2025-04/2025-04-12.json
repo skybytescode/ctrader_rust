@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2025-04-12",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "20f93562-e778-4f06-9af7-2eca6b6c77f0__2025-04-12T07:00:00Z",
+      "event_id": "20f93562-e778-4f06-9af7-2eca6b6c77f0",
+      "event_name": "EcoFin Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 7,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-04-12T07:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "1cb8f1b4-a87e-40eb-a158-63287efdc361__2025-04-12T12:00:00Z",
+      "event_id": "1cb8f1b4-a87e-40eb-a158-63287efdc361",
+      "event_name": "BoE's Greene speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 12,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-04-12T12:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:12.982097900+00:00"
+}

@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2011-08-22",
+  "events": [
+    {
+      "actual": -1.0,
+      "actual_raw": "-1",
+      "beats_forecast": null,
+      "country_code": "NL",
+      "currency": "EUR",
+      "event_date_id": "9723a3bd-7955-42b3-bb6b-1c04b52818fa__2011-08-22T07:30:00Z",
+      "event_id": "9723a3bd-7955-42b3-bb6b-1c04b52818fa",
+      "event_name": "Consumer Spending Volume",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 7,
+      "previous": 0.5,
+      "previous_raw": "0.5",
+      "surprise": null,
+      "timestamp_utc": "2011-08-22T07:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 0
+    },
+    {
+      "actual": -8.003,
+      "actual_raw": "-8.003",
+      "beats_forecast": null,
+      "country_code": "PT",
+      "currency": "EUR",
+      "event_date_id": "faaafe96-7ac5-4187-add2-c4ba67c2c46c__2011-08-22T08:00:00Z",
+      "event_id": "faaafe96-7ac5-4187-add2-c4ba67c2c46c",
+      "event_name": "Current Account Balance",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 8,
+      "previous": -5.535,
+      "previous_raw": "-5.535",
+      "surprise": null,
+      "timestamp_utc": "2011-08-22T08:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 0
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:33.181249+00:00"
+}

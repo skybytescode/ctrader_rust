@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2023-12-30",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "2827878c-ccd3-4e69-91a0-dbedeaa349e0__2023-12-30T14:00:00Z",
+      "event_id": "2827878c-ccd3-4e69-91a0-dbedeaa349e0",
+      "event_name": "New Year's holiday",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 14,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-12-30T14:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "DE",
+      "currency": "EUR",
+      "event_date_id": "83e84cb5-b67a-4800-a23a-2637429731e4__2023-12-30T22:00:00Z",
+      "event_id": "83e84cb5-b67a-4800-a23a-2637429731e4",
+      "event_name": "New Year's Eve",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-12-30T22:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:09.142438600+00:00"
+}

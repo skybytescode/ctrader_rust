@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2017-06-25",
+  "events": [
+    {
+      "actual": 0.7,
+      "actual_raw": "0.7",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "8c164255-ac3a-40ef-bd56-df43f47d5b8a__2017-06-25T23:50:00Z",
+      "event_id": "8c164255-ac3a-40ef-bd56-df43f47d5b8a",
+      "event_name": "Corporate Service Price Index (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 0.7,
+      "previous_raw": "0.7",
+      "surprise": null,
+      "timestamp_utc": "2017-06-25T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "bc070981-c60c-4f82-b77c-e37e473c394c__2017-06-25T23:50:00Z",
+      "event_id": "bc070981-c60c-4f82-b77c-e37e473c394c",
+      "event_name": "BoJ Summary of Opinions",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2017-06-25T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:49.596666+00:00"
+}

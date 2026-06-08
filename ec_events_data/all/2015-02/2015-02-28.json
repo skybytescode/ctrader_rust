@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-02-28",
+  "events": [
+    {
+      "actual": 5.35,
+      "actual_raw": "5.35",
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "fa510216-a58a-4dba-93f7-0c05c1e5e3d1__2015-02-28T10:00:00Z",
+      "event_id": "fa510216-a58a-4dba-93f7-0c05c1e5e3d1",
+      "event_name": "PBoC Interest Rate Decision",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 10,
+      "previous": 5.6,
+      "previous_raw": "5.6",
+      "surprise": null,
+      "timestamp_utc": "2015-02-28T10:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:42.871804600+00:00"
+}

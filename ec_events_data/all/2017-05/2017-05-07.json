@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2017-05-07",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "FR",
+      "currency": "EUR",
+      "event_date_id": "6bb94996-dc3d-4cff-8354-3ab2d7306564__2017-05-07T00:00:00Z",
+      "event_id": "6bb94996-dc3d-4cff-8354-3ab2d7306564",
+      "event_name": "Presidential Election",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2017-05-07T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    },
+    {
+      "actual": 3.03,
+      "actual_raw": "3.03",
+      "beats_forecast": 1,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "856f19d9-fc4f-42ad-9aaa-1e9bbe5abda2__2017-05-07T21:48:48.74Z",
+      "event_id": "856f19d9-fc4f-42ad-9aaa-1e9bbe5abda2",
+      "event_name": "Foreign Exchange Reserves (MoM)",
+      "forecast": 2.02,
+      "forecast_raw": "2.02",
+      "hour_utc": 21,
+      "previous": 3.009,
+      "previous_raw": "3.009",
+      "surprise": 1.0099999999999998,
+      "timestamp_utc": "2017-05-07T21:48:48",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:49.373291200+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2022-03-13",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "a2404b26-b482-43d6-8ffb-52f6ef59129a__2022-03-13T07:00:00Z",
+      "event_id": "a2404b26-b482-43d6-8ffb-52f6ef59129a",
+      "event_name": "Daylight Saving Time ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 7,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-03-13T07:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:03.396027600+00:00"
+}

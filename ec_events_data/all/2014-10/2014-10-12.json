@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2014-10-12",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "0d332666-9d39-47d6-9986-97de648c52eb__2014-10-12T00:00:00Z",
+      "event_id": "0d332666-9d39-47d6-9986-97de648c52eb",
+      "event_name": "IMF Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2014-10-12T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "ES",
+      "currency": "EUR",
+      "event_date_id": "94c5bd69-49a9-43cd-a54b-eb1594362f67__2014-10-12T00:00:00Z",
+      "event_id": "94c5bd69-49a9-43cd-a54b-eb1594362f67",
+      "event_name": "Spanish National Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2014-10-12T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:41.704258500+00:00"
+}

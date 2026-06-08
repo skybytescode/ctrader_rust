@@ -1,0 +1,43 @@
+{
+  "articles": [
+    {
+      "article_id": "7092ff5c-e649-4ed7-bb21-79baa46101f5",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2025-08-09T01:31:13",
+      "summary": "China Consumer Price Index (MoM) above expectations (0.3%) in July: Actual (0.4%)",
+      "tags": "China,CPI,Inflation,USDCNY",
+      "title": "China Consumer Price Index (MoM) above expectations (0.3%) in July: Actual (0.4%)",
+      "url": "https://www.fxstreet.com/news/china-consumer-price-index-mom-above-expectations-03-in-july-actual-04-202508090131",
+      "weekday": 5
+    },
+    {
+      "article_id": "2d778c34-96a6-488c-8c3b-51657230f4ac",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2025-08-09T01:31:15",
+      "summary": "China Consumer Price Index (YoY) above forecasts (-0.1%) in July: Actual (0%)",
+      "tags": "Consumption,China,CPI,Inflation,USDCNY",
+      "title": "China Consumer Price Index (YoY) above forecasts (-0.1%) in July: Actual (0%)",
+      "url": "https://www.fxstreet.com/news/china-consumer-price-index-yoy-above-forecasts-01-in-july-actual-0-202508090131",
+      "weekday": 5
+    },
+    {
+      "article_id": "f01d48b9-35e6-4424-8d3d-eb9f1da676d7",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2025-08-09T01:31:15",
+      "summary": "China Producer Price Index (YoY) below forecasts (-3.3%) in July: Actual (-3.6%)",
+      "tags": "China,PPI,Inflation,USDCNY",
+      "title": "China Producer Price Index (YoY) below forecasts (-3.3%) in July: Actual (-3.6%)",
+      "url": "https://www.fxstreet.com/news/china-producer-price-index-yoy-below-forecasts-33-in-july-actual-36-202508090131",
+      "weekday": 5
+    }
+  ],
+  "count": 3,
+  "date": "2025-08-09",
+  "generated_at": "2026-05-21T23:58:32.121628+00:00"
+}

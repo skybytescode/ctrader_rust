@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2020-04-05",
+  "events": [
+    {
+      "actual": -34.0,
+      "actual_raw": "-34",
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "86ab275d-83f3-4760-a9f3-3a51f842029f__2020-04-05T23:01:00Z",
+      "event_id": "86ab275d-83f3-4760-a9f3-3a51f842029f",
+      "event_name": "GfK Consumer Confidence",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": -9.0,
+      "previous_raw": "-9",
+      "surprise": null,
+      "timestamp_utc": "2020-04-05T23:01:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:58.279485600+00:00"
+}

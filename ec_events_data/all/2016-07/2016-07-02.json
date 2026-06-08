@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2016-07-02",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "e1ccf774-7b70-4956-be9e-f042158f10c1__2016-07-02T00:00:00Z",
+      "event_id": "e1ccf774-7b70-4956-be9e-f042158f10c1",
+      "event_name": "Federal Election",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2016-07-02T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:46.921683600+00:00"
+}

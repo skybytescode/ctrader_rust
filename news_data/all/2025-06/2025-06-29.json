@@ -1,0 +1,91 @@
+{
+  "articles": [
+    {
+      "article_id": "714830fb-a972-4f95-bff7-a2d003d50744",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-06-29T22:39:36",
+      "summary": "US Treasury Secretary Scott Bessent said over the weekend that the US Dollar (USD) drop this year is normal variance, adding that the United States still has a strong Dollar policy.",
+      "tags": "TradeWar,UnitedStates,Macroeconomics",
+      "title": "US Treasury Sec. Bessent: US still has a strong Dollar policy",
+      "url": "https://www.fxstreet.com/news/us-treasury-sec-bessent-us-still-has-a-strong-dollar-policy-202506292239",
+      "weekday": 6
+    },
+    {
+      "article_id": "bd3d4b2b-32d1-47cb-b30a-141b1200645d",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-06-29T23:00:36",
+      "summary": "South Korea Service Sector Output remains unchanged at -0.1% in May",
+      "tags": "Manufacturing,SouthKorea",
+      "title": "South Korea Service Sector Output remains unchanged at -0.1% in May",
+      "url": "https://www.fxstreet.com/news/south-korea-service-sector-output-remains-unchanged-at-01-in-may-202506292300",
+      "weekday": 6
+    },
+    {
+      "article_id": "55fbbe06-275d-422d-8015-54e133883b89",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-06-29T23:00:36",
+      "summary": "South Korea Industrial Output Growth: -2.9% (May) vs previous -0.9%",
+      "tags": "USDKRW,SouthKorea,IndustrialProduction",
+      "title": "South Korea Industrial Output Growth: -2.9% (May) vs previous -0.9%",
+      "url": "https://www.fxstreet.com/news/south-korea-industrial-output-growth-29-may-vs-previous-09-202506292300",
+      "weekday": 6
+    },
+    {
+      "article_id": "91c01e7e-b169-4b20-95e6-3bdfa125535c",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-06-29T23:00:37",
+      "summary": "South Korea Industrial Output (YoY) declined to 0.2% in May from previous 4.9%",
+      "tags": "USDKRW,SouthKorea,IndustrialProduction",
+      "title": "South Korea Industrial Output (YoY) declined to 0.2% in May from previous 4.9%",
+      "url": "https://www.fxstreet.com/news/south-korea-industrial-output-yoy-declined-to-02-in-may-from-previous-49-202506292300",
+      "weekday": 6
+    },
+    {
+      "article_id": "c88ca5ec-e76f-4b00-9c04-9f15ffcc181c",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-06-29T23:11:47",
+      "summary": "The AUD/USD pair gains traction to near 0.6535 during the early Asian session on Monday. The renewed trade concerns due to the White House appear poised to fall short of the sweeping global trade reforms it promised to achieve, weighing on the Greenback.",
+      "tags": "China,Majors,AUDUSD,Macroeconomics",
+      "title": "AUD/USD gains ground above 0.6500 ahead of Chinese PMI data",
+      "url": "https://www.fxstreet.com/news/aud-usd-gains-ground-above-06500-ahead-of-chinese-pmi-data-202506292311",
+      "weekday": 6
+    },
+    {
+      "article_id": "5172db01-8810-4a12-96e0-dc968432c964",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-06-29T23:50:43",
+      "summary": "Japan Industrial Production (MoM) registered at 0.5%, below expectations (3.4%) in May",
+      "tags": "Japan,USDJPY,IndustrialProduction",
+      "title": "Japan Industrial Production (MoM) registered at 0.5%, below expectations (3.4%) in May",
+      "url": "https://www.fxstreet.com/news/japan-industrial-production-mom-registered-at-05-below-expectations-34-in-may-202506292350",
+      "weekday": 6
+    },
+    {
+      "article_id": "0b45de72-1dbb-4037-a8c5-384457263bd6",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-06-29T23:50:55",
+      "summary": "Japan Industrial Production (YoY) down to -1.8% in May from previous 0.5%",
+      "tags": "Japan,USDJPY,IndustrialProduction",
+      "title": "Japan Industrial Production (YoY) down to -1.8% in May from previous 0.5%",
+      "url": "https://www.fxstreet.com/news/japan-industrial-production-yoy-down-to-18-in-may-from-previous-05-202506292350",
+      "weekday": 6
+    }
+  ],
+  "count": 7,
+  "date": "2025-06-29",
+  "generated_at": "2026-05-21T23:55:05.239332900+00:00"
+}

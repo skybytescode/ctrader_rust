@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2022-07-03",
+  "events": [
+    {
+      "actual": 3.9,
+      "actual_raw": "3.9",
+      "beats_forecast": -1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "60171ab3-7419-49ae-9117-eae6f1e8a128__2022-07-03T23:50:00Z",
+      "event_id": "60171ab3-7419-49ae-9117-eae6f1e8a128",
+      "event_name": "Monetary Base (YoY)",
+      "forecast": 6.3,
+      "forecast_raw": "6.3",
+      "hour_utc": 23,
+      "previous": 4.6,
+      "previous_raw": "4.6",
+      "surprise": -2.4,
+      "timestamp_utc": "2022-07-03T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:04.341498+00:00"
+}

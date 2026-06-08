@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2015-07-05",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "SK",
+      "currency": "EUR",
+      "event_date_id": "948d4389-7f51-417f-9d04-c8ce1e81afe7__2015-07-05T00:00:00Z",
+      "event_id": "948d4389-7f51-417f-9d04-c8ce1e81afe7",
+      "event_name": "St Cyril and Methodius Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-07-05T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "GR",
+      "currency": "EUR",
+      "event_date_id": "47393c4a-43b4-4161-b14f-0f62a900879f__2015-07-05T00:00:00Z",
+      "event_id": "47393c4a-43b4-4161-b14f-0f62a900879f",
+      "event_name": "Greek referendum",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-07-05T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:44.212357200+00:00"
+}

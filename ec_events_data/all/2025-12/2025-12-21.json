@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2025-12-21",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "c707d7d3-5893-48c2-bfa1-b816e622ea42__2025-12-21T11:00:00Z",
+      "event_id": "c707d7d3-5893-48c2-bfa1-b816e622ea42",
+      "event_name": "Fed's Hammack speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 11,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-12-21T11:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:15.397518100+00:00"
+}

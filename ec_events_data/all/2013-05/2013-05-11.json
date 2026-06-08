@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2013-05-11",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "4b7fa3a6-1ac0-41b4-93f2-1d7ac80c3012__2013-05-11T00:00:00Z",
+      "event_id": "4b7fa3a6-1ac0-41b4-93f2-1d7ac80c3012",
+      "event_name": "G7 Finance Ministers Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2013-05-11T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:37.846211600+00:00"
+}

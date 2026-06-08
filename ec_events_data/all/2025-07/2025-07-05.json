@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2025-07-05",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "190ab2dd-402e-4187-8f5f-0473edd2558e__2025-07-05T08:00:00Z",
+      "event_id": "190ab2dd-402e-4187-8f5f-0473edd2558e",
+      "event_name": "OPEC Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 8,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-07-05T08:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "b2c1347b-b57c-4800-bdb6-8bdc627f4e30__2025-07-05T15:45:00Z",
+      "event_id": "b2c1347b-b57c-4800-bdb6-8bdc627f4e30",
+      "event_name": "BoE's Governor Bailey speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-07-05T15:45:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:13.909928300+00:00"
+}

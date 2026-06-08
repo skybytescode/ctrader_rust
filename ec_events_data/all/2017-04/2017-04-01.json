@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2017-04-01",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "5745c7d1-63ed-4fe7-9df2-5acbf12345a3__2017-04-01T16:00:00Z",
+      "event_id": "5745c7d1-63ed-4fe7-9df2-5acbf12345a3",
+      "event_name": "Daylight Saving Time",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 16,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2017-04-01T16:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:49.123122900+00:00"
+}

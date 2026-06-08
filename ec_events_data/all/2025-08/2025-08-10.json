@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2025-08-10",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "72f59f34-96fd-41f6-95cd-6ea102abe251__2025-08-10T15:00:00Z",
+      "event_id": "72f59f34-96fd-41f6-95cd-6ea102abe251",
+      "event_name": "Mountain Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-08-10T15:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:14.186740500+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2014-03-15",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "01de3552-5fdb-436f-a76c-9e15e3a2ff0e__2014-03-15T02:45:00Z",
+      "event_id": "01de3552-5fdb-436f-a76c-9e15e3a2ff0e",
+      "event_name": "Fed's Richard Fisher speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 2,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2014-03-15T02:45:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:40.135943700+00:00"
+}

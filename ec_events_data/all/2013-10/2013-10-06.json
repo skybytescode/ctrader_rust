@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2013-10-06",
+  "events": [
+    {
+      "actual": 47.6,
+      "actual_raw": "47.6",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "2d6c6023-8a33-467b-bf7b-18286d248f18__2013-10-06T22:30:00Z",
+      "event_id": "2d6c6023-8a33-467b-bf7b-18286d248f18",
+      "event_name": "AiG Performance of Construction Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 43.7,
+      "previous_raw": "43.7",
+      "surprise": null,
+      "timestamp_utc": "2013-10-06T22:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:38.995936500+00:00"
+}

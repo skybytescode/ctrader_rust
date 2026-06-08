@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2021-12-05",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "ES",
+      "currency": "EUR",
+      "event_date_id": "32ee61d2-b904-4383-ad26-20abb7be386c__2021-12-05T22:00:00Z",
+      "event_id": "32ee61d2-b904-4383-ad26-20abb7be386c",
+      "event_name": "Spanish Constitution Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2021-12-05T22:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "FI",
+      "currency": "EUR",
+      "event_date_id": "ca079641-71b6-4e89-aefb-ee9582ccbedc__2021-12-05T22:00:00Z",
+      "event_id": "ca079641-71b6-4e89-aefb-ee9582ccbedc",
+      "event_name": "Independence Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2021-12-05T22:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:02.738079600+00:00"
+}

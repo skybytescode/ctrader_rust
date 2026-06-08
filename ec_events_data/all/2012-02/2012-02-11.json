@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2012-02-11",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "1874bfa4-e8bb-4a5e-8b20-d96e9726fded__2012-02-11T00:00:00Z",
+      "event_id": "1874bfa4-e8bb-4a5e-8b20-d96e9726fded",
+      "event_name": "National Foundation Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2012-02-11T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:34.536778600+00:00"
+}

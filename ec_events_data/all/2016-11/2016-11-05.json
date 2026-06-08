@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2016-11-05",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "FI",
+      "currency": "EUR",
+      "event_date_id": "97ae3c4e-e2cf-443c-995a-6400a3cce221__2016-11-05T00:00:00Z",
+      "event_id": "97ae3c4e-e2cf-443c-995a-6400a3cce221",
+      "event_name": "All Saints' Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2016-11-05T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:47.855030200+00:00"
+}

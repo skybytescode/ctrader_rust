@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2010-10-03",
+  "events": [
+    {
+      "actual": 5.8,
+      "actual_raw": "5.8",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "60171ab3-7419-49ae-9117-eae6f1e8a128__2010-10-03T23:50:00Z",
+      "event_id": "60171ab3-7419-49ae-9117-eae6f1e8a128",
+      "event_name": "Monetary Base (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 5.4,
+      "previous_raw": "5.4",
+      "surprise": null,
+      "timestamp_utc": "2010-10-03T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:30.436385500+00:00"
+}

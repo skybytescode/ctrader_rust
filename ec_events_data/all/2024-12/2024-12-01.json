@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2024-12-01",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "3766e161-8431-4a94-8a37-1257784bba6c__2024-12-01T22:00:00Z",
+      "event_id": "3766e161-8431-4a94-8a37-1257784bba6c",
+      "event_name": "S&P Global Manufacturing PMI",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 49.4,
+      "previous_raw": "49.4",
+      "surprise": null,
+      "timestamp_utc": "2024-12-01T22:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": 8.1,
+      "actual_raw": "8.1",
+      "beats_forecast": 1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "23fe8eac-358f-42ef-b560-8c36b646b45c__2024-12-01T23:50:00Z",
+      "event_id": "23fe8eac-358f-42ef-b560-8c36b646b45c",
+      "event_name": "Capital Spending",
+      "forecast": 7.1,
+      "forecast_raw": "7.1",
+      "hour_utc": 23,
+      "previous": 7.4,
+      "previous_raw": "7.4",
+      "surprise": 1.0,
+      "timestamp_utc": "2024-12-01T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:11.842070300+00:00"
+}

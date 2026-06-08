@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2010-02-22",
+  "events": [
+    {
+      "actual": -2.3,
+      "actual_raw": "-2.3",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "61d61cf6-b65b-447e-a3d0-b1165a4a17ce__2010-02-22T00:30:00Z",
+      "event_id": "61d61cf6-b65b-447e-a3d0-b1165a4a17ce",
+      "event_name": "New Motor Vehicle Sales (MoM)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": 3.0,
+      "previous_raw": "3",
+      "surprise": null,
+      "timestamp_utc": "2010-02-22T00:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 0
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "1245953f-00fb-47f9-be6b-a991d188f090__2010-02-22T23:50:00Z",
+      "event_id": "1245953f-00fb-47f9-be6b-a991d188f090",
+      "event_name": "BoJ Minutes",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2010-02-22T23:50:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 0
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:27.677046500+00:00"
+}

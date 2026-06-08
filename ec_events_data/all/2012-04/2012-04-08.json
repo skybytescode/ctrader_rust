@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2012-04-08",
+  "events": [
+    {
+      "actual": 102.1,
+      "actual_raw": "102.1",
+      "beats_forecast": -1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "2c234b15-dcb9-4eeb-9626-ce663df1f72c__2012-04-08T23:50:00Z",
+      "event_id": "2c234b15-dcb9-4eeb-9626-ce663df1f72c",
+      "event_name": "Trade Balance - BOP Basis",
+      "forecast": 104.3,
+      "forecast_raw": "104.3",
+      "hour_utc": 23,
+      "previous": -1381.6,
+      "previous_raw": "-1381.6",
+      "surprise": -2.200000000000003,
+      "timestamp_utc": "2012-04-08T23:50:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": 1177.8,
+      "actual_raw": "1177.8",
+      "beats_forecast": 1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "c3e65991-95b2-4f8e-8eae-12348778f9ad__2012-04-08T23:50:00Z",
+      "event_id": "c3e65991-95b2-4f8e-8eae-12348778f9ad",
+      "event_name": "Current Account n.s.a.",
+      "forecast": 660.0,
+      "forecast_raw": "660",
+      "hour_utc": 23,
+      "previous": -437.3,
+      "previous_raw": "-437.3",
+      "surprise": 517.8,
+      "timestamp_utc": "2012-04-08T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:34.987890100+00:00"
+}

@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2022-09-17",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "50b24e99-a6b1-4d34-9122-e5899ecf7824__2022-09-17T16:45:00Z",
+      "event_id": "50b24e99-a6b1-4d34-9122-e5899ecf7824",
+      "event_name": "ECB's Lane speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 16,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-09-17T16:45:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CH",
+      "currency": "CHF",
+      "event_date_id": "feddf6fa-0912-489f-a2a8-6ad5b1b241dd__2022-09-17T22:00:00Z",
+      "event_id": "feddf6fa-0912-489f-a2a8-6ad5b1b241dd",
+      "event_name": "Swiss Federal Fast",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-09-17T22:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:05.019033400+00:00"
+}

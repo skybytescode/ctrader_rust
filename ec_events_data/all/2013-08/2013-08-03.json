@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2013-08-03",
+  "events": [
+    {
+      "actual": 54.1,
+      "actual_raw": "54.1",
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "015034aa-965a-401a-a3ef-924fe5047153__2013-08-03T01:00:00Z",
+      "event_id": "015034aa-965a-401a-a3ef-924fe5047153",
+      "event_name": "NBS Non-Manufacturing PMI",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 1,
+      "previous": 53.9,
+      "previous_raw": "53.9",
+      "surprise": null,
+      "timestamp_utc": "2013-08-03T01:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:38.552390500+00:00"
+}

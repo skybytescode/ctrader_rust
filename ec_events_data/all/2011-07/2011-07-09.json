@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2011-07-09",
+  "events": [
+    {
+      "actual": 7.1,
+      "actual_raw": "7.1",
+      "beats_forecast": 1,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "6a4a75b9-c05d-489c-abca-5970a2a03056__2011-07-09T01:30:00Z",
+      "event_id": "6a4a75b9-c05d-489c-abca-5970a2a03056",
+      "event_name": "Producer Price Index (YoY)",
+      "forecast": 6.9,
+      "forecast_raw": "6.9",
+      "hour_utc": 1,
+      "previous": 6.8,
+      "previous_raw": "6.8",
+      "surprise": 0.1999999999999993,
+      "timestamp_utc": "2011-07-09T01:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": 6.4,
+      "actual_raw": "6.4",
+      "beats_forecast": 1,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "29d28158-f0f3-47af-9d86-f2494426395a__2011-07-09T01:30:00Z",
+      "event_id": "29d28158-f0f3-47af-9d86-f2494426395a",
+      "event_name": "Consumer Price Index (YoY)",
+      "forecast": 6.2,
+      "forecast_raw": "6.2",
+      "hour_utc": 1,
+      "previous": 5.5,
+      "previous_raw": "5.5",
+      "surprise": 0.20000000000000018,
+      "timestamp_utc": "2011-07-09T01:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:32.929337200+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2011-10-30",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "59861198-636b-4006-88be-addbaed5fb9b__2011-10-30T23:15:00Z",
+      "event_id": "59861198-636b-4006-88be-addbaed5fb9b",
+      "event_name": "Jibun Bank Manufacturing PMI",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 49.3,
+      "previous_raw": "49.3",
+      "surprise": null,
+      "timestamp_utc": "2011-10-30T23:15:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:33.633334200+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2020-02-22",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "5f37c317-a9c7-42ce-90c3-688a7f8d0374__2020-02-22T15:00:00Z",
+      "event_id": "5f37c317-a9c7-42ce-90c3-688a7f8d0374",
+      "event_name": "The Emperor's Birthday",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2020-02-22T15:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:57.845193100+00:00"
+}

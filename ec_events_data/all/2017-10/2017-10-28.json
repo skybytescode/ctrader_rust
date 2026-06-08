@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2017-10-28",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "GR",
+      "currency": "EUR",
+      "event_date_id": "797cf2c3-48a1-4de9-bd0e-67a779bf9515__2017-10-28T00:00:00Z",
+      "event_id": "797cf2c3-48a1-4de9-bd0e-67a779bf9515",
+      "event_name": "The Ochi day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2017-10-28T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:50.460148400+00:00"
+}

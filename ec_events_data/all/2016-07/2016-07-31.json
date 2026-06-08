@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2016-07-31",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "0e625854-0117-4639-af26-24ebb1ec2e18__2016-07-31T03:05:00Z",
+      "event_id": "0e625854-0117-4639-af26-24ebb1ec2e18",
+      "event_name": "RBA's Governor Stevens speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 3,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2016-07-31T03:05:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    },
+    {
+      "actual": 56.4,
+      "actual_raw": "56.4",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "de5e708b-3a8c-4bf9-afd6-a2758462a141__2016-07-31T23:30:00Z",
+      "event_id": "de5e708b-3a8c-4bf9-afd6-a2758462a141",
+      "event_name": "AiG Performance of Mfg Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 51.8,
+      "previous_raw": "51.8",
+      "surprise": null,
+      "timestamp_utc": "2016-07-31T23:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:46.921683600+00:00"
+}

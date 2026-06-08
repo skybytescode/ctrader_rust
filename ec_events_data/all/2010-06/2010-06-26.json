@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2010-06-26",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "18e69351-f9b5-4157-a3e4-a4286d644dad__2010-06-26T00:00:00Z",
+      "event_id": "18e69351-f9b5-4157-a3e4-a4286d644dad",
+      "event_name": "G20 Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2010-06-26T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:29.076613700+00:00"
+}

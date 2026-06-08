@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2023-02-26",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "GR",
+      "currency": "EUR",
+      "event_date_id": "2b966cdc-207f-4140-b5e4-46fde612d240__2023-02-26T21:00:00Z",
+      "event_id": "2b966cdc-207f-4140-b5e4-46fde612d240",
+      "event_name": "Ash Monday ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 21,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-02-26T21:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:06.689050100+00:00"
+}

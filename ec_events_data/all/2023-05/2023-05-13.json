@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2023-05-13",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "86e26884-a1b0-4529-9f7f-2ea7e454de99__2023-05-13T14:30:00Z",
+      "event_id": "86e26884-a1b0-4529-9f7f-2ea7e454de99",
+      "event_name": "Fed's Cook speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 14,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-05-13T14:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:07.574469300+00:00"
+}

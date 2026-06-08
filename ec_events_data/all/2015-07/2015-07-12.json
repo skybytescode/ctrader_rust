@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-07-12",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "52295339-732b-4997-9ceb-6a1e5b19d8c3__2015-07-12T00:00:00Z",
+      "event_id": "52295339-732b-4997-9ceb-6a1e5b19d8c3",
+      "event_name": "EU Leaders Special Summit",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-07-12T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:44.212357200+00:00"
+}

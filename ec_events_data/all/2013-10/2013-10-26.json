@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2013-10-26",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AT",
+      "currency": "EUR",
+      "event_date_id": "2945377f-0699-4e89-9c59-c3d5a69cd6d8__2013-10-26T00:00:00Z",
+      "event_id": "2945377f-0699-4e89-9c59-c3d5a69cd6d8",
+      "event_name": "National Day ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2013-10-26T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:38.995936500+00:00"
+}

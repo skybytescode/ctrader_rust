@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2017-05-28",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "94b5a38c-5bf5-4f48-b286-1773b8dbeac5__2017-05-28T22:15:00Z",
+      "event_id": "94b5a38c-5bf5-4f48-b286-1773b8dbeac5",
+      "event_name": "Fed's Williams speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2017-05-28T22:15:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:49.373291200+00:00"
+}

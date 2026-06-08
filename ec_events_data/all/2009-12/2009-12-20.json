@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2009-12-20",
+  "events": [
+    {
+      "actual": 371.3,
+      "actual_raw": "371.3",
+      "beats_forecast": 1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "1870b718-adc1-4067-b324-740b8e3e64b8__2009-12-20T23:50:00Z",
+      "event_id": "1870b718-adc1-4067-b324-740b8e3e64b8",
+      "event_name": "Merchandise Trade Balance Total",
+      "forecast": 300.0,
+      "forecast_raw": "300",
+      "hour_utc": 23,
+      "previous": 805.4,
+      "previous_raw": "805.4",
+      "surprise": 71.30000000000001,
+      "timestamp_utc": "2009-12-20T23:50:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": 492.4,
+      "actual_raw": "492.4",
+      "beats_forecast": 1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "8f9f3b4b-f962-43cc-b1a5-04c652aaa3aa__2009-12-20T23:50:00Z",
+      "event_id": "8f9f3b4b-f962-43cc-b1a5-04c652aaa3aa",
+      "event_name": "Adjusted Merchandise Trade Balance",
+      "forecast": 269.0,
+      "forecast_raw": "269",
+      "hour_utc": 23,
+      "previous": 419.1,
+      "previous_raw": "419.1",
+      "surprise": 223.39999999999998,
+      "timestamp_utc": "2009-12-20T23:50:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:27.217655900+00:00"
+}

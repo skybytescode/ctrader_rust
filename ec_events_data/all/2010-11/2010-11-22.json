@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2010-11-22",
+  "events": [
+    {
+      "actual": -9.5,
+      "actual_raw": "-9.5",
+      "beats_forecast": 1,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "1f448283-3319-4405-aebb-3dee56d30b25__2010-11-22T15:00:00Z",
+      "event_id": "1f448283-3319-4405-aebb-3dee56d30b25",
+      "event_name": "Consumer Confidence",
+      "forecast": -10.0,
+      "forecast_raw": "-10",
+      "hour_utc": 15,
+      "previous": -10.9,
+      "previous_raw": "-10.9",
+      "surprise": 0.5,
+      "timestamp_utc": "2010-11-22T15:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 0
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "2da588e8-8d13-42f7-a9a9-0ae2fa954148__2010-11-22T16:15:00Z",
+      "event_id": "2da588e8-8d13-42f7-a9a9-0ae2fa954148",
+      "event_name": "ECB's President Trichet speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 16,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2010-11-22T16:15:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 0
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:30.790653500+00:00"
+}

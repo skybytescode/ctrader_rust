@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2018-06-30",
+  "events": [
+    {
+      "actual": 51.5,
+      "actual_raw": "51.5",
+      "beats_forecast": -1,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "6e0be41a-08d2-43d8-a649-a02c7eb89629__2018-06-30T01:00:00Z",
+      "event_id": "6e0be41a-08d2-43d8-a649-a02c7eb89629",
+      "event_name": "NBS Manufacturing PMI",
+      "forecast": 51.6,
+      "forecast_raw": "51.6",
+      "hour_utc": 1,
+      "previous": 51.9,
+      "previous_raw": "51.9",
+      "surprise": -0.10000000000000142,
+      "timestamp_utc": "2018-06-30T01:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": 55.0,
+      "actual_raw": "55",
+      "beats_forecast": 0,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "015034aa-965a-401a-a3ef-924fe5047153__2018-06-30T01:00:00Z",
+      "event_id": "015034aa-965a-401a-a3ef-924fe5047153",
+      "event_name": "NBS Non-Manufacturing PMI",
+      "forecast": 55.0,
+      "forecast_raw": "55",
+      "hour_utc": 1,
+      "previous": 54.9,
+      "previous_raw": "54.9",
+      "surprise": 0.0,
+      "timestamp_utc": "2018-06-30T01:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:52.548001200+00:00"
+}

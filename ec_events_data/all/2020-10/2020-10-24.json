@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2020-10-24",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "d7ca619d-e804-4080-aed3-ec9f56f4edce__2020-10-24T16:00:00Z",
+      "event_id": "d7ca619d-e804-4080-aed3-ec9f56f4edce",
+      "event_name": "Chung Yeung Festival ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 16,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2020-10-24T16:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:59.609118100+00:00"
+}

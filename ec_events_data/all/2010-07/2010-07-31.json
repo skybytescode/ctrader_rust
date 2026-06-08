@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2010-07-31",
+  "events": [
+    {
+      "actual": 0.1,
+      "actual_raw": "0.1",
+      "beats_forecast": null,
+      "country_code": "DE",
+      "currency": "EUR",
+      "event_date_id": "3a5b7999-2b38-45a7-8318-6098026f0fa9__2010-07-31T06:00:00Z",
+      "event_id": "3a5b7999-2b38-45a7-8318-6098026f0fa9",
+      "event_name": "Retail Sales (MoM)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 6,
+      "previous": 1.9,
+      "previous_raw": "1.9",
+      "surprise": null,
+      "timestamp_utc": "2010-07-31T06:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": 1.2,
+      "actual_raw": "1.2",
+      "beats_forecast": null,
+      "country_code": "DE",
+      "currency": "EUR",
+      "event_date_id": "729e8791-c2f6-4f8f-8567-29dfb8cdfaa7__2010-07-31T06:00:00Z",
+      "event_id": "729e8791-c2f6-4f8f-8567-29dfb8cdfaa7",
+      "event_name": "Retail Sales (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 6,
+      "previous": -3.1,
+      "previous_raw": "-3.1",
+      "surprise": null,
+      "timestamp_utc": "2010-07-31T06:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:29.408706+00:00"
+}

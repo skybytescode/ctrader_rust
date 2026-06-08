@@ -1,0 +1,127 @@
+{
+  "articles": [
+    {
+      "article_id": "3f42d992-26a3-4a45-8b81-53ac1873b435",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 9,
+      "published_utc": "2025-04-13T09:03:05",
+      "summary": "China New Loans came in at 3640B, above forecasts (3000B) in March",
+      "tags": "Consumption,China",
+      "title": "China New Loans came in at 3640B, above forecasts (3000B) in March",
+      "url": "https://www.fxstreet.com/news/china-new-loans-came-in-at-3640b-above-forecasts-3000b-in-march-202504130903",
+      "weekday": 6
+    },
+    {
+      "article_id": "417bb133-e977-41fd-946b-830e563d309a",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 9,
+      "published_utc": "2025-04-13T09:03:05",
+      "summary": "China M2 Money Supply (YoY) came in at 7% below forecasts (7.1%) in March",
+      "tags": "China,Inflation,USDCNY,MoneySupply,BalanceSheet",
+      "title": "China M2 Money Supply (YoY) came in at 7% below forecasts (7.1%) in March",
+      "url": "https://www.fxstreet.com/news/china-m2-money-supply-yoy-came-in-at-7-below-forecasts-71-in-march-202504130903",
+      "weekday": 6
+    },
+    {
+      "article_id": "c3400233-9288-4f19-80d0-296d99778944",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-04-13T22:30:26",
+      "summary": "New Zealand Business NZ PSI unchanged at 49.1 in March",
+      "tags": "NewZealand,PMI",
+      "title": "New Zealand Business NZ PSI unchanged at 49.1 in March",
+      "url": "https://www.fxstreet.com/news/new-zealand-business-nz-psi-unchanged-at-491-in-march-202504132230",
+      "weekday": 6
+    },
+    {
+      "article_id": "8b16cf92-6546-4193-bb3d-19550293b43b",
+      "author": "Dhwani Mehta",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-04-13T22:31:04",
+      "summary": "Late Sunday, US President Donald Trump took to his own social media application, Truth Social, and clarified that there will be no tariff exemption on semiconductors and the electronics supply chain, as these products will be subject to the existing 20% tariffs on fentanyl and not the 145% hike.",
+      "tags": "China,TradeWar,UnitedStates,DollarIndex",
+      "title": "US President Trump clarifies 20% tariffs on Chinese imports of semiconductors, electronics ",
+      "url": "https://www.fxstreet.com/news/us-president-trump-clarifies-20-tariffs-on-chinese-imports-of-semiconductors-electronics-202504132231",
+      "weekday": 6
+    },
+    {
+      "article_id": "61832c51-0cb9-4793-abeb-7d56ac5110c2",
+      "author": "Dhwani Mehta",
+      "body": "Neel Kashkari, Minneapolis Federal Reserve (Fed) President, said in a CBS ‘ Face the Nation show on Sunday that recession prospects from President Trump’s trade war will be determined by whether there are “quick resolutions” to trade uncertainties with major trading partners.Kashkari said: “This is the biggest hit to confidence that I can recall in the 10 years that I’ve been at the Fed, except for March of 2020 when Covid first hit.“So when there is that kind of hit to confidence it can have large effects on the economy,” he added.Additional quotes“In many sectors, whether it’s a 10% tariff or 50% or 100% tariff, it has a dramatic effect on the trade flows and so a lot of my folks that I hear from here are quite concerned.”“At the Fed, our job is to keep inflation under control so that rate isn’t even higher.”“Investors in the US and around the world are trying to determine what is the new normal in America.”“Markets are functioning, trades are happening and so I anticipate that’s going to continue.”Market reactionAt the time of writing, the US Dollar Index is up 0.11% on the day, trading at 99.89.",
+      "hour_utc": 22,
+      "published_utc": "2025-04-13T22:45:10",
+      "summary": "Neel Kashkari, Minneapolis Federal Reserve (Fed) President, said in a CBS ‘ Face the Nation show on Sunday that recession prospects from President Trump’s trade war will be determined by whether there are “quick resolutions” to trade uncertainties with major trading partners.",
+      "tags": "TradeWar,Fed,CentralBanks,DollarIndex",
+      "title": "Fed’s Kashkari: Recession prospects depend on speed of trade deals",
+      "url": "https://www.fxstreet.com/news/feds-kashkari-recession-prospects-depend-on-speed-of-trade-deals-202504132245",
+      "weekday": 6
+    },
+    {
+      "article_id": "a983d863-b5be-4579-94a7-d64073ddeb6c",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-04-13T22:45:46",
+      "summary": "New Zealand Electronic Card Retail Sales  (MoM) declined to -0.8% in March from previous 0.3%",
+      "tags": "RetailSales,NewZealand,NZDUSD",
+      "title": "New Zealand Electronic Card Retail Sales  (MoM) declined to -0.8% in March from previous 0.3%",
+      "url": "https://www.fxstreet.com/news/new-zealand-electronic-card-retail-sales-mom-declined-to-08-in-march-from-previous-03-202504132245",
+      "weekday": 6
+    },
+    {
+      "article_id": "5713a936-d49d-4d34-a049-652c1831b2a8",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-04-13T22:45:53",
+      "summary": "New Zealand Electronic Card Retail Sales (YoY): -1.6% (March) vs -4.2%",
+      "tags": "RetailSales,NewZealand,NZDUSD",
+      "title": "New Zealand Electronic Card Retail Sales (YoY): -1.6% (March) vs -4.2%",
+      "url": "https://www.fxstreet.com/news/new-zealand-electronic-card-retail-sales-yoy-16-march-vs-42-202504132245",
+      "weekday": 6
+    },
+    {
+      "article_id": "8a53461f-22d6-430f-9409-baea16155297",
+      "author": "Dhwani Mehta",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-04-13T23:13:38",
+      "summary": "In a Handelsblatt interview on Saturday, German Chancellor-in-waiting Friedrich Merz said, US “President Trump’s policies are increasing the risk that the next financial crisis will hit sooner than expected.”",
+      "tags": "Recession,EURUSD,TradeWar,Germany",
+      "title": "Germany’s Merz: US President Trump’s policies are increasing the risk of next financial crisis ",
+      "url": "https://www.fxstreet.com/news/germanys-merz-us-president-trumps-policies-are-increasing-the-risk-of-next-financial-crisis-202504132313",
+      "weekday": 6
+    },
+    {
+      "article_id": "04aac5d2-962a-4e3a-ad50-e8f33a56b4d0",
+      "author": "Dhwani Mehta",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-04-13T23:37:05",
+      "summary": "AUD/USD is holding the three-day recovery momentum from five-year lows on Monday at the start of the week, posting small gains near 0.6300.",
+      "tags": "RiskAppetite,China,TradeWar,AUDUSD",
+      "title": "AUD/USD kicks off the week on the front foot near 0.6300",
+      "url": "https://www.fxstreet.com/news/aud-usd-kicks-off-the-week-on-the-front-foot-near-06300-202504132337",
+      "weekday": 6
+    },
+    {
+      "article_id": "bda0ab3c-e25d-4de8-beb4-1af7ad4528ab",
+      "author": "Dhwani Mehta",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-04-13T23:53:46",
+      "summary": "Gold price is back in the red early Monday, snapping a three-day record rally to lifetime highs of $3,245 set on Friday.    ",
+      "tags": "RiskAppetite,XAUUSD,TradeWar,Gold,Commodities",
+      "title": "Gold Price Forecast: XAU/USD retreats further from all-time highs of $3,245 ",
+      "url": "https://www.fxstreet.com/news/gold-price-forecast-xau-usd-retreats-further-from-all-time-highs-of-3-245-202504132353",
+      "weekday": 6
+    }
+  ],
+  "count": 10,
+  "date": "2025-04-13",
+  "generated_at": "2026-05-21T23:49:12.418196700+00:00"
+}

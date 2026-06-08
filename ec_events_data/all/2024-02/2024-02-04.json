@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2024-02-04",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "9b505ff1-dc46-4f81-b5a3-06a908aeb19d__2024-02-04T22:00:00Z",
+      "event_id": "9b505ff1-dc46-4f81-b5a3-06a908aeb19d",
+      "event_name": "S&P Global Services PMI",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 47.9,
+      "previous_raw": "47.9",
+      "surprise": null,
+      "timestamp_utc": "2024-02-04T22:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "a85c082e-2e10-4899-a76e-fb3d81aeba9f__2024-02-04T22:00:00Z",
+      "event_id": "a85c082e-2e10-4899-a76e-fb3d81aeba9f",
+      "event_name": "S&P Global Composite PMI",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 48.1,
+      "previous_raw": "48.1",
+      "surprise": null,
+      "timestamp_utc": "2024-02-04T22:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:09.579014+00:00"
+}

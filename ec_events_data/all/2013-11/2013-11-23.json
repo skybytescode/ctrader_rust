@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2013-11-23",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "4077564d-4a01-4f74-8fee-253f0c756043__2013-11-23T00:00:00Z",
+      "event_id": "4077564d-4a01-4f74-8fee-253f0c756043",
+      "event_name": "Labor Thanksgiving Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2013-11-23T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:39.242578500+00:00"
+}

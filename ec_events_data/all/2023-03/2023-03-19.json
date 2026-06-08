@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2023-03-19",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "9b82a4e8-4e1f-4be1-a10d-b6620f41c298__2023-03-19T22:10:00Z",
+      "event_id": "9b82a4e8-4e1f-4be1-a10d-b6620f41c298",
+      "event_name": "RBA's Kent speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-03-19T22:10:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "bc070981-c60c-4f82-b77c-e37e473c394c__2023-03-19T23:50:00Z",
+      "event_id": "bc070981-c60c-4f82-b77c-e37e473c394c",
+      "event_name": "BoJ Summary of Opinions",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2023-03-19T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:06.984741400+00:00"
+}

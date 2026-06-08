@@ -1,0 +1,19 @@
+{
+  "articles": [
+    {
+      "article_id": "69080f56-2037-4133-b7fe-a71fb5458ef8",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 7,
+      "published_utc": "2025-06-07T07:59:59",
+      "summary": "China Foreign Exchange Reserves (MoM): $3.285T (May) vs $3.282T",
+      "tags": "ForeignTrade,China",
+      "title": "China Foreign Exchange Reserves (MoM): $3.285T (May) vs $3.282T",
+      "url": "https://www.fxstreet.com/news/china-foreign-exchange-reserves-mom-3285t-may-vs-3282t-202506070759",
+      "weekday": 5
+    }
+  ],
+  "count": 1,
+  "date": "2025-06-07",
+  "generated_at": "2026-05-21T23:53:20.764394400+00:00"
+}

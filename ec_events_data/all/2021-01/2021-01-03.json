@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2021-01-03",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "3766e161-8431-4a94-8a37-1257784bba6c__2021-01-03T22:00:00Z",
+      "event_id": "3766e161-8431-4a94-8a37-1257784bba6c",
+      "event_name": "S&P Global Manufacturing PMI",
+      "forecast": 56.0,
+      "forecast_raw": "56",
+      "hour_utc": 22,
+      "previous": 56.0,
+      "previous_raw": "56",
+      "surprise": null,
+      "timestamp_utc": "2021-01-03T22:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:00.291814500+00:00"
+}

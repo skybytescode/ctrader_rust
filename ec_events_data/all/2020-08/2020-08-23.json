@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2020-08-23",
+  "events": [
+    {
+      "actual": 58.9,
+      "actual_raw": "58.9",
+      "beats_forecast": null,
+      "country_code": "IE",
+      "currency": "EUR",
+      "event_date_id": "877c2461-b394-462a-b076-e2254405d12d__2020-08-23T23:01:00Z",
+      "event_id": "877c2461-b394-462a-b076-e2254405d12d",
+      "event_name": "Consumer Confidence",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 62.6,
+      "previous_raw": "62.6",
+      "surprise": null,
+      "timestamp_utc": "2020-08-23T23:01:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:59.163870200+00:00"
+}

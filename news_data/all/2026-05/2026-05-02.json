@@ -1,0 +1,19 @@
+{
+  "articles": [
+    {
+      "article_id": "90896083-a003-4033-b37a-a3006e77d7a4",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 13,
+      "published_utc": "2026-05-02T13:19:29",
+      "summary": "Singapore Manufacturing PMI climbed from previous 50.5 to 50.7 in April",
+      "tags": "Singapore,PMI",
+      "title": "Singapore Manufacturing PMI climbed from previous 50.5 to 50.7 in April",
+      "url": "https://www.fxstreet.com/news/singapore-manufacturing-pmi-climbed-from-previous-505-to-507-in-april-202605021319",
+      "weekday": 5
+    }
+  ],
+  "count": 1,
+  "date": "2026-05-02",
+  "generated_at": "2026-05-22T14:51:45.940494800+00:00"
+}

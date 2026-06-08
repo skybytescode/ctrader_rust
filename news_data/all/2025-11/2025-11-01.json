@@ -1,0 +1,19 @@
+{
+  "articles": [
+    {
+      "article_id": "5e075044-990c-42e2-8e45-cf32d4793cb4",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 6,
+      "published_utc": "2025-11-01T06:00:20",
+      "summary": "Russia S&P Global Manufacturing PMI dipped from previous 48.2 to 48 in October",
+      "tags": "RussianFederation,PMI",
+      "title": "Russia S&P Global Manufacturing PMI dipped from previous 48.2 to 48 in October",
+      "url": "https://www.fxstreet.com/news/russia-sp-global-manufacturing-pmi-dipped-from-previous-482-to-48-in-october-202511010600",
+      "weekday": 5
+    }
+  ],
+  "count": 1,
+  "date": "2025-11-01",
+  "generated_at": "2026-05-22T00:05:28.235816200+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2023-11-26",
+  "events": [
+    {
+      "actual": 2.3,
+      "actual_raw": "2.3",
+      "beats_forecast": 1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "8c164255-ac3a-40ef-bd56-df43f47d5b8a__2023-11-26T23:50:00Z",
+      "event_id": "8c164255-ac3a-40ef-bd56-df43f47d5b8a",
+      "event_name": "Corporate Service Price Index (YoY)",
+      "forecast": 2.1,
+      "forecast_raw": "2.1",
+      "hour_utc": 23,
+      "previous": 2.1,
+      "previous_raw": "2.1",
+      "surprise": 0.19999999999999973,
+      "timestamp_utc": "2023-11-26T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:08.922634700+00:00"
+}

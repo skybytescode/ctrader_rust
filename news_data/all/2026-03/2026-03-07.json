@@ -1,0 +1,31 @@
+{
+  "articles": [
+    {
+      "article_id": "49ee4a4a-3081-4639-ad96-4af74dae236a",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 3,
+      "published_utc": "2026-03-07T03:56:29",
+      "summary": "China Foreign Exchange Reserves (MoM): $3.428T (January) vs $3.358T",
+      "tags": "ForeignTrade,China",
+      "title": "China Foreign Exchange Reserves (MoM): $3.428T (January) vs $3.358T",
+      "url": "https://www.fxstreet.com/news/china-foreign-exchange-reserves-mom-3428t-january-vs-3358t-202603070356",
+      "weekday": 5
+    },
+    {
+      "article_id": "0b25e629-443b-4bde-b190-8ccc6a61a49a",
+      "author": "FXStreet Team",
+      "body": "During an address broadcast by Iranian state TV, President Masoud Pezeshkian apologised to the neighbouring countries for attacks launched following US-Israel strikes but asserted that Tehran will not strike \"unless they attack first\".\n\nKey quotesI must apologise on my own behalf and on behalf of Iran to the neighbouring countries that were attacked by Iran.\n\nThe interim leadership council agreed yesterday that no more attacks will be made on neighbouring countries and no missiles will be fired unless an attack on Iran originates from those countries.\n\nTehran would \"not surrender\" to US President Donald Trump's demands of “unconditional surrender”.\n\nThe comments come after Iran launched attacks on Gulf countries hosting US forces with waves of retaliatory missile and drone strikes since the US-Israeli attacks began last Saturday.\n\nMarket implicationsThe Iranian President’s address could be seen as the first step toward de-escalation. However, unless Iranian forces provide some assurance on the safe resumption of commercial traffic through the Strait of Hormuz, market panic and uncertainty are expected to remain high.\n\nThe deepening Middle East conflict sent oil prices through the roof, with West Texas Intermediate (WTI) having surged roughly 32% over the week to its highest level since October 2023 at $90.\n\nRelated news\n\nForecasting the upcoming week: Middle East war boosts Oil, NFP miss shakes US Dollar\n\nCrude Oil explodes higher as Strait of Hormuz crisis deepens\n\nHow the war in Iran is impacting EM sovereigns",
+      "hour_utc": 9,
+      "published_utc": "2026-03-07T09:46:41",
+      "summary": "During an address broadcast by Iranian state TV, President Masoud Pezeshkian apologised to the neighbouring countries for attacks launched following US-Israel strikes but asserted that Tehran will not strike \"unless they attack first\".",
+      "tags": "RiskAppetite,Breaking,Iran,UnitedStates,WTI",
+      "title": "Breaking: Iran says no more attacks against neighbouring countries “unless they attack first”",
+      "url": "https://www.fxstreet.com/news/breaking-iran-says-no-more-attacks-against-neighbouring-countries-unless-they-attack-first-202603070946",
+      "weekday": 5
+    }
+  ],
+  "count": 2,
+  "date": "2026-03-07",
+  "generated_at": "2026-05-22T14:08:17.385309100+00:00"
+}

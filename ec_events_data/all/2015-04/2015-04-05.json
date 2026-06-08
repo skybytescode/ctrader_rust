@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-04-05",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "e1f147d2-95e6-4c10-9851-a84715fa23d0__2015-04-05T00:00:00Z",
+      "event_id": "e1f147d2-95e6-4c10-9851-a84715fa23d0",
+      "event_name": "Ching Ming Festival",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-04-05T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:43.450424500+00:00"
+}

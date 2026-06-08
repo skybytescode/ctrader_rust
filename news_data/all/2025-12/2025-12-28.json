@@ -1,0 +1,31 @@
+{
+  "articles": [
+    {
+      "article_id": "b1b50bef-e7cc-40bf-9719-0d55d8efa0a7",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-12-28T22:37:35",
+      "summary": "The Bank of Japan (BoJ) published the Summary of Opinions from the December monetary policy meeting, with the key findings noted below.   ",
+      "tags": "Currencies,BOJ,SEO,CentralBanks,USDJPY",
+      "title": "BoJ Summary of Opinions: Members say policy rate remains far below neutral despite recent hike",
+      "url": "https://www.fxstreet.com/news/when-are-the-boj-summary-of-opinions-and-how-could-they-affect-usd-jpy-202512282237",
+      "weekday": 6
+    },
+    {
+      "article_id": "ddcf4ce0-59f4-4a16-9d5a-3be8b866a120",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-12-28T23:46:17",
+      "summary": "The EUR/USD pair trades in positive territory around 1.1775 during the early Asian session on Monday. The prospect of a US Federal Reserve (Fed) rate cut in 2026 weighs on the US Dollar (USD) against the Euro (EUR).",
+      "tags": "EURUSD,Majors,Macroeconomics",
+      "title": "EUR/USD gathers strength above 1.1750 as Fed rate cut prospects pressure US Dollar",
+      "url": "https://www.fxstreet.com/news/eur-usd-gathers-strength-above-11750-as-fed-rate-cut-prospects-pressure-us-dollar-202512282346",
+      "weekday": 6
+    }
+  ],
+  "count": 2,
+  "date": "2025-12-28",
+  "generated_at": "2026-05-22T00:09:32.565445700+00:00"
+}

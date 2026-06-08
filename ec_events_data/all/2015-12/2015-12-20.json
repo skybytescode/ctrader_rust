@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-12-20",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "ES",
+      "currency": "EUR",
+      "event_date_id": "0f17ca66-dde9-425e-8970-7ebde1b41779__2015-12-20T00:00:00Z",
+      "event_id": "0f17ca66-dde9-425e-8970-7ebde1b41779",
+      "event_name": "General Election",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-12-20T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:45.317558400+00:00"
+}

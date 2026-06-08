@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2018-06-24",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "bc070981-c60c-4f82-b77c-e37e473c394c__2018-06-24T23:50:00Z",
+      "event_id": "bc070981-c60c-4f82-b77c-e37e473c394c",
+      "event_name": "BoJ Summary of Opinions",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2018-06-24T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:52.548001200+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2016-06-18",
+  "events": [
+    {
+      "actual": 6.9,
+      "actual_raw": "6.9",
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "704fa9ee-e4c6-4599-97d3-7f3f42bf7542__2016-06-18T01:30:00Z",
+      "event_id": "704fa9ee-e4c6-4599-97d3-7f3f42bf7542",
+      "event_name": "House Price Index ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 1,
+      "previous": 6.2,
+      "previous_raw": "6.2",
+      "surprise": null,
+      "timestamp_utc": "2016-06-18T01:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:46.693781200+00:00"
+}

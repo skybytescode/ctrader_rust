@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2017-04-22",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "0d332666-9d39-47d6-9986-97de648c52eb__2017-04-22T00:00:00Z",
+      "event_id": "0d332666-9d39-47d6-9986-97de648c52eb",
+      "event_name": "IMF Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2017-04-22T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "80cd3c25-5354-4c3c-977c-505e6c9b1d9d__2017-04-22T20:15:00Z",
+      "event_id": "80cd3c25-5354-4c3c-977c-505e6c9b1d9d",
+      "event_name": "Treasury Sec Mnuchin speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 20,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2017-04-22T20:15:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:49.123122900+00:00"
+}

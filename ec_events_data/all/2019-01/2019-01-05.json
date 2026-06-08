@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2019-01-05",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "771595c5-fbaa-4c3d-898c-06931f9290d8__2019-01-05T15:15:00Z",
+      "event_id": "771595c5-fbaa-4c3d-898c-06931f9290d8",
+      "event_name": "Fed's Bostic speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2019-01-05T15:15:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:54.805961800+00:00"
+}

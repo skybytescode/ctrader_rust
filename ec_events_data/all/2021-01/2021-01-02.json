@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2021-01-02",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "IE",
+      "currency": "EUR",
+      "event_date_id": "74a4f02e-2e49-4fc3-9c8e-7bd27f5a92c7__2021-01-02T00:00:00Z",
+      "event_id": "74a4f02e-2e49-4fc3-9c8e-7bd27f5a92c7",
+      "event_name": "New Year's Holiday",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2021-01-02T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:00.291814500+00:00"
+}

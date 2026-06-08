@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2011-10-01",
+  "events": [
+    {
+      "actual": 51.2,
+      "actual_raw": "51.2",
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "6e0be41a-08d2-43d8-a649-a02c7eb89629__2011-10-01T01:00:00Z",
+      "event_id": "6e0be41a-08d2-43d8-a649-a02c7eb89629",
+      "event_name": "NBS Manufacturing PMI",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 1,
+      "previous": 50.9,
+      "previous_raw": "50.9",
+      "surprise": null,
+      "timestamp_utc": "2011-10-01T01:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": 218.2,
+      "actual_raw": "218.2",
+      "beats_forecast": null,
+      "country_code": "AT",
+      "currency": "EUR",
+      "event_date_id": "a55d5b38-6ca9-4846-9224-6040db3fba16__2011-10-01T10:00:00Z",
+      "event_id": "a55d5b38-6ca9-4846-9224-6040db3fba16",
+      "event_name": "Unemployment",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 10,
+      "previous": 219.2,
+      "previous_raw": "219.2",
+      "surprise": null,
+      "timestamp_utc": "2011-10-01T10:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:33.633334200+00:00"
+}

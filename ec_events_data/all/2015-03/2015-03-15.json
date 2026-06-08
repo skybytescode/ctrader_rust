@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-03-15",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "df3fe856-996e-476d-b9a6-58c4138150cb__2015-03-15T22:00:00Z",
+      "event_id": "df3fe856-996e-476d-b9a6-58c4138150cb",
+      "event_name": "RBA's Debelle speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-03-15T22:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:43.186839100+00:00"
+}

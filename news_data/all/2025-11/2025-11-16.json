@@ -1,0 +1,79 @@
+{
+  "articles": [
+    {
+      "article_id": "c0c7b1fa-e26f-4910-97cd-c8351b77179e",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 21,
+      "published_utc": "2025-11-16T21:31:01",
+      "summary": "New Zealand Business NZ PSI rose from previous 48.3 to 48.7 in October",
+      "tags": "NewZealand,PMI",
+      "title": "New Zealand Business NZ PSI rose from previous 48.3 to 48.7 in October",
+      "url": "https://www.fxstreet.com/news/new-zealand-business-nz-psi-rose-from-previous-483-to-487-in-october-202511162131",
+      "weekday": 6
+    },
+    {
+      "article_id": "258fff4c-23c6-4e36-85b5-35ec36e9d17e",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-11-16T22:28:44",
+      "summary": "The Japanese economy contracted 0.4% over the quarter in the third quarter (Q3) of 2025, the preliminary reading released by Japan’s Cabinet Office showed on Monday. This reading came in above the market expectation of a 0.6% decline and the previous reading of a 0.6% expansion (revised from 0.5%). ",
+      "tags": "Breaking,GDP,Japan,USDJPY,Macroeconomics",
+      "title": "Breaking: Japan’s GDP contracts 0.4% QoQ in Q3 2025 vs -0.6% expected",
+      "url": "https://www.fxstreet.com/news/when-is-the-japan-quarterly-prelim-gdp-and-how-could-is-affect-usd-jpy-202511162228",
+      "weekday": 6
+    },
+    {
+      "article_id": "b91eb9c7-1d48-4e5b-b4b9-24fb4ca92b38",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-16T23:29:45",
+      "summary": "Gold price (XAU/USD) recovers some lost ground to near $4,105, snapping the two-day losing streak during the early European session on Friday. The precious metal edges higher on the softer US Dollar (USD).  Traders will take more cues from the Fedspeak later on Monday.",
+      "tags": "XAUUSD,Gold,Commodities,Macroeconomics",
+      "title": "Gold Price Forecast: XAU/USD recovers above $4,100, hawkish Fed might cap gains",
+      "url": "https://www.fxstreet.com/news/gold-price-forecast-xau-usd-recovers-above-4-100-hawkish-fed-might-cap-gains-202511162329",
+      "weekday": 6
+    },
+    {
+      "article_id": "cab91203-e083-4df3-84e7-bb080c0e564e",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-16T23:50:35",
+      "summary": "Japan Gross Domestic Product Annualized above expectations (-2.5%) in 3Q: Actual (-1.8%)",
+      "tags": "GDP,Japan",
+      "title": "Japan Gross Domestic Product Annualized above expectations (-2.5%) in 3Q: Actual (-1.8%)",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-annualized-above-expectations-25-in-3q-actual-18-202511162350",
+      "weekday": 6
+    },
+    {
+      "article_id": "8fca0e53-46ae-4703-be9f-804deafadef3",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-16T23:50:36",
+      "summary": "Japan Gross Domestic Product (QoQ) came in at -0.4%, above forecasts (-0.6%) in 3Q",
+      "tags": "GDP,Japan,USDJPY",
+      "title": "Japan Gross Domestic Product (QoQ) came in at -0.4%, above forecasts (-0.6%) in 3Q",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-qoq-came-in-at-04-above-forecasts-06-in-3q-202511162350",
+      "weekday": 6
+    },
+    {
+      "article_id": "c04cf0a2-52e6-4142-8638-85c99a60e38f",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-16T23:53:04",
+      "summary": "Japan Gross Domestic Product Deflator (YoY): 2.8% (3Q) vs previous 2.9%",
+      "tags": "GDP,Japan",
+      "title": "Japan Gross Domestic Product Deflator (YoY): 2.8% (3Q) vs previous 2.9%",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-deflator-yoy-28-3q-vs-previous-29-202511162353",
+      "weekday": 6
+    }
+  ],
+  "count": 6,
+  "date": "2025-11-16",
+  "generated_at": "2026-05-22T00:06:34.994580900+00:00"
+}

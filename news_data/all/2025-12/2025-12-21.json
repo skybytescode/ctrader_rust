@@ -1,0 +1,31 @@
+{
+  "articles": [
+    {
+      "article_id": "1183c785-09cf-432d-ad78-64cc41d0e33f",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-12-21T22:54:00",
+      "summary": "Federal Reserve Bank of Cleveland President Beth Hammack said that monetary policy is in a good place to pause and assess the effects of 75 basis points (bps) of rate cuts in the economy during the first quarter, Bloomberg reported on Sunday.",
+      "tags": "Fed,UnitedStates,CentralBanks,InterestRate,Macroeconomics",
+      "title": "Fed’s Hammack says holding rates steady for months is her base case for now",
+      "url": "https://www.fxstreet.com/news/feds-hammack-says-holding-rates-steady-for-months-is-her-base-case-for-now-202512212254",
+      "weekday": 6
+    },
+    {
+      "article_id": "768908b6-5e98-4539-b61f-ee083143d088",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-12-21T23:24:27",
+      "summary": "The USD/JPY pair loses ground to near 157.50 during the early Asian session on Monday. The prospect of further US Federal Reserve (Fed) interest rate cuts in 2026 weighs on the US Dollar (USD) against the Japanese Yen.",
+      "tags": "BOJ,Majors,USDJPY,Macroeconomics",
+      "title": "USD/JPY softens to near 157.50 amid Fed rate cut expectations",
+      "url": "https://www.fxstreet.com/news/usd-jpy-softens-to-near-15750-amid-fed-rate-cut-expectations-202512212324",
+      "weekday": 6
+    }
+  ],
+  "count": 2,
+  "date": "2025-12-21",
+  "generated_at": "2026-05-22T00:09:15.844807600+00:00"
+}

@@ -1,0 +1,31 @@
+{
+  "articles": [
+    {
+      "article_id": "5b17e628-ba0e-4c3d-a0bd-1eecdeef4773",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2026-01-31T01:30:40",
+      "summary": "China NBS Manufacturing PMI came in at 49.3, below expectations (50) in January",
+      "tags": "China,PMI",
+      "title": "China NBS Manufacturing PMI came in at 49.3, below expectations (50) in January",
+      "url": "https://www.fxstreet.com/news/china-nbs-manufacturing-pmi-came-in-at-493-below-expectations-50-in-january-202601310130",
+      "weekday": 5
+    },
+    {
+      "article_id": "9d3a3252-21d0-4fe4-b002-2b0ad0560cce",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2026-01-31T01:33:13",
+      "summary": "China NBS Non-Manufacturing PMI came in at 49.4 below forecasts (50.3) in January",
+      "tags": "China,PMI",
+      "title": "China NBS Non-Manufacturing PMI came in at 49.4 below forecasts (50.3) in January",
+      "url": "https://www.fxstreet.com/news/china-nbs-non-manufacturing-pmi-came-in-at-494-below-forecasts-503-in-january-202601310133",
+      "weekday": 5
+    }
+  ],
+  "count": 2,
+  "date": "2026-01-31",
+  "generated_at": "2026-05-22T13:41:42.276049900+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2020-05-03",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "b51516e6-cc15-4b75-9a8e-4e10807763ad__2020-05-03T15:00:00Z",
+      "event_id": "b51516e6-cc15-4b75-9a8e-4e10807763ad",
+      "event_name": "Greenery Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2020-05-03T15:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:58.502285+00:00"
+}

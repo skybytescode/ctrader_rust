@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2017-09-03",
+  "events": [
+    {
+      "actual": 16.3,
+      "actual_raw": "16.3",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "60171ab3-7419-49ae-9117-eae6f1e8a128__2017-09-03T23:50:00Z",
+      "event_id": "60171ab3-7419-49ae-9117-eae6f1e8a128",
+      "event_name": "Monetary Base (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 15.6,
+      "previous_raw": "15.6",
+      "surprise": null,
+      "timestamp_utc": "2017-09-03T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:50.234585100+00:00"
+}

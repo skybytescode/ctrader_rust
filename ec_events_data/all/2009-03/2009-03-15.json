@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2009-03-15",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "98556e6a-8474-4cc9-90ed-bbba223a1e76__2009-03-15T00:00:00Z",
+      "event_id": "98556e6a-8474-4cc9-90ed-bbba223a1e76",
+      "event_name": "EU Finance Ministers Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2009-03-15T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:25.064878+00:00"
+}

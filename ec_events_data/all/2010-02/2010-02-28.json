@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2010-02-28",
+  "events": [
+    {
+      "actual": 53.8,
+      "actual_raw": "53.8",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "de5e708b-3a8c-4bf9-afd6-a2758462a141__2010-02-28T22:30:00Z",
+      "event_id": "de5e708b-3a8c-4bf9-afd6-a2758462a141",
+      "event_name": "AiG Performance of Mfg Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 51.0,
+      "previous_raw": "51",
+      "surprise": null,
+      "timestamp_utc": "2010-02-28T22:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": 1.9,
+      "actual_raw": "1.9",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "afa5e8a8-cee2-4890-ba45-1ffac1555a1e__2010-02-28T23:30:00Z",
+      "event_id": "afa5e8a8-cee2-4890-ba45-1ffac1555a1e",
+      "event_name": "TD-MI Inflation Gauge (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 2.6,
+      "previous_raw": "2.6",
+      "surprise": null,
+      "timestamp_utc": "2010-02-28T23:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:27.677046500+00:00"
+}

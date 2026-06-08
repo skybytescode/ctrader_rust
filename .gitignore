@@ -41,11 +41,15 @@ econcal_comparison_*.txt
 FXSTREET_CONTEXT.md
 nul
 
-# Generated news archive (rebuilt from DB via Archives tab)
-news_data/
+# Generated news archive (rebuilt from DB via Archives tab) — keep the
+# per-day JSON under all/ tracked, ignore any other subfolders.
+news_data/*
+!news_data/all/
 
-# Generated EC events archive (rebuilt from DB via Archives tab)
-ec_events_data/
+# Generated EC events archive (rebuilt from DB via Archives tab) — keep the
+# per-day JSON under all/ tracked, ignore any other subfolders.
+ec_events_data/*
+!ec_events_data/all/
 
 # Backtest research data (regenerable via `cargo run --bin backtest_orb -- download`)
 backtest_data/

@@ -1,0 +1,31 @@
+{
+  "articles": [
+    {
+      "article_id": "4d5cf870-7690-41cc-a2f6-9318a005b91e",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2025-05-31T01:31:12",
+      "summary": "China NBS Non-Manufacturing PMI below forecasts (50.6) in May: Actual (50.3)",
+      "tags": "China,PMI",
+      "title": "China NBS Non-Manufacturing PMI below forecasts (50.6) in May: Actual (50.3)",
+      "url": "https://www.fxstreet.com/news/china-nbs-non-manufacturing-pmi-below-forecasts-506-in-may-actual-503-202505310131",
+      "weekday": 5
+    },
+    {
+      "article_id": "66fa79da-bb61-4050-898e-5cb749b329af",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 1,
+      "published_utc": "2025-05-31T01:31:21",
+      "summary": "China NBS Manufacturing PMI meets expectations (49.5) in May",
+      "tags": "China,PMI",
+      "title": "China NBS Manufacturing PMI meets expectations (49.5) in May",
+      "url": "https://www.fxstreet.com/news/china-nbs-manufacturing-pmi-meets-expectations-495-in-may-202505310131",
+      "weekday": 5
+    }
+  ],
+  "count": 2,
+  "date": "2025-05-31",
+  "generated_at": "2026-05-21T23:52:50.467375+00:00"
+}

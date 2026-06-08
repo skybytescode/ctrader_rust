@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2025-05-17",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "83887e19-1352-453f-96e9-7406bc598f40__2025-05-17T01:40:00Z",
+      "event_id": "83887e19-1352-453f-96e9-7406bc598f40",
+      "event_name": "Fed's Daly speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 1,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-05-17T01:40:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "9dd4293c-754b-4956-a244-7b49bea538a2__2025-05-17T20:00:00Z",
+      "event_id": "9dd4293c-754b-4956-a244-7b49bea538a2",
+      "event_name": "ECB's President Lagarde speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 20,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-05-17T20:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:13.335959900+00:00"
+}

@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2016-07-03",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "20fd1ed8-39e7-4fe2-9c97-4f78fc2cdcf8__2016-07-03T09:10:00Z",
+      "event_id": "20fd1ed8-39e7-4fe2-9c97-4f78fc2cdcf8",
+      "event_name": "ECB's Cœuré speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 9,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2016-07-03T09:10:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": 25.4,
+      "actual_raw": "25.4",
+      "beats_forecast": -1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "60171ab3-7419-49ae-9117-eae6f1e8a128__2016-07-03T23:50:00Z",
+      "event_id": "60171ab3-7419-49ae-9117-eae6f1e8a128",
+      "event_name": "Monetary Base (YoY)",
+      "forecast": 26.3,
+      "forecast_raw": "26.3",
+      "hour_utc": 23,
+      "previous": 25.5,
+      "previous_raw": "25.5",
+      "surprise": -0.9000000000000021,
+      "timestamp_utc": "2016-07-03T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:46.921683600+00:00"
+}

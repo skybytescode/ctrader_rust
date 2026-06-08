@@ -1,0 +1,127 @@
+{
+  "articles": [
+    {
+      "article_id": "4bbe6ced-6c80-4376-b9c1-6897dd4256b6",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 7,
+      "published_utc": "2025-09-07T07:59:58",
+      "summary": "China Foreign Exchange Reserves (MoM) rose from previous $3.292T to $3.322T in August",
+      "tags": "ForeignTrade,China",
+      "title": "China Foreign Exchange Reserves (MoM) rose from previous $3.292T to $3.322T in August",
+      "url": "https://www.fxstreet.com/news/china-foreign-exchange-reserves-mom-rose-from-previous-3292t-to-3322t-in-august-202509070759",
+      "weekday": 6
+    },
+    {
+      "article_id": "fc05ab92-bdfb-4b3c-9eae-92dbaf661e4c",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-09-07T23:18:06",
+      "summary": "The People’s Bank of China (PBoC) added gold to its reserves in August, extending purchases of bullion into a 10th straight month, official data showed on Sunday.",
+      "tags": "China,CentralBanks,Gold,PBOC,Macroeconomics",
+      "title": "PBoC buys gold in August for 10th consecutive month",
+      "url": "https://www.fxstreet.com/news/pboc-buys-gold-in-august-for-10th-consecutive-month-202509072318",
+      "weekday": 6
+    },
+    {
+      "article_id": "a9fcfb3d-23f2-4e36-9d8b-6785dea17cae",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-09-07T23:27:50",
+      "summary": "The Organization of the Petroleum Exporting Countries and its allies (OPEC+) said on Sunday that they have agreed to further raise oil production from October as its leader, Saudi Arabia, pushes to regain market share, Bloomberg reported. ",
+      "tags": "Oil,OPEC,WTI,Commodities,Macroeconomics",
+      "title": "OPEC+ agrees on a further oil output boost in October ",
+      "url": "https://www.fxstreet.com/news/opec-agrees-on-a-further-oil-output-boost-in-october-202509072327",
+      "weekday": 6
+    },
+    {
+      "article_id": "49a0a31f-d6ee-4327-94a4-6c126e78b5b1",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-09-07T23:50:36",
+      "summary": "Japan Gross Domestic Product Annualized came in at 2.2%, above forecasts (1%) in 2Q",
+      "tags": "GDP,Japan",
+      "title": "Japan Gross Domestic Product Annualized came in at 2.2%, above forecasts (1%) in 2Q",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-annualized-came-in-at-22-above-forecasts-1-in-2q-202509072350",
+      "weekday": 6
+    },
+    {
+      "article_id": "1fbd4d78-6714-4e59-8f88-4ed16d6e47f1",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-09-07T23:50:41",
+      "summary": "Japan Current Account n.s.a. below expectations (¥3366B) in July: Actual (¥2684.3B)",
+      "tags": "TradeBalance,Japan,CurrentAccount",
+      "title": "Japan Current Account n.s.a. below expectations (¥3366B) in July: Actual (¥2684.3B)",
+      "url": "https://www.fxstreet.com/news/japan-current-account-nsa-below-expectations-y3366b-in-july-actual-y26843b-202509072350",
+      "weekday": 6
+    },
+    {
+      "article_id": "22163925-a90b-4d54-886a-dad2fa7b889f",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-09-07T23:50:44",
+      "summary": "Japan Bank Lending (YoY) above expectations (3.2%) in August: Actual (3.6%)",
+      "tags": "Japan",
+      "title": "Japan Bank Lending (YoY) above expectations (3.2%) in August: Actual (3.6%)",
+      "url": "https://www.fxstreet.com/news/japan-bank-lending-yoy-above-expectations-32-in-august-actual-36-202509072350",
+      "weekday": 6
+    },
+    {
+      "article_id": "dc8812b0-e831-4d0a-b082-c40d170878fe",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-09-07T23:51:33",
+      "summary": "Japan Gross Domestic Product (QoQ) came in at 0.5%, above forecasts (0.3%) in 2Q",
+      "tags": "GDP,Japan,USDJPY",
+      "title": "Japan Gross Domestic Product (QoQ) came in at 0.5%, above forecasts (0.3%) in 2Q",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-qoq-came-in-at-05-above-forecasts-03-in-2q-202509072351",
+      "weekday": 6
+    },
+    {
+      "article_id": "d315e165-e82f-47f1-8b04-5ffc95e04b8d",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-09-07T23:53:06",
+      "summary": "Japan Gross Domestic Product Deflator (YoY) below forecasts (3%) in 2Q: Actual (2.9%)",
+      "tags": "GDP,Japan",
+      "title": "Japan Gross Domestic Product Deflator (YoY) below forecasts (3%) in 2Q: Actual (2.9%)",
+      "url": "https://www.fxstreet.com/news/japan-gross-domestic-product-deflator-yoy-below-forecasts-3-in-2q-actual-29-202509072353",
+      "weekday": 6
+    },
+    {
+      "article_id": "571f54c0-bb09-4cf6-9edc-38d08fab627b",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-09-07T23:53:12",
+      "summary": "The Japanese economy grew 0.5% over the quarter in the second quarter (Q2) of 2025, the final reading released by Japan’s Cabinet Office showed on Monday. This reading came in above the market expectation and the previous estimate of 0.3%.",
+      "tags": "GDP,Japan,Macroeconomics",
+      "title": "Japan’s GDP rises 0.5% QoQ in Q2 2025 vs 0.3% expected",
+      "url": "https://www.fxstreet.com/news/japans-gdp-rises-05-qoq-in-q2-2025-vs-03-expected-202509072353",
+      "weekday": 6
+    },
+    {
+      "article_id": "66242e83-91fe-47a5-9740-f09f434f4f8a",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-09-07T23:54:37",
+      "summary": "Japan Trade Balance - BOP Basis declined to ¥-189.4B in July from previous ¥469.6B",
+      "tags": "TradeBalance",
+      "title": "Japan Trade Balance - BOP Basis declined to ¥-189.4B in July from previous ¥469.6B",
+      "url": "https://www.fxstreet.com/news/japan-trade-balance-bop-basis-declined-to-y-1894b-in-july-from-previous-y4696b-202509072354",
+      "weekday": 6
+    }
+  ],
+  "count": 10,
+  "date": "2025-09-07",
+  "generated_at": "2026-05-22T00:00:55.588322100+00:00"
+}

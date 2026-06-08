@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2019-05-26",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "a64fde32-6d58-4a97-a9f2-8b7bf6e6a8b0__2019-05-26T11:45:00Z",
+      "event_id": "a64fde32-6d58-4a97-a9f2-8b7bf6e6a8b0",
+      "event_name": "ECB's Lautenschläger speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 11,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2019-05-26T11:45:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:55.858118600+00:00"
+}

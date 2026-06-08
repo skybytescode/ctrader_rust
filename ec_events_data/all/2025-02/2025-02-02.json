@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2025-02-02",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "3766e161-8431-4a94-8a37-1257784bba6c__2025-02-02T22:00:00Z",
+      "event_id": "3766e161-8431-4a94-8a37-1257784bba6c",
+      "event_name": "S&P Global Manufacturing PMI",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 49.8,
+      "previous_raw": "49.8",
+      "surprise": null,
+      "timestamp_utc": "2025-02-02T22:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "bc070981-c60c-4f82-b77c-e37e473c394c__2025-02-02T23:50:00Z",
+      "event_id": "bc070981-c60c-4f82-b77c-e37e473c394c",
+      "event_name": "BoJ Summary of Opinions",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-02-02T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:12.306052100+00:00"
+}

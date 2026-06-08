@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2017-10-22",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "0e9bbf74-7dfc-4818-9244-9ac98b4c50fb__2017-10-22T00:00:00Z",
+      "event_id": "0e9bbf74-7dfc-4818-9244-9ac98b4c50fb",
+      "event_name": "Japanese General Elections",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2017-10-22T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "IT",
+      "currency": "EUR",
+      "event_date_id": "e4cf1f3a-ec5f-466b-9e4b-454db189e3da__2017-10-22T00:00:00Z",
+      "event_id": "e4cf1f3a-ec5f-466b-9e4b-454db189e3da",
+      "event_name": "Lombardy and Veneto referendums",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2017-10-22T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:50.460148400+00:00"
+}

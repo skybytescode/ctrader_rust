@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2023-12-10",
+  "events": [
+    {
+      "actual": 5.7,
+      "actual_raw": "5.7",
+      "beats_forecast": 1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "ccd88caa-2c2c-4a02-b8be-68d73e55f0ff__2023-12-10T23:50:00Z",
+      "event_id": "ccd88caa-2c2c-4a02-b8be-68d73e55f0ff",
+      "event_name": "BSI Large Manufacturing Conditions Index (QoQ)",
+      "forecast": 5.6,
+      "forecast_raw": "5.6",
+      "hour_utc": 23,
+      "previous": 5.4,
+      "previous_raw": "5.4",
+      "surprise": 0.10000000000000053,
+      "timestamp_utc": "2023-12-10T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": 2.3,
+      "actual_raw": "2.3",
+      "beats_forecast": -1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "365aae40-37c5-4c5f-ae5b-52f72100c1ab__2023-12-10T23:50:00Z",
+      "event_id": "365aae40-37c5-4c5f-ae5b-52f72100c1ab",
+      "event_name": "Money Supply M2+CD (YoY)",
+      "forecast": 2.5,
+      "forecast_raw": "2.5",
+      "hour_utc": 23,
+      "previous": 2.4,
+      "previous_raw": "2.4",
+      "surprise": -0.20000000000000018,
+      "timestamp_utc": "2023-12-10T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:09.142438600+00:00"
+}

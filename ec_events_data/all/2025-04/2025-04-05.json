@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2025-04-05",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "7ede1f9b-0a76-4f91-8d47-cce9dc9a699c__2025-04-05T09:15:00Z",
+      "event_id": "7ede1f9b-0a76-4f91-8d47-cce9dc9a699c",
+      "event_name": "ECB's Schnabel speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 9,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-04-05T09:15:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "37e18943-ce63-4121-9891-6b0df753e55e__2025-04-05T16:00:00Z",
+      "event_id": "37e18943-ce63-4121-9891-6b0df753e55e",
+      "event_name": "Daylight Saving Time Ends",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 16,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-04-05T16:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:12.982097900+00:00"
+}

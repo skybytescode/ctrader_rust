@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2016-03-06",
+  "events": [
+    {
+      "actual": 46.1,
+      "actual_raw": "46.1",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "2d6c6023-8a33-467b-bf7b-18286d248f18__2016-03-06T22:30:00Z",
+      "event_id": "2d6c6023-8a33-467b-bf7b-18286d248f18",
+      "event_name": "AiG Performance of Construction Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 46.3,
+      "previous_raw": "46.3",
+      "surprise": null,
+      "timestamp_utc": "2016-03-06T22:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": 1254.1,
+      "actual_raw": "1254.1",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "9f94c00a-9463-4dbb-be65-48e5bc3f7721__2016-03-06T23:50:00Z",
+      "event_id": "9f94c00a-9463-4dbb-be65-48e5bc3f7721",
+      "event_name": "JP Foreign Reserves",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 1248.1,
+      "previous_raw": "1248.1",
+      "surprise": null,
+      "timestamp_utc": "2016-03-06T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:46.015722700+00:00"
+}

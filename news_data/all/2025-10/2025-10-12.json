@@ -1,0 +1,43 @@
+{
+  "articles": [
+    {
+      "article_id": "a39b4b0f-3995-4d0c-99fb-14804dc21589",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 21,
+      "published_utc": "2025-10-12T21:31:51",
+      "summary": "New Zealand Business NZ PSI increased to 48.3 in September from previous 47.5",
+      "tags": "NewZealand,PMI",
+      "title": "New Zealand Business NZ PSI increased to 48.3 in September from previous 47.5",
+      "url": "https://www.fxstreet.com/news/new-zealand-business-nz-psi-increased-to-483-in-september-from-previous-475-202510122131",
+      "weekday": 6
+    },
+    {
+      "article_id": "38c149db-f18f-441c-85ad-2e2f3add7f98",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-10-12T23:03:07",
+      "summary": "The USD/JPY pair trades in positive territory near 152.05 during the early Asian session on Monday. The pair recovers some lost ground after facing some selling pressure in the previous session as US President Donald Trump threatened to hike tariffs against China.",
+      "tags": "Majors,USDJPY,Macroeconomics",
+      "title": "USD/JPY rebounds above 152.00 on political turmoil in Japan",
+      "url": "https://www.fxstreet.com/news/usd-jpy-rebounds-above-15200-on-political-turmoil-in-japan-202510122303",
+      "weekday": 6
+    },
+    {
+      "article_id": "0dcad9f9-01dd-40eb-b10a-e641a56b8d1f",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-10-12T23:55:32",
+      "summary": "Gold price (XAU/USD) extends the rally to around $4,040 during the early Asian session on Monday. The escalating trade tensions between the United States (US) and China provide some support to the precious metal.",
+      "tags": "XAUUSD,Gold,Commodities,Macroeconomics",
+      "title": "Gold Price Forecast: XAU/USD rises to near $4,050 as Trump’s 100% tariffs ignite safe-haven demand ",
+      "url": "https://www.fxstreet.com/news/gold-price-forecast-xau-usd-rises-to-near-4-050-as-trumps-100-tariffs-ignite-safe-haven-demand-202510122355",
+      "weekday": 6
+    }
+  ],
+  "count": 3,
+  "date": "2025-10-12",
+  "generated_at": "2026-05-22T00:03:43.675463100+00:00"
+}

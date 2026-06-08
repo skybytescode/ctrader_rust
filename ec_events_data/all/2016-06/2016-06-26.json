@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2016-06-26",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "ES",
+      "currency": "EUR",
+      "event_date_id": "0f17ca66-dde9-425e-8970-7ebde1b41779__2016-06-26T00:00:00Z",
+      "event_id": "0f17ca66-dde9-425e-8970-7ebde1b41779",
+      "event_name": "General Election",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2016-06-26T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "bc811898-14cb-432c-ab0b-31798e95cc74__2016-06-26T23:50:00Z",
+      "event_id": "bc811898-14cb-432c-ab0b-31798e95cc74",
+      "event_name": "BoJ Monetary Policy Meeting Minutes",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2016-06-26T23:50:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:46.693781200+00:00"
+}

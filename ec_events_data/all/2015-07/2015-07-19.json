@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2015-07-19",
+  "events": [
+    {
+      "actual": 5.1,
+      "actual_raw": "5.1",
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "273c8527-b53c-4048-9dfe-d678eb23b260__2015-07-19T23:01:00Z",
+      "event_id": "273c8527-b53c-4048-9dfe-d678eb23b260",
+      "event_name": "Rightmove House Price Index (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 4.5,
+      "previous_raw": "4.5",
+      "surprise": null,
+      "timestamp_utc": "2015-07-19T23:01:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": 0.1,
+      "actual_raw": "0.1",
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "33ec865e-791a-48ea-bca1-07c9e034c81a__2015-07-19T23:01:00Z",
+      "event_id": "33ec865e-791a-48ea-bca1-07c9e034c81a",
+      "event_name": "Rightmove House Price Index (MoM)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 3.0,
+      "previous_raw": "3",
+      "surprise": null,
+      "timestamp_utc": "2015-07-19T23:01:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:44.212357200+00:00"
+}

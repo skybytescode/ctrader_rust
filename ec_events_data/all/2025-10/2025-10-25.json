@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2025-10-25",
+  "events": [
+    {
+      "actual": -10.4,
+      "actual_raw": "-10.4",
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "d609d768-3a21-4b31-ad33-6e15a7fca9e2__2025-10-25T09:00:00Z",
+      "event_id": "d609d768-3a21-4b31-ad33-6e15a7fca9e2",
+      "event_name": "FDI - Foreign Direct Investment (YTD) (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 9,
+      "previous": -12.7,
+      "previous_raw": "-12.7",
+      "surprise": null,
+      "timestamp_utc": "2025-10-25T09:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AT",
+      "currency": "EUR",
+      "event_date_id": "2945377f-0699-4e89-9c59-c3d5a69cd6d8__2025-10-25T22:00:00Z",
+      "event_id": "2945377f-0699-4e89-9c59-c3d5a69cd6d8",
+      "event_name": "National Day ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-10-25T22:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:14.786272600+00:00"
+}

@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2024-11-17",
+  "events": [
+    {
+      "actual": -4.8,
+      "actual_raw": "-4.8",
+      "beats_forecast": -1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "8704b166-257b-44d2-8097-c33cc40c3f93__2024-11-17T23:50:00Z",
+      "event_id": "8704b166-257b-44d2-8097-c33cc40c3f93",
+      "event_name": "Machinery Orders (YoY)",
+      "forecast": 2.2,
+      "forecast_raw": "2.2",
+      "hour_utc": 23,
+      "previous": -3.4,
+      "previous_raw": "-3.4",
+      "surprise": -7.0,
+      "timestamp_utc": "2024-11-17T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": -0.7,
+      "actual_raw": "-0.7",
+      "beats_forecast": -1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "f01f715f-a71d-4599-bf04-6ceffe02b6fe__2024-11-17T23:50:00Z",
+      "event_id": "f01f715f-a71d-4599-bf04-6ceffe02b6fe",
+      "event_name": "Machinery Orders (MoM)",
+      "forecast": 1.9,
+      "forecast_raw": "1.9",
+      "hour_utc": 23,
+      "previous": -1.9,
+      "previous_raw": "-1.9",
+      "surprise": -2.5999999999999996,
+      "timestamp_utc": "2024-11-17T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:11.610245600+00:00"
+}

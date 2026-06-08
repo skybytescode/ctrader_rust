@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2012-01-08",
+  "events": [
+    {
+      "actual": 13.6,
+      "actual_raw": "13.6",
+      "beats_forecast": 1,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "d24a41c7-20d2-4db5-943a-ca0609f39ac0__2012-01-08T00:00:00Z",
+      "event_id": "d24a41c7-20d2-4db5-943a-ca0609f39ac0",
+      "event_name": "M2 Money Supply (YoY)",
+      "forecast": 12.6,
+      "forecast_raw": "12.6",
+      "hour_utc": 0,
+      "previous": 12.7,
+      "previous_raw": "12.7",
+      "surprise": 1.0,
+      "timestamp_utc": "2012-01-08T00:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": 41.0,
+      "actual_raw": "41",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "2d6c6023-8a33-467b-bf7b-18286d248f18__2012-01-08T22:30:00Z",
+      "event_id": "2d6c6023-8a33-467b-bf7b-18286d248f18",
+      "event_name": "AiG Performance of Construction Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 39.6,
+      "previous_raw": "39.6",
+      "surprise": null,
+      "timestamp_utc": "2012-01-08T22:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:34.318587700+00:00"
+}

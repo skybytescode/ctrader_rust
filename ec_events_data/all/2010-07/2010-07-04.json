@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2010-07-04",
+  "events": [
+    {
+      "actual": 48.8,
+      "actual_raw": "48.8",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de__2010-07-04T23:30:00Z",
+      "event_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de",
+      "event_name": "AiG Performance of Services Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 47.5,
+      "previous_raw": "47.5",
+      "surprise": null,
+      "timestamp_utc": "2010-07-04T23:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:29.408706+00:00"
+}

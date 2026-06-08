@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2024-01-07",
+  "events": [
+    {
+      "actual": 3.238,
+      "actual_raw": "3.238",
+      "beats_forecast": 1,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "856f19d9-fc4f-42ad-9aaa-1e9bbe5abda2__2024-01-07T08:00:00Z",
+      "event_id": "856f19d9-fc4f-42ad-9aaa-1e9bbe5abda2",
+      "event_name": "Foreign Exchange Reserves (MoM)",
+      "forecast": 3.2,
+      "forecast_raw": "3.2",
+      "hour_utc": 8,
+      "previous": 3.172,
+      "previous_raw": "3.172",
+      "surprise": 0.03799999999999981,
+      "timestamp_utc": "2024-01-07T08:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "1b0404fa-6615-4abe-bb50-b5eeeb4c6eb6__2024-01-07T15:00:00Z",
+      "event_id": "1b0404fa-6615-4abe-bb50-b5eeeb4c6eb6",
+      "event_name": "Coming-of-Age Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2024-01-07T15:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:09.363709100+00:00"
+}

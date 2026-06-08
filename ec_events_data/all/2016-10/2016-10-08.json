@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2016-10-08",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "0d332666-9d39-47d6-9986-97de648c52eb__2016-10-08T00:00:00Z",
+      "event_id": "0d332666-9d39-47d6-9986-97de648c52eb",
+      "event_name": "IMF Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2016-10-08T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "65e6efe8-5058-4f51-a061-a42ac5e93f36__2016-10-08T01:45:00Z",
+      "event_id": "65e6efe8-5058-4f51-a061-a42ac5e93f36",
+      "event_name": "RatingDog Services PMI",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 1,
+      "previous": 52.1,
+      "previous_raw": "52.1",
+      "surprise": null,
+      "timestamp_utc": "2016-10-08T01:45:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:47.607960400+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-06-21",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "2e1dcd54-ad87-4a6c-a134-4b2af4470b09__2015-06-21T00:00:00Z",
+      "event_id": "2e1dcd54-ad87-4a6c-a134-4b2af4470b09",
+      "event_name": "Dragon Boat Festival ",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-06-21T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:43.978057100+00:00"
+}

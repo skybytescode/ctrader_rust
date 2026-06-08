@@ -1,0 +1,31 @@
+{
+  "articles": [
+    {
+      "article_id": "6fdada58-7319-4441-8af1-a77d6c72d7eb",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-23T23:17:12",
+      "summary": "The USD/JPY pair posts modest gains near 156.50 during the early Asian session on Monday. Less dovish Federal Reserve (Fed) expectations could provide some support to the US Dollar (USD) against the Japanese Yen (JPY).",
+      "tags": "Majors,USDJPY,Macroeconomics",
+      "title": "USD/JPY gathers strength to near 156.50 on mixed Fed signals ",
+      "url": "https://www.fxstreet.com/news/usd-jpy-gathers-strength-to-near-15650-on-mixed-fed-signals-202511232317",
+      "weekday": 6
+    },
+    {
+      "article_id": "848eca7f-35bf-4ec3-bce8-4afdb39fd517",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-11-23T23:32:14",
+      "summary": "Swiss National Bank (SNB) President Martin Schlegel said that consumer-price growth in Switzerland is expected to accelerate a bit, Bloomberg reported on Saturday.",
+      "tags": "CentralBanks,USDCHF,SNB,Switzerland,Macroeconomics",
+      "title": "SNB’s Schlegel: We need expansive monetary policy to support inflation",
+      "url": "https://www.fxstreet.com/news/snbs-schlegel-we-need-expansive-monetary-policy-to-support-inflation-202511232332",
+      "weekday": 6
+    }
+  ],
+  "count": 2,
+  "date": "2025-11-23",
+  "generated_at": "2026-05-22T00:07:03.986254900+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2019-04-06",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "920f784d-1526-46d6-b153-ee05eaa58f8a__2019-04-06T08:40:00Z",
+      "event_id": "920f784d-1526-46d6-b153-ee05eaa58f8a",
+      "event_name": "ECB's Mersch speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 8,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2019-04-06T08:40:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:55.630317300+00:00"
+}

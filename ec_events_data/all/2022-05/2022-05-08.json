@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2022-05-08",
+  "events": [
+    {
+      "actual": 1.2,
+      "actual_raw": "1.2",
+      "beats_forecast": 1,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "02a39051-34c7-41ba-a029-5c766dc2e302__2022-05-08T23:30:00Z",
+      "event_id": "02a39051-34c7-41ba-a029-5c766dc2e302",
+      "event_name": "Labor Cash Earnings (YoY)",
+      "forecast": -0.3,
+      "forecast_raw": "-0.3",
+      "hour_utc": 23,
+      "previous": 1.2,
+      "previous_raw": "1.2",
+      "surprise": 1.5,
+      "timestamp_utc": "2022-05-08T23:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "bc811898-14cb-432c-ab0b-31798e95cc74__2022-05-08T23:50:00Z",
+      "event_id": "bc811898-14cb-432c-ab0b-31798e95cc74",
+      "event_name": "BoJ Monetary Policy Meeting Minutes",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-05-08T23:50:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:03.863145600+00:00"
+}

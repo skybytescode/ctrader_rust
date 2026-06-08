@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2026-03-21",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "c5d3de6d-d688-48e6-93c3-06b3db317169__2026-03-21T08:30:00Z",
+      "event_id": "c5d3de6d-d688-48e6-93c3-06b3db317169",
+      "event_name": "ECB's Cipollone speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 8,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2026-03-21T08:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "afc2452a-0957-4f10-9d10-cb4512ef838d__2026-03-21T14:30:00Z",
+      "event_id": "afc2452a-0957-4f10-9d10-cb4512ef838d",
+      "event_name": "Fed's Powell speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 14,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2026-03-21T14:30:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:16.321736300+00:00"
+}

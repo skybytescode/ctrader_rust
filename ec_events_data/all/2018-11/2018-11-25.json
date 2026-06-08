@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2018-11-25",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "11a5b03d-707d-4f6c-be50-8bbf1cc84f7b__2018-11-25T00:00:00Z",
+      "event_id": "11a5b03d-707d-4f6c-be50-8bbf1cc84f7b",
+      "event_name": "Brexit Summit",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2018-11-25T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "55916753-bdcd-4bd4-a799-302c487fe68f__2018-11-25T22:15:00Z",
+      "event_id": "55916753-bdcd-4bd4-a799-302c487fe68f",
+      "event_name": "RBA's Governor Lowe speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2018-11-25T22:15:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:54.190911+00:00"
+}

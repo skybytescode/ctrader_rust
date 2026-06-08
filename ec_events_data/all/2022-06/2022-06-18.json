@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2022-06-18",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "ad33871b-d7b2-4dec-b301-eae4a1b43564__2022-06-18T20:40:00Z",
+      "event_id": "ad33871b-d7b2-4dec-b301-eae4a1b43564",
+      "event_name": "Fed's Waller speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 20,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-06-18T20:40:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:04.113803100+00:00"
+}

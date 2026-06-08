@@ -1,0 +1,19 @@
+{
+  "articles": [
+    {
+      "article_id": "f5ec3762-5c7d-4034-9f7e-3372c160b11a",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-09-28T23:07:45",
+      "summary": "The USD/JPY pair loses ground to around 149.50 during the early  Asian session on Monday.",
+      "tags": "Majors,USDJPY,Macroeconomics",
+      "title": "USD/JPY softens to near 149.50 as US PCE data reinforces Fed dovish bets",
+      "url": "https://www.fxstreet.com/news/usd-jpy-softens-to-near-14950-as-us-pce-data-reinforces-fed-dovish-bets-202509282307",
+      "weekday": 6
+    }
+  ],
+  "count": 1,
+  "date": "2025-09-28",
+  "generated_at": "2026-05-22T00:02:27.303384700+00:00"
+}

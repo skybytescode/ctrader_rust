@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2022-03-19",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "7bd9ef61-1295-4c1b-846c-3a09fb77fb8d__2022-03-19T15:00:00Z",
+      "event_id": "7bd9ef61-1295-4c1b-846c-3a09fb77fb8d",
+      "event_name": "Vernal Equinox Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-03-19T15:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:03.396027600+00:00"
+}

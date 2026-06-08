@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2022-11-06",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "739cf3cc-7613-4947-8ebc-9750d4070b8c__2022-11-06T07:00:00Z",
+      "event_id": "739cf3cc-7613-4947-8ebc-9750d4070b8c",
+      "event_name": "Daylight Saving Time ends",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 7,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-11-06T07:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:05.760910900+00:00"
+}

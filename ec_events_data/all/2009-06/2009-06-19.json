@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2009-06-19",
+  "events": [
+    {
+      "actual": -3.6,
+      "actual_raw": "-3.6",
+      "beats_forecast": 0,
+      "country_code": "DE",
+      "currency": "EUR",
+      "event_date_id": "6c7aaf26-837f-482f-8482-cc95756a3627__2009-06-19T06:00:00Z",
+      "event_id": "6c7aaf26-837f-482f-8482-cc95756a3627",
+      "event_name": "Producer Price Index (YoY)",
+      "forecast": -3.6,
+      "forecast_raw": "-3.6",
+      "hour_utc": 6,
+      "previous": -2.7,
+      "previous_raw": "-2.7",
+      "surprise": 0.0,
+      "timestamp_utc": "2009-06-19T06:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 4
+    },
+    {
+      "actual": 0.0,
+      "actual_raw": "0",
+      "beats_forecast": 0,
+      "country_code": "DE",
+      "currency": "EUR",
+      "event_date_id": "9808b682-ae10-4a70-89f2-5ccec6c33aad__2009-06-19T06:00:00Z",
+      "event_id": "9808b682-ae10-4a70-89f2-5ccec6c33aad",
+      "event_name": "Producer Price Index (MoM)",
+      "forecast": 0.0,
+      "forecast_raw": "0",
+      "hour_utc": 6,
+      "previous": -1.4,
+      "previous_raw": "-1.4",
+      "surprise": 0.0,
+      "timestamp_utc": "2009-06-19T06:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 4
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:25.724101600+00:00"
+}

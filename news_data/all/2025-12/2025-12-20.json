@@ -1,0 +1,91 @@
+{
+  "articles": [
+    {
+      "article_id": "d6b19a24-e58b-4613-8df2-2c9ab0c14089",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 17,
+      "published_utc": "2025-12-20T17:04:04",
+      "summary": "United States CFTC S&P 500 NC Net Positions: $-1904K  vs previous $-155.3K",
+      "tags": "UnitedStates,COT",
+      "title": "United States CFTC S&P 500 NC Net Positions: $-1904K  vs previous $-155.3K",
+      "url": "https://www.fxstreet.com/news/united-states-cftc-sp-500-nc-net-positions-1904k-vs-previous-1553k-202512201704",
+      "weekday": 5
+    },
+    {
+      "article_id": "4580b58c-bf45-477a-b03d-980ae14a530b",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 17,
+      "published_utc": "2025-12-20T17:04:08",
+      "summary": "Japan CFTC JPY NC Net Positions up to ¥174K from previous ¥26.5K",
+      "tags": "TradeBalance,Japan,COT",
+      "title": "Japan CFTC JPY NC Net Positions up to ¥174K from previous ¥26.5K",
+      "url": "https://www.fxstreet.com/news/japan-cftc-jpy-nc-net-positions-up-to-y174k-from-previous-y265k-202512201704",
+      "weekday": 5
+    },
+    {
+      "article_id": "8e35f989-fcac-4558-8797-674d651a953f",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 17,
+      "published_utc": "2025-12-20T17:04:18",
+      "summary": "Eurozone CFTC EUR NC Net Positions up to €1388K from previous €94.1K",
+      "tags": "TradeBalance,Eurozone",
+      "title": "Eurozone CFTC EUR NC Net Positions up to €1388K from previous €94.1K",
+      "url": "https://www.fxstreet.com/news/eurozone-cftc-eur-nc-net-positions-up-to-eu1388k-from-previous-eu941k-202512201704",
+      "weekday": 5
+    },
+    {
+      "article_id": "813532c5-2ae2-4da2-9336-64a7f933b9e5",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 17,
+      "published_utc": "2025-12-20T17:04:26",
+      "summary": "United States CFTC Gold NC Net Positions rose from previous $204.6K to $2239K",
+      "tags": "UnitedStates,Gold",
+      "title": "United States CFTC Gold NC Net Positions rose from previous $204.6K to $2239K",
+      "url": "https://www.fxstreet.com/news/united-states-cftc-gold-nc-net-positions-rose-from-previous-2046k-to-2239k-202512201704",
+      "weekday": 5
+    },
+    {
+      "article_id": "8467e239-bd71-4972-9828-9656798bd8e9",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 17,
+      "published_utc": "2025-12-20T17:04:32",
+      "summary": "United Kingdom CFTC GBP NC Net Positions declined to £-755K from previous £-93.2K",
+      "tags": "UnitedKingdom,Employment,COT",
+      "title": "United Kingdom CFTC GBP NC Net Positions declined to £-755K from previous £-93.2K",
+      "url": "https://www.fxstreet.com/news/united-kingdom-cftc-gbp-nc-net-positions-declined-to-ps-755k-from-previous-ps-932k-202512201704",
+      "weekday": 5
+    },
+    {
+      "article_id": "49b29526-a44d-4b1a-9a11-89c49e8f5808",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 17,
+      "published_utc": "2025-12-20T17:04:41",
+      "summary": "United States CFTC Oil NC Net Positions climbed from previous 55K to 584K",
+      "tags": "UnitedStates,Liquidity,Commodities,COT",
+      "title": "United States CFTC Oil NC Net Positions climbed from previous 55K to 584K",
+      "url": "https://www.fxstreet.com/news/united-states-cftc-oil-nc-net-positions-climbed-from-previous-55k-to-584k-202512201704",
+      "weekday": 5
+    },
+    {
+      "article_id": "2d5b21bd-c900-45f5-9845-201ff191f678",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 17,
+      "published_utc": "2025-12-20T17:04:46",
+      "summary": "Australia CFTC AUD NC Net Positions down to $-629K from previous $-84.2K",
+      "tags": "Australia",
+      "title": "Australia CFTC AUD NC Net Positions down to $-629K from previous $-84.2K",
+      "url": "https://www.fxstreet.com/news/australia-cftc-aud-nc-net-positions-down-to-629k-from-previous-842k-202512201704",
+      "weekday": 5
+    }
+  ],
+  "count": 7,
+  "date": "2025-12-20",
+  "generated_at": "2026-05-22T00:09:14.701825100+00:00"
+}

@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2018-11-10",
+  "events": [
+    {
+      "actual": 0.7,
+      "actual_raw": "0.7",
+      "beats_forecast": null,
+      "country_code": "NL",
+      "currency": "EUR",
+      "event_date_id": "5f836802-efe2-4d16-b047-effb509df67f__2018-11-10T05:30:00Z",
+      "event_id": "5f836802-efe2-4d16-b047-effb509df67f",
+      "event_name": "Manufacturing Output (MoM)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 5,
+      "previous": 1.3,
+      "previous_raw": "1.3",
+      "surprise": null,
+      "timestamp_utc": "2018-11-10T05:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "FR",
+      "currency": "EUR",
+      "event_date_id": "3f38c3fa-185f-4751-9190-50c4c5ac907d__2018-11-10T22:00:00Z",
+      "event_id": "3f38c3fa-185f-4751-9190-50c4c5ac907d",
+      "event_name": "Armistice Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2018-11-10T22:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:54.190911+00:00"
+}

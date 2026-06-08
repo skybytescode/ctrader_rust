@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2011-12-18",
+  "events": [
+    {
+      "actual": -0.1,
+      "actual_raw": "-0.1",
+      "beats_forecast": null,
+      "country_code": "IE",
+      "currency": "EUR",
+      "event_date_id": "28b4eca2-1731-4426-9072-287fbf30663f__2011-12-18T11:00:00Z",
+      "event_id": "28b4eca2-1731-4426-9072-287fbf30663f",
+      "event_name": "Gross Domestic Product (YoY)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 11,
+      "previous": 2.1,
+      "previous_raw": "2.1",
+      "surprise": null,
+      "timestamp_utc": "2011-12-18T11:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    },
+    {
+      "actual": -1.9,
+      "actual_raw": "-1.9",
+      "beats_forecast": null,
+      "country_code": "IE",
+      "currency": "EUR",
+      "event_date_id": "3b3d5441-d3c2-4217-a281-71cb96204e27__2011-12-18T11:00:00Z",
+      "event_id": "3b3d5441-d3c2-4217-a281-71cb96204e27",
+      "event_name": "Gross Domestic Product (QoQ)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 11,
+      "previous": 1.4,
+      "previous_raw": "1.4",
+      "surprise": null,
+      "timestamp_utc": "2011-12-18T11:00:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:34.090630800+00:00"
+}

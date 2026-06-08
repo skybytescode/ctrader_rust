@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2024-05-18",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "0aa12d1c-cac1-408b-9204-ee9c5bf991f1__2024-05-18T21:45:00Z",
+      "event_id": "0aa12d1c-cac1-408b-9204-ee9c5bf991f1",
+      "event_name": "Fed's Kugler speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 21,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2024-05-18T21:45:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:10.244525300+00:00"
+}

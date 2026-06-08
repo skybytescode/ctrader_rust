@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2024-05-26",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "c5d3de6d-d688-48e6-93c3-06b3db317169__2024-05-26T07:30:00Z",
+      "event_id": "c5d3de6d-d688-48e6-93c3-06b3db317169",
+      "event_name": "ECB's Cipollone speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 7,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2024-05-26T07:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "6525a1a7-db61-43b9-8d4e-c3d5095be473__2024-05-26T23:00:00Z",
+      "event_id": "6525a1a7-db61-43b9-8d4e-c3d5095be473",
+      "event_name": "Spring Bank Holiday",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2024-05-26T23:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:10.244525300+00:00"
+}

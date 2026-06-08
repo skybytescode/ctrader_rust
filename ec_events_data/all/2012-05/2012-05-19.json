@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2012-05-19",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "6c2ab2f0-f1b6-4c28-ab7e-05d5f0d93b58__2012-05-19T00:00:00Z",
+      "event_id": "6c2ab2f0-f1b6-4c28-ab7e-05d5f0d93b58",
+      "event_name": "G8 Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2012-05-19T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:35.230910600+00:00"
+}

@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2018-09-02",
+  "events": [
+    {
+      "actual": 56.7,
+      "actual_raw": "56.7",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "de5e708b-3a8c-4bf9-afd6-a2758462a141__2018-09-02T22:30:00Z",
+      "event_id": "de5e708b-3a8c-4bf9-afd6-a2758462a141",
+      "event_name": "AiG Performance of Mfg Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 52.0,
+      "previous_raw": "52",
+      "surprise": null,
+      "timestamp_utc": "2018-09-02T22:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    },
+    {
+      "actual": 12.8,
+      "actual_raw": "12.8",
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "23fe8eac-358f-42ef-b560-8c36b646b45c__2018-09-02T23:50:00Z",
+      "event_id": "23fe8eac-358f-42ef-b560-8c36b646b45c",
+      "event_name": "Capital Spending",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 23,
+      "previous": 3.4,
+      "previous_raw": "3.4",
+      "surprise": null,
+      "timestamp_utc": "2018-09-02T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:53.524177700+00:00"
+}

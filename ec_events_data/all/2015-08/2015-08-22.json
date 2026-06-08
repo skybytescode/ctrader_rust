@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-08-22",
+  "events": [
+    {
+      "actual": -2.069,
+      "actual_raw": "-2.069",
+      "beats_forecast": 1,
+      "country_code": "UK",
+      "currency": "GBP",
+      "event_date_id": "7b280ce6-08b3-4b5a-83a7-1a6014d4bab7__2015-08-22T08:30:00Z",
+      "event_id": "7b280ce6-08b3-4b5a-83a7-1a6014d4bab7",
+      "event_name": "Public Sector Net Borrowing",
+      "forecast": -2.4,
+      "forecast_raw": "-2.4",
+      "hour_utc": 8,
+      "previous": 8.584,
+      "previous_raw": "8.584",
+      "surprise": 0.33099999999999996,
+      "timestamp_utc": "2015-08-22T08:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:44.422376300+00:00"
+}

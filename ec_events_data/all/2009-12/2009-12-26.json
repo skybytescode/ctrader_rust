@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2009-12-26",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "DE",
+      "currency": "EUR",
+      "event_date_id": "fbce7059-45b7-4bbc-b1a3-a4833c33928d__2009-12-26T00:00:00Z",
+      "event_id": "fbce7059-45b7-4bbc-b1a3-a4833c33928d",
+      "event_name": "Boxing Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2009-12-26T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:27.217655900+00:00"
+}

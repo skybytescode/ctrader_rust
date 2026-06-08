@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2011-04-24",
+  "events": [
+    {
+      "actual": -1.2,
+      "actual_raw": "-1.2",
+      "beats_forecast": 0,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "8c164255-ac3a-40ef-bd56-df43f47d5b8a__2011-04-24T23:50:00Z",
+      "event_id": "8c164255-ac3a-40ef-bd56-df43f47d5b8a",
+      "event_name": "Corporate Service Price Index (YoY)",
+      "forecast": -1.2,
+      "forecast_raw": "-1.2",
+      "hour_utc": 23,
+      "previous": -1.1,
+      "previous_raw": "-1.1",
+      "surprise": 0.0,
+      "timestamp_utc": "2011-04-24T23:50:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:32.217296200+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2012-04-29",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "38cc5efc-289c-49f4-b0ac-f56f4f98916c__2012-04-29T00:00:00Z",
+      "event_id": "38cc5efc-289c-49f4-b0ac-f56f4f98916c",
+      "event_name": "Showa Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2012-04-29T00:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:34.987890100+00:00"
+}

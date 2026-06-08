@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2021-03-27",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "50b24e99-a6b1-4d34-9122-e5899ecf7824__2021-03-27T09:45:00Z",
+      "event_id": "50b24e99-a6b1-4d34-9122-e5899ecf7824",
+      "event_name": "ECB's Lane speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 9,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2021-03-27T09:45:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:00.722256800+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2022-09-18",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "JP",
+      "currency": "JPY",
+      "event_date_id": "2087eb3e-3762-4052-86b2-be4ac7182102__2022-09-18T15:00:00Z",
+      "event_id": "2087eb3e-3762-4052-86b2-be4ac7182102",
+      "event_name": "Respect-for-the-Aged Day Bank Holiday",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 15,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2022-09-18T15:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:05.019033400+00:00"
+}

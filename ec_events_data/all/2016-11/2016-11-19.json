@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2016-11-19",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "a09913d9-42ef-4e33-978b-fe2792f60485__2016-11-19T02:45:00Z",
+      "event_id": "a09913d9-42ef-4e33-978b-fe2792f60485",
+      "event_name": "FOMC Member Powell speech (don't use)",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 2,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2016-11-19T02:45:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:47.855030200+00:00"
+}

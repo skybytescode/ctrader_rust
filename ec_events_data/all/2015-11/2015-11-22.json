@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2015-11-22",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "DE",
+      "currency": "EUR",
+      "event_date_id": "cd5ad197-4b40-4dee-a5ed-8b13e07c0d88__2015-11-22T11:00:00Z",
+      "event_id": "cd5ad197-4b40-4dee-a5ed-8b13e07c0d88",
+      "event_name": "German Buba President Weidmann speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 11,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2015-11-22T11:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:45.101749400+00:00"
+}

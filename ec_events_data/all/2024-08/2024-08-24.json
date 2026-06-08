@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2024-08-24",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "b688befc-8cb6-4871-b4f2-b269a0e4462d__2024-08-24T00:00:00Z",
+      "event_id": "b688befc-8cb6-4871-b4f2-b269a0e4462d",
+      "event_name": "Jackson Hole Symposium",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2024-08-24T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    },
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "50b24e99-a6b1-4d34-9122-e5899ecf7824__2024-08-24T16:25:00Z",
+      "event_id": "50b24e99-a6b1-4d34-9122-e5899ecf7824",
+      "event_name": "ECB's Lane speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 16,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2024-08-24T16:25:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:10.909127800+00:00"
+}

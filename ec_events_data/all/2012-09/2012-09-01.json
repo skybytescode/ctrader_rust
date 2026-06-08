@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2012-09-01",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "US",
+      "currency": "USD",
+      "event_date_id": "b688befc-8cb6-4871-b4f2-b269a0e4462d__2012-09-01T00:00:00Z",
+      "event_id": "b688befc-8cb6-4871-b4f2-b269a0e4462d",
+      "event_name": "Jackson Hole Symposium",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2012-09-01T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 5
+    },
+    {
+      "actual": 49.2,
+      "actual_raw": "49.2",
+      "beats_forecast": -1,
+      "country_code": "CN",
+      "currency": "CNY",
+      "event_date_id": "6e0be41a-08d2-43d8-a649-a02c7eb89629__2012-09-01T01:00:00Z",
+      "event_id": "6e0be41a-08d2-43d8-a649-a02c7eb89629",
+      "event_name": "NBS Manufacturing PMI",
+      "forecast": 49.8,
+      "forecast_raw": "49.8",
+      "hour_utc": 1,
+      "previous": 50.1,
+      "previous_raw": "50.1",
+      "surprise": -0.5999999999999943,
+      "timestamp_utc": "2012-09-01T01:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:36.102181+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2025-01-25",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "cf8bcf08-f69f-4adf-8105-5014eb103d68__2025-01-25T14:00:00Z",
+      "event_id": "cf8bcf08-f69f-4adf-8105-5014eb103d68",
+      "event_name": "Australia Day",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 14,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2025-01-25T14:00:00",
+      "unit": null,
+      "volatility": 0,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:12.069135700+00:00"
+}

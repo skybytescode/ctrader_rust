@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2014-05-24",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "c8c21d2b-88f1-487c-a96f-a8ced471b9c9__2014-05-24T00:00:00Z",
+      "event_id": "c8c21d2b-88f1-487c-a96f-a8ced471b9c9",
+      "event_name": "European Parliament Election",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2014-05-24T00:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:40.559609400+00:00"
+}

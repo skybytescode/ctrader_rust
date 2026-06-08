@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2026-05-23",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "20f93562-e778-4f06-9af7-2eca6b6c77f0__2026-05-23T06:00:00Z",
+      "event_id": "20f93562-e778-4f06-9af7-2eca6b6c77f0",
+      "event_name": "EcoFin Meeting",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 6,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2026-05-23T06:00:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:16.803798+00:00"
+}

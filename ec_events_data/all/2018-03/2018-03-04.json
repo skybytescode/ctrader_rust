@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "date": "2018-03-04",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "IT",
+      "currency": "EUR",
+      "event_date_id": "1732c829-db0f-4b5f-b0b8-358ff01e1db9__2018-03-04T00:00:00Z",
+      "event_id": "1732c829-db0f-4b5f-b0b8-358ff01e1db9",
+      "event_name": "Parliamentary elections",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 0,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2018-03-04T00:00:00",
+      "unit": null,
+      "volatility": 3,
+      "weekday": 6
+    },
+    {
+      "actual": 54.0,
+      "actual_raw": "54",
+      "beats_forecast": null,
+      "country_code": "AU",
+      "currency": "AUD",
+      "event_date_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de__2018-03-04T22:30:00Z",
+      "event_id": "2cdb878d-4382-4e1f-9d91-579b7e2655de",
+      "event_name": "AiG Performance of Services Index",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 22,
+      "previous": 54.9,
+      "previous_raw": "54.9",
+      "surprise": null,
+      "timestamp_utc": "2018-03-04T22:30:00",
+      "unit": null,
+      "volatility": 1,
+      "weekday": 6
+    }
+  ],
+  "generated_at": "2026-05-25T21:45:51.531049300+00:00"
+}

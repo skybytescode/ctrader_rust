@@ -1,0 +1,27 @@
+{
+  "count": 1,
+  "date": "2021-05-22",
+  "events": [
+    {
+      "actual": null,
+      "actual_raw": null,
+      "beats_forecast": null,
+      "country_code": "EMU",
+      "currency": "EUR",
+      "event_date_id": "bc120ebd-b2ea-4c88-8109-d4e74d60f653__2021-05-22T11:30:00Z",
+      "event_id": "bc120ebd-b2ea-4c88-8109-d4e74d60f653",
+      "event_name": "ECB's De Guindos speech",
+      "forecast": null,
+      "forecast_raw": null,
+      "hour_utc": 11,
+      "previous": null,
+      "previous_raw": null,
+      "surprise": null,
+      "timestamp_utc": "2021-05-22T11:30:00",
+      "unit": null,
+      "volatility": 2,
+      "weekday": 5
+    }
+  ],
+  "generated_at": "2026-05-25T21:46:01.174234800+00:00"
+}

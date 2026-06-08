@@ -1,0 +1,67 @@
+{
+  "articles": [
+    {
+      "article_id": "aefe4620-c99b-4978-905c-78260d68cb56",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-07-20T22:45:41",
+      "summary": "New Zealand Consumer Price Index (YoY) below forecasts (2.8%) in 2Q: Actual (2.7%)",
+      "tags": "Consumption,CPI,NewZealand",
+      "title": "New Zealand Consumer Price Index (YoY) below forecasts (2.8%) in 2Q: Actual (2.7%)",
+      "url": "https://www.fxstreet.com/news/new-zealand-consumer-price-index-yoy-below-forecasts-28-in-2q-actual-27-202507202245",
+      "weekday": 6
+    },
+    {
+      "article_id": "79e745b1-1986-424b-9545-96faffa1d684",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 22,
+      "published_utc": "2025-07-20T22:52:53",
+      "summary": "New Zealand’s Consumer Price Index (CPI) climbed 2.7% YoY in the second quarter (Q2) of 2025, compared with the 2.5% increase seen in the first quarter, according to the latest data published by Statistics New Zealand on Monday. The market consensus was for a growth of 2.8% in the reported period",
+      "tags": "CPI,Inflation,NewZealand,Macroeconomics",
+      "title": "New Zealand’s CPI inflation rises to 2.7% YoY in Q2 vs. 2.8% expected",
+      "url": "https://www.fxstreet.com/news/new-zealands-cpi-inflation-rises-to-27-yoy-in-q2-vs-28-expected-202507202252",
+      "weekday": 6
+    },
+    {
+      "article_id": "5518be3d-5b27-48e3-8623-e28d98dc41f4",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-07-20T23:04:32",
+      "summary": "United Kingdom Rightmove House Price Index (MoM) down to -1.2% in July from previous -0.3%",
+      "tags": "Consumption,Housing,UnitedKingdom",
+      "title": "United Kingdom Rightmove House Price Index (MoM) down to -1.2% in July from previous -0.3%",
+      "url": "https://www.fxstreet.com/news/united-kingdom-rightmove-house-price-index-mom-down-to-12-in-july-from-previous-03-202507202304",
+      "weekday": 6
+    },
+    {
+      "article_id": "b621e65b-49f3-4950-ba2b-b7feb50e48e5",
+      "author": "FXStreet Team",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-07-20T23:05:01",
+      "summary": "United Kingdom Rightmove House Price Index (YoY) dipped from previous 0.8% to 0.1% in July",
+      "tags": "Consumption,Housing,UnitedKingdom",
+      "title": "United Kingdom Rightmove House Price Index (YoY) dipped from previous 0.8% to 0.1% in July",
+      "url": "https://www.fxstreet.com/news/united-kingdom-rightmove-house-price-index-yoy-dipped-from-previous-08-to-01-in-july-202507202305",
+      "weekday": 6
+    },
+    {
+      "article_id": "cfb9195a-52cd-441e-9a57-4d1bd949e38b",
+      "author": "Lallalit Srijandorn",
+      "body": "",
+      "hour_utc": 23,
+      "published_utc": "2025-07-20T23:35:39",
+      "summary": "The AUD/USD pair holds steady near 0.6505 during the early Asian session on Monday. Rising US tariff risks could weigh on the China-proxy Aussie as a tariff deadline with the US looms. Investors brace for the People’s Bank of China (PBoC) interest rate decision later on Monday. ",
+      "tags": "China,Majors,AUDUSD,Macroeconomics",
+      "title": "AUD/USD flat lines near 0.6500 ahead of PBoC rate decision",
+      "url": "https://www.fxstreet.com/news/aud-usd-flat-lines-near-06500-ahead-of-pboc-rate-decision-202507202335",
+      "weekday": 6
+    }
+  ],
+  "count": 5,
+  "date": "2025-07-20",
+  "generated_at": "2026-05-21T23:56:44.116345700+00:00"
+}
