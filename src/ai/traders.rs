@@ -240,18 +240,33 @@ pub async fn run_gemini(provider: &str, model: &str, api_key: &str, system: &str
 /// Windows because of `{}"`.
 pub async fn claude_cli_raw(model: &str, system: &str, user: &str) -> Result<String, String> {
     use tokio::io::AsyncWriteExt;
-    let claude_bin = if cfg!(windows) { "claude.cmd" } else { "claude" };
+    // Resolve the claude binary. The npm install ships `claude.cmd`; the native
+    // installer ships `claude.exe` (e.g. ~/.local/bin/claude.exe). Try each in
+    // turn so we work regardless of how the user installed the CLI.
+    let candidates: &[&str] = if cfg!(windows) {
+        &["claude.cmd", "claude.exe", "claude"]
+    } else {
+        &["claude"]
+    };
     let prompt = format!("{}\n\n---\n\n{}", system, user);
 
-    let mut cmd = tokio::process::Command::new(claude_bin);
-    cmd.args(["-p", "--model", model, "--output-format", "json"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
-    #[cfg(windows)]
-    { cmd.creation_flags(0x08000000); }
+    let mut child = None;
+    let mut last_err = String::new();
+    for bin in candidates {
+        let mut cmd = tokio::process::Command::new(bin);
+        cmd.args(["-p", "--model", model, "--output-format", "json"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        { cmd.creation_flags(0x08000000); }
 
-    let mut child = cmd.spawn().map_err(|e| format!("claude CLI spawn: {}", e))?;
+        match cmd.spawn() {
+            Ok(c) => { child = Some(c); break; }
+            Err(e) => { last_err = format!("{} ({})", e, bin); }
+        }
+    }
+    let mut child = child.ok_or_else(|| format!("claude CLI spawn: {}", last_err))?;
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(prompt.as_bytes()).await;
         let _ = stdin.shutdown().await;

@@ -2734,6 +2734,16 @@ fn main() {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
 
+    // Ensure the DuckDB parent directory exists. DuckDB cannot create the
+    // database file inside a missing directory, so without this every EC/News
+    // DB write fails silently (the error is sent over WS, not stdout) and the
+    // Calendar/News tabs stay empty while News re-backfills every cycle.
+    if let Some(db_dir) = std::path::Path::new(DB_PATH).parent() {
+        if let Err(e) = std::fs::create_dir_all(db_dir) {
+            println!("[db] WARNING: could not create DB dir {}: {}", db_dir.display(), e);
+        }
+    }
+
     // Start the econcal FXStreet proxy server in the background
     start_econcal_server();
 
