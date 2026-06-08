@@ -300,6 +300,1029 @@ async fn start_history_backfill(state: tauri::State<'_, AppState>) -> Result<Str
     Ok("started".to_string())
 }
 
+// ── Archives tab: backend (ported from origin/web_gold) ──────────────────────
+
+/// Root directory for per-day news archive JSON files.
+/// Layout: news_data/all/YYYY-MM/YYYY-MM-DD.json
+const ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/news_data/all");
+
+/// Walk `news_data/all/YYYY-MM/` folders to find the newest `YYYY-MM-DD.json`
+/// file. Returns `(day, max_published_utc)` where `day` is "YYYY-MM-DD" and
+/// `max_published_utc` is the latest article timestamp in that file ("YYYY-MM-DDTHH:MM:SS").
+/// Returns `(None, None)` if no archive files exist.
+fn find_newest_archive_cutoff() -> (Option<String>, Option<String>) {
+    let root = std::path::Path::new(ARCHIVE_ROOT);
+    if !root.exists() { return (None, None); }
+
+    // Find the lexically-largest YYYY-MM-DD.json across all YYYY-MM subdirs.
+    let mut newest_path: Option<std::path::PathBuf> = None;
+    let mut newest_day: Option<String> = None;
+    let entries = match std::fs::read_dir(root) { Ok(e) => e, Err(_) => return (None, None) };
+    for month_entry in entries.flatten() {
+        let month_path = month_entry.path();
+        if !month_path.is_dir() { continue; }
+        let day_entries = match std::fs::read_dir(&month_path) { Ok(e) => e, Err(_) => continue };
+        for day_entry in day_entries.flatten() {
+            let p = day_entry.path();
+            let name = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s, None => continue };
+            // Expect "YYYY-MM-DD.json", 15 chars total.
+            if name.len() != 15 || !name.ends_with(".json") { continue; }
+            let day = &name[..10];
+            if newest_day.as_deref().map(|d| day > d).unwrap_or(true) {
+                newest_day = Some(day.to_string());
+                newest_path = Some(p);
+            }
+        }
+    }
+
+    let (day, path) = match (newest_day, newest_path) {
+        (Some(d), Some(p)) => (d, p),
+        _ => return (None, None),
+    };
+
+    // Parse the file and pull max(article.published_utc).
+    let max_pub = (|| -> Option<String> {
+        let content = std::fs::read_to_string(&path).ok()?;
+        let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+        let articles = json.get("articles")?.as_array()?;
+        articles.iter()
+            .filter_map(|a| a.get("published_utc")?.as_str().map(String::from))
+            .max()
+    })();
+
+    (Some(day), max_pub)
+}
+
+/// Read all articles for `day` from `news_historical` and write the per-day
+/// archive file at `news_data/all/YYYY-MM/YYYY-MM-DD.json`. Preserves existing
+/// bodies stored in the DB. Returns `(absolute_path, article_count)`.
+fn write_archive_for_day(db: &duckdb::Connection, day: &str) -> Result<(String, usize), String> {
+    let mut stmt = db.prepare(
+        "SELECT article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday, body
+         FROM news_historical
+         WHERE published_utc LIKE ? || '%'
+         ORDER BY published_utc ASC"
+    ).map_err(|e| format!("prepare archive query: {}", e))?;
+
+    let rows = stmt.query_map([day], |row| {
+        let body_val: Option<String> = row.get(9).ok().flatten();
+        Ok(serde_json::json!({
+            "article_id":    row.get::<_, String>(0)?,
+            "title":         row.get::<_, String>(1)?,
+            "published_utc": row.get::<_, String>(2)?,
+            "summary":       row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            "url":           row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            "author":        row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+            "tags":          row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+            "hour_utc":      row.get::<_, i32>(7)?,
+            "weekday":       row.get::<_, i32>(8)?,
+            "body":          body_val,
+        }))
+    }).map_err(|e| format!("query archive: {}", e))?;
+
+    let articles: Vec<serde_json::Value> = rows.flatten().collect();
+    let count = articles.len();
+
+    let month = &day[..7];
+    let dir = std::path::Path::new(ARCHIVE_ROOT).join(month);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create dir {}: {}", dir.display(), e))?;
+    let path = dir.join(format!("{}.json", day));
+
+    let payload = serde_json::json!({
+        "date":         day,
+        "count":        count,
+        "generated_at": chrono::Utc::now().to_rfc3339(),
+        "articles":     articles,
+    });
+    let pretty = serde_json::to_string_pretty(&payload).map_err(|e| format!("serialize: {}", e))?;
+    std::fs::write(&path, pretty).map_err(|e| format!("write {}: {}", path.display(), e))?;
+
+    Ok((path.to_string_lossy().to_string(), count))
+}
+
+#[derive(serde::Serialize)]
+struct NewsUpdateResult {
+    /// "YYYY-MM-DD" of the most recent archive file before the run, or null if
+    /// no archive files existed.
+    last_archive_day: Option<String>,
+    /// ISO timestamp used as the lower bound when calling fetch_news_since
+    /// (latest article time in the last archive file, or 7 days ago as fallback).
+    cutoff: String,
+    /// Number of new articles pulled from FXStreet.
+    articles_fetched: usize,
+    /// Article bodies successfully fetched and written to news_historical.body.
+    bodies_fetched: usize,
+    /// Articles where FXStreet's API returned an empty body (data flashes).
+    /// Stored as '' so we don't retry.
+    bodies_empty: usize,
+    /// Body fetches that failed (timeout / parse error / proxy error).
+    /// Left as NULL so a later run can retry.
+    bodies_failed: usize,
+    /// True if FXStreet returned HTTP 429 during the body fetch loop.
+    /// Body fetching stops at the first 429 and the message field explains.
+    rate_limited: bool,
+    /// (day, article_count) for every day whose file was (re)written.
+    days_written: Vec<(String, usize)>,
+    /// Optional human-readable error or info message.
+    message: Option<String>,
+}
+
+/// Tauri command: incremental archive update.
+///
+/// 1. Walks `news_data/all/` to find the newest YYYY-MM-DD.json
+/// 2. Reads its latest `published_utc`
+/// 3. Calls `fetch_news_since(cutoff)` to pull every newer article from FXStreet
+/// 4. Upserts them into `news_historical`
+/// 5. For every article in the affected days that still has `body IS NULL`,
+///    fetches the body via the per-article proxy endpoint and updates
+///    `news_historical.body` (concurrency 1 — the puppeteer proxy serialises
+///    requests internally and >1 confuses its shared page state)
+/// 6. (Re)writes one JSON file per affected day under `news_data/all/` —
+///    pulling the now-populated bodies along with everything else
+///
+/// When no archive files exist yet, the cutoff defaults to 7 days before "now"
+/// so the first run does a sensible bootstrap rather than crawling the full feed.
+#[tauri::command]
+async fn update_news_archive(state: tauri::State<'_, AppState>) -> Result<NewsUpdateResult, String> {
+    // Step 1: find newest archive day + its latest article time.
+    let (last_archive_day, latest_in_file) =
+        tokio::task::spawn_blocking(find_newest_archive_cutoff)
+            .await
+            .map_err(|e| format!("scan task join: {}", e))?;
+
+    // Cutoff: the latest article time in the newest file, or 7 days ago if no
+    // archive exists yet. fetch_news_since stops walking once it sees articles
+    // <= cutoff, so this is also our "how far back do we crawl" bound.
+    let cutoff = match latest_in_file.clone() {
+        Some(t) => t,
+        None => {
+            let seven_days_ago = chrono::Utc::now() - chrono::Duration::days(7);
+            seven_days_ago.format("%Y-%m-%dT%H:%M:%S").to_string()
+        }
+    };
+
+    // Step 2: make sure econcal is reachable (we need it for both the news
+    // listing fetch AND the per-article body fetch).
+    if !ensure_econcal_alive().await {
+        return Ok(NewsUpdateResult {
+            last_archive_day, cutoff,
+            articles_fetched: 0,
+            bodies_fetched: 0, bodies_empty: 0, bodies_failed: 0,
+            rate_limited: false,
+            days_written: Vec::new(),
+            message: Some("Econcal proxy not reachable on :6000. Restart the app and retry.".into()),
+        });
+    }
+
+    // Step 3: fetch newer articles from FXStreet.
+    let rows = match news_realtime::fetch_news_since(50, 200, Some(&cutoff), None).await {
+        Ok(r) => r,
+        Err(e) => return Ok(NewsUpdateResult {
+            last_archive_day, cutoff,
+            articles_fetched: 0,
+            bodies_fetched: 0, bodies_empty: 0, bodies_failed: 0,
+            rate_limited: false,
+            days_written: Vec::new(),
+            message: Some(format!("Fetch failed: {}", e)),
+        }),
+    };
+    let articles_fetched = rows.len();
+
+    // Step 4: upsert into news_historical + compute affected days.
+    let affected_days: std::collections::BTreeSet<String> = rows.iter()
+        .filter_map(|r| if r.published_utc.len() >= 10 { Some(r.published_utc[..10].to_string()) } else { None })
+        .collect();
+
+    {
+        let db_mutex = state.db_mutex.clone();
+        let rows_for_db = rows.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            if !rows_for_db.is_empty() {
+                news_realtime::write_news_to_db(&db, &rows_for_db)
+                    .map_err(|e| format!("write_news_to_db: {}", e))?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| format!("upsert task join: {}", e))??;
+    }
+
+    // Step 5: list every article in the affected days that still has no body.
+    // We include OLD articles (not just the ones we just inserted) so an
+    // article that landed in DB via the live 5-min fetch — and never got a
+    // body — gets one on this click too.
+    let affected_for_query: Vec<String> = affected_days.iter().cloned().collect();
+    let to_fetch: Vec<String> = {
+        let db_mutex = state.db_mutex.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<String>, String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            let mut ids = Vec::new();
+            for day in &affected_for_query {
+                let mut stmt = db.prepare(
+                    "SELECT article_id FROM news_historical
+                     WHERE published_utc LIKE ? || '%'
+                       AND url IS NOT NULL AND url <> ''
+                       AND body IS NULL"
+                ).map_err(|e| format!("prepare body-list: {}", e))?;
+                let day_ids: Vec<String> = stmt.query_map([day.as_str()], |row| row.get::<_, String>(0))
+                    .map_err(|e| format!("query body-list: {}", e))?
+                    .flatten().collect();
+                ids.extend(day_ids);
+            }
+            Ok(ids)
+        })
+        .await
+        .map_err(|e| format!("body-list join: {}", e))??
+    };
+
+    // Step 6: fetch bodies sequentially. Bail at the first 429.
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+        .build()
+        .map_err(|e| format!("build http client: {}", e))?;
+
+    let mut fetched_bodies: Vec<(String, String)> = Vec::new();
+    let mut empty_body_ids: Vec<String> = Vec::new();
+    let mut failed_body_ids: Vec<String> = Vec::new();
+    let mut rate_limited = false;
+    let mut max_retry_after = 0u64;
+
+    for aid in &to_fetch {
+        if rate_limited { break; }
+        match fetch_one_body(&client, aid).await {
+            BodyFetch::Ok(b)         => fetched_bodies.push((aid.clone(), b)),
+            BodyFetch::EmptyBody     => empty_body_ids.push(aid.clone()),
+            BodyFetch::Failed        => failed_body_ids.push(aid.clone()),
+            BodyFetch::RateLimited { retry_after_secs } => {
+                rate_limited = true;
+                max_retry_after = retry_after_secs;
+            }
+        }
+    }
+
+    let bodies_fetched = fetched_bodies.len();
+    let bodies_empty   = empty_body_ids.len();
+    let bodies_failed  = failed_body_ids.len();
+
+    // Step 7: write fetched + empty body markers back to DB.
+    if !fetched_bodies.is_empty() || !empty_body_ids.is_empty() {
+        let db_mutex = state.db_mutex.clone();
+        let fetched_for_db = fetched_bodies.clone();
+        let empty_for_db = empty_body_ids.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            for (aid, body) in &fetched_for_db {
+                let _ = db.execute(
+                    "UPDATE news_historical SET body = ? WHERE article_id = ?",
+                    duckdb::params![body, aid],
+                );
+            }
+            for aid in &empty_for_db {
+                let _ = db.execute(
+                    "UPDATE news_historical SET body = '' WHERE article_id = ?",
+                    duckdb::params![aid],
+                );
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| format!("body-write join: {}", e))??;
+    }
+
+    // Step 8: regenerate each affected day's JSON file from DB.
+    let days_written: Vec<(String, usize)> = {
+        let db_mutex = state.db_mutex.clone();
+        let affected_for_write = affected_days.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<(String, usize)>, String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            let mut written = Vec::with_capacity(affected_for_write.len());
+            for day in &affected_for_write {
+                let (_path, count) = write_archive_for_day(&db, day)?;
+                written.push((day.clone(), count));
+            }
+            Ok(written)
+        })
+        .await
+        .map_err(|e| format!("write-days join: {}", e))??
+    };
+
+    let message = if rate_limited {
+        Some(format!(
+            "FXStreet rate-limited after {} bodies (Retry-After ~{}s). \
+             {} bodies still missing — click News_Updates again in {} minute(s) to resume.",
+            bodies_fetched + bodies_empty,
+            max_retry_after,
+            to_fetch.len() - bodies_fetched - bodies_empty,
+            (max_retry_after + 59) / 60,
+        ))
+    } else {
+        None
+    };
+
+    Ok(NewsUpdateResult {
+        last_archive_day,
+        cutoff,
+        articles_fetched,
+        bodies_fetched,
+        bodies_empty,
+        bodies_failed,
+        rate_limited,
+        days_written,
+        message,
+    })
+}
+
+
+
+// ── Gold EC events: one-shot table create + walk to today ──────────────────────
+
+/// 30-day windows are large enough for one FXStreet API call but small
+/// enough that the response stays well under a few MB. Each chunk commits
+/// independently, so interrupting the walk never loses more than a chunk.
+const EC_GOLD_CHUNK_DAYS: i64 = 30;
+
+/// Earliest date FXStreet's `/v4/eventdate/mini` endpoint reliably returns
+/// data for. Matches the floor of the existing eurusd_economic_calendar
+/// (oldest row there is 2009-01-02).
+const EC_GOLD_START_DATE: &str = "2009-01-01";
+
+/// Emitted via Tauri events after every 30-day chunk so the frontend can
+/// render a live progress bar instead of staring at a frozen "Updating…"
+/// label for two minutes.
+#[derive(serde::Serialize, Clone)]
+struct EcGoldProgress {
+    chunks_done: usize,
+    chunks_total: usize,
+    rows_added_so_far: usize,
+    /// YYYY-MM-DD of the chunk we just finished.
+    current_chunk_start: String,
+    current_chunk_end: String,
+    /// Wallclock seconds elapsed since the click. Frontend uses this to
+    /// compute an ETA = elapsed / chunks_done × (chunks_total - chunks_done).
+    elapsed_secs: u64,
+}
+
+#[derive(serde::Serialize)]
+struct EcGoldUpdateResult {
+    /// True iff `xauusd_economic_calendar` already existed before this run.
+    /// False on the very first click (we just created it from scratch).
+    table_existed: bool,
+    /// `MAX(timestamp_utc)` in the table before the run — null if fresh.
+    cursor_before: Option<String>,
+    /// First date the walk asked FXStreet for (YYYY-MM-DD).
+    walk_start: String,
+    /// End of the walk (always today's UTC date, YYYY-MM-DD).
+    walk_end: String,
+    /// 30-day chunks fetched + upserted this run.
+    chunks_processed: usize,
+    /// Sum of rows inserted/updated this run (after currency filter).
+    rows_added_this_call: usize,
+    /// `COUNT(*) FROM xauusd_economic_calendar` after the run.
+    total_rows: usize,
+    /// Final coverage window after the run.
+    oldest_in_db: Option<String>,
+    newest_in_db: Option<String>,
+    /// Wallclock time spent on the walk.
+    duration_ms: u128,
+    /// Set if a chunk failed mid-walk; the partial progress is still
+    /// committed and the next click will resume from `MAX(timestamp_utc)+1`.
+    error: Option<String>,
+}
+
+/// Tauri command behind the `EC_Gold_Events_Update` button.
+///
+///  - If `xauusd_economic_calendar` is missing → create it and walk every
+///    30-day window from 2009-01-01 → today, upserting all gold-relevant
+///    events (USD/EUR/GBP/JPY/CHF/AUD/CNY, every impact level).
+///  - If it exists → resume from `MAX(timestamp_utc) + 1 day` and walk
+///    forward to today.
+///
+/// Per-chunk commit so a network/proxy hiccup never costs more than one
+/// chunk of progress. The next click picks up from the last committed row.
+#[tauri::command]
+async fn update_ec_gold_events(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<EcGoldUpdateResult, String> {
+    use chrono::{Duration, NaiveDate};
+    use tauri::Emitter;
+    let start_clock = std::time::Instant::now();
+
+    // Step 1: proxy must be alive.
+    if !ensure_econcal_alive().await {
+        return Ok(EcGoldUpdateResult {
+            table_existed: false,
+            cursor_before: None,
+            walk_start: String::new(),
+            walk_end: chrono::Utc::now().format("%Y-%m-%d").to_string(),
+            chunks_processed: 0,
+            rows_added_this_call: 0,
+            total_rows: 0,
+            oldest_in_db: None,
+            newest_in_db: None,
+            duration_ms: start_clock.elapsed().as_millis(),
+            error: Some("Econcal proxy not reachable on :6000.".into()),
+        });
+    }
+
+    // Step 2: ensure table exists and find resume cursor.
+    let (table_existed, cursor_before, cursor_start): (bool, Option<String>, NaiveDate) = {
+        let db_mutex = state.db_mutex.clone();
+        tokio::task::spawn_blocking(move || -> Result<(bool, Option<String>, NaiveDate), String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            let existed = db.query_row(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'xauusd_economic_calendar'",
+                [], |row| row.get::<_, i64>(0)
+            ).unwrap_or(0) > 0;
+            ec_realtime::create_xauusd_ec_table(&db)?;
+            let max_ts: Option<String> = db.query_row(
+                "SELECT MAX(timestamp_utc) FROM xauusd_economic_calendar",
+                [], |row| row.get::<_, Option<String>>(0)
+            ).unwrap_or(None);
+            let start = match &max_ts {
+                Some(ts) if ts.len() >= 10 => {
+                    NaiveDate::parse_from_str(&ts[..10], "%Y-%m-%d")
+                        .map_err(|e| format!("parse max ts: {}", e))?
+                        + Duration::days(1)
+                }
+                _ => NaiveDate::parse_from_str(EC_GOLD_START_DATE, "%Y-%m-%d")
+                    .map_err(|e| format!("parse start date: {}", e))?,
+            };
+            Ok((existed, max_ts, start))
+        }).await.map_err(|e| format!("cursor task join: {}", e))??
+    };
+
+    let today: NaiveDate = chrono::Utc::now().date_naive();
+
+    // Already current → no-op.
+    if cursor_start > today {
+        let (total, oldest, newest) = read_xauusd_ec_stats(&state).await?;
+        return Ok(EcGoldUpdateResult {
+            table_existed,
+            cursor_before,
+            walk_start: cursor_start.format("%Y-%m-%d").to_string(),
+            walk_end: today.format("%Y-%m-%d").to_string(),
+            chunks_processed: 0,
+            rows_added_this_call: 0,
+            total_rows: total,
+            oldest_in_db: oldest,
+            newest_in_db: newest,
+            duration_ms: start_clock.elapsed().as_millis(),
+            error: None,
+        });
+    }
+
+    // Step 3: walk forward in 30-day chunks. No per-click cap — a single
+    // click does the whole backfill (2009→today ≈ 200 chunks ≈ ~2 minutes).
+    // Emit a Tauri event after every chunk so the UI can render progress.
+    let walk_start_str = cursor_start.format("%Y-%m-%d").to_string();
+    let total_days = (today - cursor_start).num_days().max(0);
+    let chunks_total = ((total_days as usize + EC_GOLD_CHUNK_DAYS as usize - 1)
+                       / EC_GOLD_CHUNK_DAYS as usize)
+                       .max(1);
+    let mut cursor = cursor_start;
+    let mut rows_added_this_call = 0usize;
+    let mut chunks_processed = 0usize;
+    let mut last_error: Option<String> = None;
+    let mut chunk_idx = 0usize;
+
+    while cursor <= today {
+        let chunk_end = (cursor + Duration::days(EC_GOLD_CHUNK_DAYS - 1)).min(today);
+        let s = cursor.format("%Y%m%d").to_string();
+        let e = chunk_end.format("%Y%m%d").to_string();
+        chunk_idx += 1;
+
+        let fetched = match ec_realtime::fetch_events_for_date(&s, &e).await {
+            Ok(r) => r,
+            Err(err) => {
+                last_error = Some(format!("chunk {} ({}..{}) failed: {}", chunk_idx, s, e, err));
+                break;
+            }
+        };
+
+        let db_mutex = state.db_mutex.clone();
+        let fetched_for_write = fetched.clone();
+        let written = tokio::task::spawn_blocking(move || -> Result<usize, String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            ec_realtime::upsert_xauusd_ec(&db, &fetched_for_write)
+        })
+        .await
+        .map_err(|e| format!("upsert task join: {}", e))??;
+
+        rows_added_this_call += written;
+        chunks_processed += 1;
+        println!("[ec-gold] {}..{}: {} fetched, {} kept (cum {} / chunk {}/{})",
+                 s, e, fetched.len(), written, rows_added_this_call, chunks_processed, chunks_total);
+
+        // Push live progress to the frontend so the user sees the walk
+        // happening instead of a frozen "Updating…" label.
+        let progress = EcGoldProgress {
+            chunks_done: chunks_processed,
+            chunks_total,
+            rows_added_so_far: rows_added_this_call,
+            current_chunk_start: cursor.format("%Y-%m-%d").to_string(),
+            current_chunk_end: chunk_end.format("%Y-%m-%d").to_string(),
+            elapsed_secs: start_clock.elapsed().as_secs(),
+        };
+        let _ = app.emit("ec_gold_progress", &progress);
+
+        cursor = chunk_end + Duration::days(1);
+
+        // 120 ms pacing so the puppeteer proxy stays happy.
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    }
+
+    let (total_rows, oldest_in_db, newest_in_db) = read_xauusd_ec_stats(&state).await?;
+
+    Ok(EcGoldUpdateResult {
+        table_existed,
+        cursor_before,
+        walk_start: walk_start_str,
+        walk_end: today.format("%Y-%m-%d").to_string(),
+        chunks_processed,
+        rows_added_this_call,
+        total_rows,
+        oldest_in_db,
+        newest_in_db,
+        duration_ms: start_clock.elapsed().as_millis(),
+        error: last_error,
+    })
+}
+
+/// Helper for `update_ec_gold_events`: row count + coverage window snapshot.
+async fn read_xauusd_ec_stats(state: &tauri::State<'_, AppState>) -> Result<(usize, Option<String>, Option<String>), String> {
+    let db_mutex = state.db_mutex.clone();
+    tokio::task::spawn_blocking(move || -> Result<(usize, Option<String>, Option<String>), String> {
+        let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+        let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+        let count: i64 = db.query_row(
+            "SELECT COUNT(*) FROM xauusd_economic_calendar",
+            [], |row| row.get(0)
+        ).unwrap_or(0);
+        let oldest: Option<String> = db.query_row(
+            "SELECT MIN(timestamp_utc) FROM xauusd_economic_calendar",
+            [], |row| row.get::<_, Option<String>>(0)
+        ).unwrap_or(None);
+        let newest: Option<String> = db.query_row(
+            "SELECT MAX(timestamp_utc) FROM xauusd_economic_calendar",
+            [], |row| row.get::<_, Option<String>>(0)
+        ).unwrap_or(None);
+        Ok((count as usize, oldest, newest))
+    })
+    .await
+    .map_err(|e| format!("stats task join: {}", e))?
+}
+
+// ── Per-TF stats panel for the Archives tab ──────────────────────────────────
+
+#[derive(serde::Serialize, Clone)]
+struct TfStats {
+    /// Display name ("M1", "M5", ..., "MN1")
+    timeframe: String,
+    /// Backing table name ("xauusd_m1", etc.)
+    table: String,
+    /// Row count (0 if table missing).
+    rows: u64,
+    /// Oldest bar's timestamp as ISO 8601 (or null).
+    oldest: Option<String>,
+    /// Newest bar's timestamp as ISO 8601 (or null).
+    newest: Option<String>,
+    /// (newest - oldest) in days as a float, null if empty.
+    coverage_days: Option<f64>,
+    /// (now - newest) in seconds — how stale the tail is. Null if empty.
+    tail_age_secs: Option<i64>,
+    /// One bar width in seconds — used by the UI to decide "fresh" vs "stale".
+    bar_secs: i64,
+}
+
+#[derive(serde::Serialize)]
+struct XauusdStatsResult {
+    timeframes: Vec<TfStats>,
+    /// "live" / "weekend-closed" — gives the UI context for what "fresh" means.
+    market_state: String,
+    /// `now` at query time (so the UI's "fresh as of …" indicator stays honest).
+    queried_at_utc: String,
+}
+
+/// Tauri command for the Archives tab's "Gold DB timeframe states" panel.
+/// Returns one row per xauusd_{tf} table with row count + coverage + freshness.
+#[tauri::command]
+async fn get_xauusd_tf_stats(state: tauri::State<'_, AppState>) -> Result<XauusdStatsResult, String> {
+    // (display name, table suffix, bar width seconds) — only the TFs the
+    // broker actually exposes. M2/M4/M10/M30/H4 dropped because the broker
+    // returns empty for them.
+    let tfs: &[(&str, &str, i64)] = &[
+        ("M1",  "m1",  60),
+        ("M3",  "m3",  180),
+        ("M5",  "m5",  300),
+        ("M15", "m15", 900),
+        ("H1",  "h1",  3600),
+        ("H12", "h12", 43200),
+        ("D1",  "d1",  86400),
+        ("W1",  "w1",  604800),
+        ("MN1", "mn1", 2592000),
+    ];
+
+    let now_secs = chrono::Utc::now().timestamp();
+    let queried_at_utc = chrono::Utc::now().to_rfc3339();
+    let market_state = if xauusd_is_market_closed() { "weekend-closed" } else { "live" }.to_string();
+
+    let db_mutex = state.db_mutex.clone();
+    let tfs_vec: Vec<(String, String, i64)> = tfs.iter()
+        .map(|(n, s, b)| (n.to_string(), format!("xauusd_{}", s), *b))
+        .collect();
+
+    let timeframes = tokio::task::spawn_blocking(move || -> Vec<TfStats> {
+        let _lock = match db_mutex.lock() { Ok(l) => l, Err(_) => return Vec::new() };
+        let db = match duckdb::Connection::open(DB_PATH) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+
+        tfs_vec.into_iter().map(|(tf, table, bar_secs)| {
+            // Existence check — don't auto-create here; if a TF was never
+            // touched, we want to report rows=0 honestly.
+            let exists: i64 = db.query_row(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+                duckdb::params![table.as_str()],
+                |row| row.get(0)
+            ).unwrap_or(0);
+
+            if exists == 0 {
+                return TfStats {
+                    timeframe: tf, table, rows: 0,
+                    oldest: None, newest: None,
+                    coverage_days: None, tail_age_secs: None, bar_secs,
+                };
+            }
+
+            let count: i64 = db.query_row(
+                &format!("SELECT COUNT(*) FROM {}", table),
+                [], |row| row.get(0)
+            ).unwrap_or(0);
+
+            let oldest_ts: Option<i64> = db.query_row(
+                &format!("SELECT MIN(timestamp) FROM {}", table),
+                [], |row| row.get::<_, Option<i64>>(0)
+            ).ok().flatten();
+            let newest_ts: Option<i64> = db.query_row(
+                &format!("SELECT MAX(timestamp) FROM {}", table),
+                [], |row| row.get::<_, Option<i64>>(0)
+            ).ok().flatten();
+
+            let coverage_days = match (oldest_ts, newest_ts) {
+                (Some(o), Some(n)) if n > o => Some((n - o) as f64 / 86400.0),
+                _ => None,
+            };
+            let tail_age_secs = newest_ts.map(|n| now_secs - n);
+
+            let to_iso = |ts: i64| chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string());
+
+            TfStats {
+                timeframe: tf,
+                table,
+                rows: count as u64,
+                oldest: oldest_ts.and_then(to_iso),
+                newest: newest_ts.and_then(to_iso),
+                coverage_days,
+                tail_age_secs,
+                bar_secs,
+            }
+        }).collect()
+    })
+    .await
+    .map_err(|e| format!("stats task join: {}", e))?;
+
+    Ok(XauusdStatsResult { timeframes, market_state, queried_at_utc })
+}
+
+/// Root directory for the per-day EC events archive. Mirrors `news_data/all/`
+/// in layout: `ec_events_data/all/YYYY-MM/YYYY-MM-DD.json`.
+const EC_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/ec_events_data/all");
+
+#[derive(serde::Serialize, Clone)]
+struct EcGoldStorageProgress {
+    files_done: usize,
+    files_total: usize,
+    events_written_so_far: usize,
+    /// YYYY-MM-DD of the file we just finished writing.
+    current_day: String,
+    elapsed_secs: u64,
+}
+
+#[derive(serde::Serialize)]
+struct EcGoldStorageResult {
+    /// True if any disk files existed before this run (i.e. an incremental
+    /// update rather than a fresh bootstrap).
+    incremental: bool,
+    /// `MAX(YYYY-MM-DD)` of the disk archive before this run, null if empty.
+    disk_latest_day_before: Option<String>,
+    /// `MAX(YYYY-MM-DD)` in `xauusd_economic_calendar`, null if table empty.
+    db_latest_day: Option<String>,
+    /// Days inspected this run that already match the DB → no rewrite needed.
+    days_already_current: usize,
+    /// Days actually (re)written this run.
+    files_written: usize,
+    /// Sum of events in the (re)written files.
+    events_written: usize,
+    /// True iff nothing needed updating (disk already matched DB).
+    up_to_date: bool,
+    archive_root: String,
+    duration_ms: u128,
+    error: Option<String>,
+}
+
+/// Tauri command behind the `EC_Gold_events_storage` button.
+///
+/// Diff-aware: on first run, writes one JSON file per day under
+/// `ec_events_data/all/YYYY-MM/YYYY-MM-DD.json` for every day in the DB.
+/// On re-run, walks the existing archive, finds the latest day file, and:
+///   - if the DB has newer days → writes those new days' files,
+///   - if the DB has more events for the latest disk day → rewrites just that day,
+///   - if everything already matches → returns `up_to_date = true` (no work done).
+///
+/// Per-day file format mirrors `news_data/all/YYYY-MM-DD.json`:
+/// ```json
+/// {
+///   "date": "2026-05-26",
+///   "count": 18,
+///   "generated_at": "2026-05-26T12:34:56Z",
+///   "events": [ { event row as object }, ... ]
+/// }
+/// ```
+#[tauri::command]
+async fn store_ec_gold_events(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<EcGoldStorageResult, String> {
+    use tauri::Emitter;
+    let start_clock = std::time::Instant::now();
+
+    // Step 1: find the latest day already on disk.
+    let disk_latest_day_before: Option<String> = tokio::task::spawn_blocking(find_latest_disk_day)
+        .await
+        .map_err(|e| format!("disk-scan task join: {}", e))?;
+    let incremental = disk_latest_day_before.is_some();
+
+    // Step 2: query (day, count) for every day in xauusd_economic_calendar.
+    let db_days: Vec<(String, usize)> = {
+        let db_mutex = state.db_mutex.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<(String, usize)>, String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            let mut stmt = db.prepare(
+                "SELECT substr(timestamp_utc, 1, 10) AS day, COUNT(*) AS n
+                 FROM xauusd_economic_calendar
+                 WHERE length(timestamp_utc) >= 10
+                 GROUP BY day
+                 ORDER BY day ASC"
+            ).map_err(|e| format!("prepare day-counts: {}", e))?;
+            let rows: Vec<(String, usize)> = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+            }).map_err(|e| format!("query day-counts: {}", e))?
+              .flatten().collect();
+            Ok(rows)
+        })
+        .await
+        .map_err(|e| format!("day-counts task join: {}", e))??
+    };
+
+    if db_days.is_empty() {
+        return Ok(EcGoldStorageResult {
+            incremental, disk_latest_day_before, db_latest_day: None,
+            days_already_current: 0,
+            files_written: 0, events_written: 0,
+            up_to_date: false,
+            archive_root: EC_ARCHIVE_ROOT.to_string(),
+            duration_ms: start_clock.elapsed().as_millis(),
+            error: Some("xauusd_economic_calendar is empty — run EC_Gold_Events_Update first.".into()),
+        });
+    }
+
+    let db_latest_day = db_days.last().map(|(d, _)| d.clone());
+
+    // Step 3: decide which days to (re)write.
+    //
+    //   First run (no disk):  every DB day.
+    //   Re-run:               every DB day >= disk-latest whose DB count
+    //                         differs from the on-disk file's count
+    //                         (missing-on-disk counts as count 0).
+    //
+    // Older days are trusted as-is. The rationale: this archive is meant
+    // to be a snapshot of the DB; once a day has been written and its
+    // event count matches what's in the DB, there's no reason to rewrite.
+    let days_to_write: Vec<(String, usize)> = match &disk_latest_day_before {
+        None => db_days.clone(),
+        Some(disk_latest) => db_days.iter()
+            .filter(|(day, db_count)| {
+                if day.as_str() < disk_latest.as_str() { return false; }
+                read_disk_event_count(day) != *db_count
+            })
+            .cloned()
+            .collect(),
+    };
+    let days_already_current = if let Some(disk_latest) = &disk_latest_day_before {
+        db_days.iter()
+            .filter(|(day, _)| day.as_str() >= disk_latest.as_str())
+            .count()
+            .saturating_sub(days_to_write.len())
+    } else { 0 };
+
+    if days_to_write.is_empty() {
+        return Ok(EcGoldStorageResult {
+            incremental, disk_latest_day_before, db_latest_day,
+            days_already_current,
+            files_written: 0, events_written: 0,
+            up_to_date: true,
+            archive_root: EC_ARCHIVE_ROOT.to_string(),
+            duration_ms: start_clock.elapsed().as_millis(),
+            error: None,
+        });
+    }
+
+    // Step 4: group the days-to-write by month so we can pull each month's
+    // events in one DB query (cheaper than 1 query per day for first runs
+    // where days_to_write can be ~5000 entries).
+    let files_total = days_to_write.len();
+    let mut by_month: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for (day, _) in &days_to_write {
+        if day.len() >= 7 {
+            by_month.entry(day[..7].to_string()).or_default().push(day.clone());
+        }
+    }
+    let wanted_days: std::collections::HashSet<String> =
+        days_to_write.iter().map(|(d, _)| d.clone()).collect();
+
+    let mut files_written = 0usize;
+    let mut events_written = 0usize;
+    let mut last_error: Option<String> = None;
+
+    // Fire an initial 0% progress so the UI shows the bar straight away
+    // (without waiting for the first file to land). For fast re-runs of
+    // 1-5 files, the bar would otherwise pop in for ~50 ms at the very end.
+    let first_day = days_to_write.first().map(|(d, _)| d.clone()).unwrap_or_default();
+    let _ = app.emit("ec_gold_storage_progress", &EcGoldStorageProgress {
+        files_done: 0,
+        files_total,
+        events_written_so_far: 0,
+        current_day: first_day,
+        elapsed_secs: start_clock.elapsed().as_secs(),
+    });
+
+    'months: for (month, _) in &by_month {
+        // Pull every event in this month, ordered by timestamp.
+        let db_mutex = state.db_mutex.clone();
+        let month_q = month.clone();
+        let month_events: Vec<(String, serde_json::Value)> = match tokio::task::spawn_blocking(move || -> Result<Vec<(String, serde_json::Value)>, String> {
+            let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+            let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+            let mut stmt = db.prepare(
+                "SELECT event_date_id, event_id, event_name, currency, country_code,
+                        volatility, timestamp_utc, weekday, hour_utc,
+                        actual_raw, forecast_raw, previous_raw,
+                        actual, forecast, previous, surprise, beats_forecast, unit
+                 FROM xauusd_economic_calendar
+                 WHERE substr(timestamp_utc, 1, 7) = ?
+                 ORDER BY timestamp_utc ASC"
+            ).map_err(|e| format!("prepare month query: {}", e))?;
+            let rows = stmt.query_map([month_q.as_str()], |row| {
+                let ts: String = row.get(6)?;
+                let day = if ts.len() >= 10 { ts[..10].to_string() } else { ts.clone() };
+                let event = serde_json::json!({
+                    "event_date_id":  row.get::<_, String>(0)?,
+                    "event_id":       row.get::<_, String>(1)?,
+                    "event_name":     row.get::<_, String>(2)?,
+                    "currency":       row.get::<_, String>(3)?,
+                    "country_code":   row.get::<_, String>(4)?,
+                    "volatility":     row.get::<_, i32>(5)?,
+                    "timestamp_utc":  ts,
+                    "weekday":        row.get::<_, i32>(7)?,
+                    "hour_utc":       row.get::<_, i32>(8)?,
+                    "actual_raw":     row.get::<_, Option<String>>(9)?,
+                    "forecast_raw":   row.get::<_, Option<String>>(10)?,
+                    "previous_raw":   row.get::<_, Option<String>>(11)?,
+                    "actual":         row.get::<_, Option<f64>>(12)?,
+                    "forecast":       row.get::<_, Option<f64>>(13)?,
+                    "previous":       row.get::<_, Option<f64>>(14)?,
+                    "surprise":       row.get::<_, Option<f64>>(15)?,
+                    "beats_forecast": row.get::<_, Option<i32>>(16)?,
+                    "unit":           row.get::<_, Option<String>>(17)?,
+                });
+                Ok((day, event))
+            }).map_err(|e| format!("query month: {}", e))?;
+            Ok(rows.flatten().collect())
+        }).await.map_err(|e| format!("month task join: {}", e))? {
+            Ok(v) => v,
+            Err(e) => { last_error = Some(format!("{} read failed: {}", month, e)); break 'months; }
+        };
+
+        // Group this month's rows by day, keeping only days_to_write.
+        let mut by_day: std::collections::BTreeMap<String, Vec<serde_json::Value>> =
+            std::collections::BTreeMap::new();
+        for (day, event) in month_events {
+            if wanted_days.contains(&day) {
+                by_day.entry(day).or_default().push(event);
+            }
+        }
+
+        let month_dir = std::path::Path::new(EC_ARCHIVE_ROOT).join(month);
+        if let Err(e) = std::fs::create_dir_all(&month_dir) {
+            last_error = Some(format!("create dir {}: {}", month_dir.display(), e));
+            break 'months;
+        }
+
+        let now_rfc = chrono::Utc::now().to_rfc3339();
+        for (day, events) in &by_day {
+            let path = month_dir.join(format!("{}.json", day));
+            let count = events.len();
+            let payload = serde_json::json!({
+                "date":         day,
+                "count":        count,
+                "generated_at": now_rfc,
+                "events":       events,
+            });
+            let pretty = match serde_json::to_string_pretty(&payload) {
+                Ok(s) => s,
+                Err(e) => { last_error = Some(format!("serialize {}: {}", day, e)); break 'months; }
+            };
+            if let Err(e) = std::fs::write(&path, pretty) {
+                last_error = Some(format!("write {}: {}", path.display(), e));
+                break 'months;
+            }
+            files_written += 1;
+            events_written += count;
+
+            let _ = app.emit("ec_gold_storage_progress", &EcGoldStorageProgress {
+                files_done: files_written,
+                files_total,
+                events_written_so_far: events_written,
+                current_day: day.clone(),
+                elapsed_secs: start_clock.elapsed().as_secs(),
+            });
+        }
+    }
+
+    Ok(EcGoldStorageResult {
+        incremental, disk_latest_day_before, db_latest_day,
+        days_already_current,
+        files_written, events_written,
+        up_to_date: false,
+        archive_root: EC_ARCHIVE_ROOT.to_string(),
+        duration_ms: start_clock.elapsed().as_millis(),
+        error: last_error,
+    })
+}
+
+/// Walk `ec_events_data/all/YYYY-MM/` and return the lexically-largest
+/// `YYYY-MM-DD.json` filename (without the extension), or None if the
+/// archive root doesn't exist or has no day files.
+fn find_latest_disk_day() -> Option<String> {
+    let root = std::path::Path::new(EC_ARCHIVE_ROOT);
+    if !root.exists() { return None; }
+    let mut newest: Option<String> = None;
+    let month_iter = std::fs::read_dir(root).ok()?;
+    for month_entry in month_iter.flatten() {
+        let mp = month_entry.path();
+        if !mp.is_dir() { continue; }
+        let day_iter = match std::fs::read_dir(&mp) { Ok(d) => d, Err(_) => continue };
+        for day_entry in day_iter.flatten() {
+            let p = day_entry.path();
+            let name = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s, None => continue };
+            if name.len() != 15 || !name.ends_with(".json") { continue; }
+            let day = &name[..10];
+            if newest.as_deref().map(|n| day > n).unwrap_or(true) {
+                newest = Some(day.to_string());
+            }
+        }
+    }
+    newest
+}
+
+/// Return the `count` field from `ec_events_data/all/YYYY-MM/{day}.json`,
+/// or 0 if the file is missing / unreadable / malformed.
+fn read_disk_event_count(day: &str) -> usize {
+    if day.len() < 7 { return 0; }
+    let path = std::path::Path::new(EC_ARCHIVE_ROOT)
+        .join(&day[..7])
+        .join(format!("{}.json", day));
+    let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => return 0 };
+    let v: serde_json::Value = match serde_json::from_str(&content) { Ok(v) => v, Err(_) => return 0 };
+    v.get("count").and_then(|c| c.as_u64()).map(|n| n as usize).unwrap_or(0)
+}
+
+// ── End Archives tab backend ─────────────────────────────────────────────────
+
+
+
 /// Tauri-managed state shared with command handlers.
 struct AppState {
     db_mutex: SharedDb,
@@ -2969,6 +3992,10 @@ fn main() {
             set_auto_trade,
             get_history_backfill_state,
             start_history_backfill,
+            update_news_archive,
+            update_ec_gold_events,
+            store_ec_gold_events,
+            get_xauusd_tf_stats,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
