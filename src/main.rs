@@ -1076,6 +1076,20 @@ async fn store_ec_gold_events(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<EcGoldStorageResult, String> {
+    run_ec_gold_store(state.db_mutex.clone(), Some(app)).await
+}
+
+/// Guard so the auto EC-store (driven by the live EC fetch loop) never overlaps.
+static EC_STORE_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The EC_Gold_events_storage cycle as a reusable function. Driven both by the
+/// manual button (`store_ec_gold_events`) and automatically by the live EC fetch
+/// loop. Diff-aware writer of per-day JSON under `ec_events_data/all/`. When
+/// `app` is `None` (auto path) no progress events are emitted.
+async fn run_ec_gold_store(
+    db_mutex: SharedDb,
+    app: Option<tauri::AppHandle>,
+) -> Result<EcGoldStorageResult, String> {
     use tauri::Emitter;
     let start_clock = std::time::Instant::now();
 
@@ -1087,7 +1101,7 @@ async fn store_ec_gold_events(
 
     // Step 2: query (day, count) for every day in xauusd_economic_calendar.
     let db_days: Vec<(String, usize)> = {
-        let db_mutex = state.db_mutex.clone();
+        let db_mutex = db_mutex.clone();
         tokio::task::spawn_blocking(move || -> Result<Vec<(String, usize)>, String> {
             let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
             let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
@@ -1183,17 +1197,19 @@ async fn store_ec_gold_events(
     // (without waiting for the first file to land). For fast re-runs of
     // 1-5 files, the bar would otherwise pop in for ~50 ms at the very end.
     let first_day = days_to_write.first().map(|(d, _)| d.clone()).unwrap_or_default();
-    let _ = app.emit("ec_gold_storage_progress", &EcGoldStorageProgress {
-        files_done: 0,
-        files_total,
-        events_written_so_far: 0,
-        current_day: first_day,
-        elapsed_secs: start_clock.elapsed().as_secs(),
-    });
+    if let Some(app) = &app {
+        let _ = app.emit("ec_gold_storage_progress", &EcGoldStorageProgress {
+            files_done: 0,
+            files_total,
+            events_written_so_far: 0,
+            current_day: first_day,
+            elapsed_secs: start_clock.elapsed().as_secs(),
+        });
+    }
 
     'months: for (month, _) in &by_month {
         // Pull every event in this month, ordered by timestamp.
-        let db_mutex = state.db_mutex.clone();
+        let db_mutex = db_mutex.clone();
         let month_q = month.clone();
         let month_events: Vec<(String, serde_json::Value)> = match tokio::task::spawn_blocking(move || -> Result<Vec<(String, serde_json::Value)>, String> {
             let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
@@ -1274,13 +1290,15 @@ async fn store_ec_gold_events(
             files_written += 1;
             events_written += count;
 
-            let _ = app.emit("ec_gold_storage_progress", &EcGoldStorageProgress {
-                files_done: files_written,
-                files_total,
-                events_written_so_far: events_written,
-                current_day: day.clone(),
-                elapsed_secs: start_clock.elapsed().as_secs(),
-            });
+            if let Some(app) = &app {
+                let _ = app.emit("ec_gold_storage_progress", &EcGoldStorageProgress {
+                    files_done: files_written,
+                    files_total,
+                    events_written_so_far: events_written,
+                    current_day: day.clone(),
+                    elapsed_secs: start_clock.elapsed().as_secs(),
+                });
+            }
         }
     }
 
@@ -5526,6 +5544,11 @@ async fn run_session(
                             match duckdb::Connection::open(DB_PATH) {
                                 Ok(db) => {
                                     let _ = ec_realtime::write_ec_to_db(&db, &rows);
+                                    // Also feed today's gold-relevant events into the
+                                    // archive table so xauusd_economic_calendar (and
+                                    // thus the auto JSON export below) stays current
+                                    // without waiting for a manual EC_Gold_Events_Update.
+                                    let _ = ec_realtime::upsert_xauusd_ec(&db, &rows);
                                     let raw = ec_realtime::read_ec_today_raw(&db);
                                     let lines = ec_realtime::format_ec_lines(&raw);
                                     (lines, raw)
@@ -5551,6 +5574,26 @@ async fn run_session(
                         let _ = tx.send(PriceUpdate::EcTodayEvents(lines)).await;
                         if !raw.is_empty() {
                             let _ = tx.send(PriceUpdate::EcTodayRaw(raw)).await;
+                        }
+
+                        // Auto-export the EC calendar JSON files (same work as the
+                        // EC_Gold_events_storage button) off the session loop, so
+                        // ec_events_data/all/ stays current as today's events fill
+                        // in. Diff-aware (only rewrites changed days) + guarded so a
+                        // slow run never overlaps the next EC fetch.
+                        use std::sync::atomic::Ordering as EcOrd;
+                        if !EC_STORE_BUSY.swap(true, EcOrd::AcqRel) {
+                            let db = shared_db.clone();
+                            tokio::spawn(async move {
+                                match run_ec_gold_store(db, None).await {
+                                    Ok(r) if !r.up_to_date => println!(
+                                        "[ec-store] auto: {} file(s), {} event(s) written",
+                                        r.files_written, r.events_written),
+                                    Ok(_) => {}  // up-to-date: nothing to write, stay quiet
+                                    Err(e) => println!("[ec-store] auto failed: {}", e),
+                                }
+                                EC_STORE_BUSY.store(false, EcOrd::Release);
+                            });
                         }
                     }
                     Err(e) => {
