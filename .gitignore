@@ -28,8 +28,12 @@ ml/trained/*.txt
 # Generated ML feature CSVs (rebuilt via UI button)
 ml/ml_unified_features.csv
 
-# Claude Code settings
-.claude/
+# Claude Code: ignore local settings, but TRACK skills/ and agents/ — these are
+# app source (the SKILL.md playbooks are include_str!'d into the binary) and must
+# travel with the repo. Without this they're lost on clone (→ placeholder stubs).
+.claude/*
+!.claude/skills/
+!.claude/agents/
 
 # Econcal proxy (separate git repo)
 econcal/

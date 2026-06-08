@@ -1894,7 +1894,42 @@ async fn get_xrp_trade_idea(
         map.get("XRPUSD").copied()
             .ok_or_else(|| "XRPUSD not subscribed yet — restart the app to pick up the new subscription.".to_string())?
     };
-    let (_compact, full, _blitz) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
+    let (_compact, mut full, _blitz) = build_trade_snapshots(&state.db_mutex, symbol_id).await?;
+
+    // BTC is the master filter for XRP — XRP rarely trends against Bitcoin. Attach
+    // a `btc` context block (M5 + M15 direction/structure) so the agent can gate
+    // its XRP bias on Bitcoin's tape. Degrades gracefully if BTCUSD isn't mapped.
+    let btc_id = symbol_map().lock().ok().and_then(|m| m.get("BTCUSD").copied());
+    if let Some(btc_id) = btc_id {
+        use openapi::ProtoOaTrendbarPeriod as P;
+        let (btc_m5, btc_m15) = tokio::join!(
+            fetch_trendbars_for_snapshot(btc_id, P::M5, 5, 96),
+            fetch_trendbars_for_snapshot(btc_id, P::M15, 15, 48),
+        );
+        let btc_m5 = btc_m5.unwrap_or_default();
+        let btc_m15 = btc_m15.unwrap_or_default();
+        if !btc_m5.is_empty() {
+            let (m5_json, _vwap, ema8) = candles_with_indicators(&btc_m5);
+            let (b5_last, b5_chg, b5_dir) = series_dir(&btc_m5, 12);
+            let (_b15_last, b15_chg, b15_dir) = series_dir(&btc_m15, 12);
+            let tail = |v: &[serde_json::Value], n: usize| -> Vec<serde_json::Value> {
+                v.iter().skip(v.len().saturating_sub(n)).cloned().collect()
+            };
+            let m15_json = candles_to_json(&btc_m15);
+            let btc = serde_json::json!({
+                "price": b5_last,
+                "m5": { "ema8": ema8, "dir12": b5_dir, "chg12_pct": b5_chg },
+                "m15": { "dir12": b15_dir, "chg12_pct": b15_chg },
+                "m5_recent": tail(&m5_json, 12),    // {ts,o,h,l,c,vwap,ema8}
+                "m15_recent": tail(&m15_json, 12),  // {ts,o,h,l,c}
+                "note": "BTC is the master filter: XRP rarely trends against Bitcoin. Trade XRP WITH BTC's direction; if BTC is flat/choppy demand a strong XRP-specific signal or stand aside; favor XRP catch-up when it lags a strong BTC move, and don't take an XRP bias that fights a clear BTC trend.",
+            });
+            if let Some(obj) = full.as_object_mut() {
+                obj.insert("btc".to_string(), btc);
+            }
+        }
+    }
+
     let user = format!(
         "Live XRPUSD snapshot (seconds old):\n```json\n{}\n```\n\nClassify the regime and the BTC tape, pick the best-fitting strategy, and give ONE 5-minute setup for right now (or FLAT). JSON only.",
         serde_json::to_string(&full).unwrap_or_default()
@@ -3043,7 +3078,7 @@ async fn run_session(
     }
     // All symbols whose IDs we need (cross-pairs for M1 data downloads, ID lookup only)
     let instruments_need_id: Vec<&str> = vec![
-        "EURUSD", "XRPUSD",
+        "EURUSD", "XRPUSD", "BTCUSD", // BTCUSD: master-filter context for the XRP 5m agent
         "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "EURJPY", "XAUUSD",
     ];
 
