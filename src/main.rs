@@ -664,6 +664,12 @@ const EC_GOLD_CHUNK_DAYS: i64 = 30;
 /// (oldest row there is 2009-01-02).
 const EC_GOLD_START_DATE: &str = "2009-01-01";
 
+/// On a non-empty table, EC_Gold_Events_Update re-walks at least this many
+/// trailing days (not just forward from MAX) so interior gaps left by days the
+/// app was offline self-heal. Upserts are idempotent and also refresh
+/// late-released `actual` values. ~4 months → a few extra 30-day chunks/click.
+const EC_GOLD_REWALK_DAYS: i64 = 120;
+
 /// Emitted via Tauri events after every 30-day chunk so the frontend can
 /// render a live progress bar instead of staring at a frozen "Updating…"
 /// label for two minutes.
@@ -758,14 +764,20 @@ async fn update_ec_gold_events(
                 "SELECT MAX(timestamp_utc) FROM xauusd_economic_calendar",
                 [], |row| row.get::<_, Option<String>>(0)
             ).unwrap_or(None);
+            let floor = NaiveDate::parse_from_str(EC_GOLD_START_DATE, "%Y-%m-%d")
+                .map_err(|e| format!("parse start date: {}", e))?;
             let start = match &max_ts {
                 Some(ts) if ts.len() >= 10 => {
-                    NaiveDate::parse_from_str(&ts[..10], "%Y-%m-%d")
+                    let from_max = NaiveDate::parse_from_str(&ts[..10], "%Y-%m-%d")
                         .map_err(|e| format!("parse max ts: {}", e))?
-                        + Duration::days(1)
+                        + Duration::days(1);
+                    // Re-walk a trailing window so interior gaps (days the app was
+                    // offline, so the live upsert never advanced past them) self-heal
+                    // even though MAX has since jumped ahead. Clamped to the floor.
+                    let trailing = chrono::Utc::now().date_naive() - Duration::days(EC_GOLD_REWALK_DAYS);
+                    from_max.min(trailing).max(floor)
                 }
-                _ => NaiveDate::parse_from_str(EC_GOLD_START_DATE, "%Y-%m-%d")
-                    .map_err(|e| format!("parse start date: {}", e))?,
+                _ => floor,
             };
             Ok((existed, max_ts, start))
         }).await.map_err(|e| format!("cursor task join: {}", e))??
@@ -1139,26 +1151,32 @@ async fn run_ec_gold_store(
     // Step 3: decide which days to (re)write.
     //
     //   First run (no disk):  every DB day.
-    //   Re-run:               every DB day >= disk-latest whose DB count
-    //                         differs from the on-disk file's count
+    //   Re-run:               every DB day at/after the comparison horizon whose
+    //                         DB count differs from the on-disk file's count
     //                         (missing-on-disk counts as count 0).
     //
-    // Older days are trusted as-is. The rationale: this archive is meant
-    // to be a snapshot of the DB; once a day has been written and its
-    // event count matches what's in the DB, there's no reason to rewrite.
-    let days_to_write: Vec<(String, usize)> = match &disk_latest_day_before {
+    // Horizon = the EARLIER of the newest on-disk day and a trailing window
+    // (today - EC_GOLD_REWALK_DAYS). Reaching back past disk-latest lets interior
+    // gaps — days the walk just back-filled BELOW an already-present newer file —
+    // get exported. Days older than the horizon are trusted as-is.
+    let horizon: Option<String> = disk_latest_day_before.as_ref().map(|disk_latest| {
+        let trailing = (chrono::Utc::now().date_naive() - chrono::Duration::days(EC_GOLD_REWALK_DAYS))
+            .format("%Y-%m-%d").to_string();
+        std::cmp::min(disk_latest.clone(), trailing)
+    });
+    let days_to_write: Vec<(String, usize)> = match &horizon {
         None => db_days.clone(),
-        Some(disk_latest) => db_days.iter()
+        Some(h) => db_days.iter()
             .filter(|(day, db_count)| {
-                if day.as_str() < disk_latest.as_str() { return false; }
+                if day.as_str() < h.as_str() { return false; }
                 read_disk_event_count(day) != *db_count
             })
             .cloned()
             .collect(),
     };
-    let days_already_current = if let Some(disk_latest) = &disk_latest_day_before {
+    let days_already_current = if let Some(h) = &horizon {
         db_days.iter()
-            .filter(|(day, _)| day.as_str() >= disk_latest.as_str())
+            .filter(|(day, _)| day.as_str() >= h.as_str())
             .count()
             .saturating_sub(days_to_write.len())
     } else { 0 };
