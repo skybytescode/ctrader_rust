@@ -444,6 +444,19 @@ struct NewsUpdateResult {
 /// so the first run does a sensible bootstrap rather than crawling the full feed.
 #[tauri::command]
 async fn update_news_archive(state: tauri::State<'_, AppState>) -> Result<NewsUpdateResult, String> {
+    run_news_archive_update(state.db_mutex.clone()).await
+}
+
+/// Guard so the auto-archive (driven by the 5-min news loop) never overlaps a
+/// still-running cycle — body backfill is rate-limited and can outlast 5 min.
+static NEWS_ARCHIVE_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The News_Updates cycle as a reusable function. Driven both by the manual
+/// button (`update_news_archive`) and automatically by the 5-min news loop:
+/// find the archive cutoff, fetch newer FXStreet articles, upsert into
+/// `news_historical`, backfill missing article bodies, and (re)write the
+/// per-day JSON files under `news_data/all/`.
+async fn run_news_archive_update(db_mutex: SharedDb) -> Result<NewsUpdateResult, String> {
     // Step 1: find newest archive day + its latest article time.
     let (last_archive_day, latest_in_file) =
         tokio::task::spawn_blocking(find_newest_archive_cutoff)
@@ -494,7 +507,7 @@ async fn update_news_archive(state: tauri::State<'_, AppState>) -> Result<NewsUp
         .collect();
 
     {
-        let db_mutex = state.db_mutex.clone();
+        let db_mutex = db_mutex.clone();
         let rows_for_db = rows.clone();
         tokio::task::spawn_blocking(move || -> Result<(), String> {
             let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
@@ -515,7 +528,7 @@ async fn update_news_archive(state: tauri::State<'_, AppState>) -> Result<NewsUp
     // body — gets one on this click too.
     let affected_for_query: Vec<String> = affected_days.iter().cloned().collect();
     let to_fetch: Vec<String> = {
-        let db_mutex = state.db_mutex.clone();
+        let db_mutex = db_mutex.clone();
         tokio::task::spawn_blocking(move || -> Result<Vec<String>, String> {
             let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
             let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
@@ -569,7 +582,7 @@ async fn update_news_archive(state: tauri::State<'_, AppState>) -> Result<NewsUp
 
     // Step 7: write fetched + empty body markers back to DB.
     if !fetched_bodies.is_empty() || !empty_body_ids.is_empty() {
-        let db_mutex = state.db_mutex.clone();
+        let db_mutex = db_mutex.clone();
         let fetched_for_db = fetched_bodies.clone();
         let empty_for_db = empty_body_ids.clone();
         tokio::task::spawn_blocking(move || -> Result<(), String> {
@@ -595,7 +608,7 @@ async fn update_news_archive(state: tauri::State<'_, AppState>) -> Result<NewsUp
 
     // Step 8: regenerate each affected day's JSON file from DB.
     let days_written: Vec<(String, usize)> = {
-        let db_mutex = state.db_mutex.clone();
+        let db_mutex = db_mutex.clone();
         let affected_for_write = affected_days.clone();
         tokio::task::spawn_blocking(move || -> Result<Vec<(String, usize)>, String> {
             let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
@@ -5621,6 +5634,29 @@ async fn run_session(
                             total, now_str
                         ))).await;
                         let _ = tx.send(PriceUpdate::NewsTodayArticles(today_rows)).await;
+
+                        // Auto-archive on the same cadence: backfill article bodies
+                        // and (re)write the per-day JSON files — exactly what the
+                        // News_Updates button does — but OFF the session loop so the
+                        // rate-limited body fetches never block TLS reads / chart
+                        // requests. Guarded so a slow cycle never overlaps the next.
+                        use std::sync::atomic::Ordering;
+                        if !NEWS_ARCHIVE_BUSY.swap(true, Ordering::AcqRel) {
+                            let db = shared_db.clone();
+                            tokio::spawn(async move {
+                                match run_news_archive_update(db).await {
+                                    Ok(r) => println!(
+                                        "[news-archive] auto: {} fetched, {} bodies (+{} empty), {} day-file(s){}",
+                                        r.articles_fetched, r.bodies_fetched, r.bodies_empty, r.days_written.len(),
+                                        if r.rate_limited { " — rate-limited, resumes next cycle" } else { "" },
+                                    ),
+                                    Err(e) => println!("[news-archive] auto failed: {}", e),
+                                }
+                                NEWS_ARCHIVE_BUSY.store(false, Ordering::Release);
+                            });
+                        } else {
+                            println!("[news-archive] auto: previous cycle still running — skipping");
+                        }
                     }
                     Err(e) => {
                         let _ = tx.send(PriceUpdate::NewsStatus(format!("News error: {}", e))).await;
