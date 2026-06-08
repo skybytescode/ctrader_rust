@@ -166,6 +166,15 @@ type XauusdStatsResult = {
   queried_at_utc: string
 }
 
+type ArchiveImportResult = {
+  ec_files: number
+  ec_rows: number
+  news_files: number
+  news_rows: number
+  news_bodies: number
+  message: string | null
+}
+
 type BackfillState = {
   status: 'idle' | 'running' | 'complete' | 'error' | string
   started_at_utc: string | null
@@ -1507,6 +1516,11 @@ function ArchiveView() {
   const [tfStatsBusy, setTfStatsBusy] = useState(false)
   const [tfStatsError, setTfStatsError] = useState<string | null>(null)
 
+  // Import-disk-archives state (loads on-disk JSON files back into the DB)
+  const [importBusy, setImportBusy] = useState(false)
+  const [importResult, setImportResult] = useState<ArchiveImportResult | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+
   const loadTfStats = async () => {
     setTfStatsBusy(true); setTfStatsError(null)
     try { setTfStats(await invoke<XauusdStatsResult>('get_xauusd_tf_stats')) }
@@ -1542,6 +1556,17 @@ function ArchiveView() {
     return () => { cancelled = true; window.clearInterval(id) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const runImport = async () => {
+    setImportBusy(true); setImportError(null); setImportResult(null)
+    try {
+      const r = await invoke<ArchiveImportResult>('import_disk_archives')
+      setImportResult(r)
+      loadTfStats()  // refresh DB stats so new row counts show immediately
+    }
+    catch (e) { setImportError(String(e)) }
+    finally { setImportBusy(false) }
+  }
 
   const runNewsUpdate = async () => {
     setNewsBusy(true); setNewsError(null); setNewsResult(null)
@@ -1751,6 +1776,38 @@ function ArchiveView() {
                 ` · Finished: ${backfill.completed_at_utc.slice(0, 19).replace('T', ' ')} UTC`}
             </div>
           )}
+        </div>
+      )}
+
+      <h3 style={{ marginTop: 28 }}>Import disk archives → DB</h3>
+      <p className="muted">
+        Loads the on-disk per-day JSON files into the DuckDB tables the app reads:
+        <code>ec_events_data/all/</code> → <code>xauusd_economic_calendar</code> and{' '}
+        <code>news_data/all/</code> → <code>news_historical</code> (article bodies preserved).
+        Use this after copying archive files from another branch/clone. Idempotent —
+        upserts by primary key, never overwrites an existing news body with null.
+      </p>
+
+      <div className="archive-actions">
+        <button className="btn" onClick={runImport} disabled={importBusy}>
+          {importBusy ? 'Importing…' : 'Import_Disk_Archives'}
+        </button>
+      </div>
+
+      {importError && <div className="archive-result err">Error: {importError}</div>}
+
+      {importResult && (
+        <div className="archive-result ok">
+          <div>
+            <strong>EC:</strong> {importResult.ec_rows.toLocaleString()} rows from{' '}
+            {importResult.ec_files.toLocaleString()} files
+          </div>
+          <div>
+            <strong>News:</strong> {importResult.news_rows.toLocaleString()} rows from{' '}
+            {importResult.news_files.toLocaleString()} files{' '}
+            ({importResult.news_bodies.toLocaleString()} with bodies)
+          </div>
+          {importResult.message && <div className="small">{importResult.message}</div>}
         </div>
       )}
 

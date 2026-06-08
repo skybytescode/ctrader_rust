@@ -1319,6 +1319,173 @@ fn read_disk_event_count(day: &str) -> usize {
     v.get("count").and_then(|c| c.as_u64()).map(|n| n as usize).unwrap_or(0)
 }
 
+// ── Archives tab: import on-disk JSON archives back into DuckDB ───────────────
+//
+// The per-day JSON files under news_data/all/ and ec_events_data/all/ are EXPORTS
+// of the DB. When a clone arrives with rich historical archive files but a near-
+// empty DB (e.g. files copied from another branch), the app's News/Calendar and
+// the EC "update" walk can't see that history because they read the tables, not
+// the files. This command loads the files straight into the tables:
+//   - ec_events_data/all/**.json → xauusd_economic_calendar (via upsert_xauusd_ec)
+//   - news_data/all/**.json      → news_historical (body preserved via COALESCE)
+
+/// Recursively collect every `*.json` under a `<root>/YYYY-MM/YYYY-MM-DD.json`
+/// archive tree (two levels: month dir → day file).
+fn walk_archive_json(root: &str) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let root = std::path::Path::new(root);
+    let Ok(months) = std::fs::read_dir(root) else { return out };
+    for m in months.flatten() {
+        let mp = m.path();
+        if !mp.is_dir() { continue; }
+        let Ok(days) = std::fs::read_dir(&mp) else { continue };
+        for d in days.flatten() {
+            let p = d.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("json") {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// Build an `EcRow` from one event object in an `ec_events_data` day file.
+/// Returns None if a required field (event_date_id / currency / timestamp) is missing.
+fn parse_ec_event(e: &serde_json::Value) -> Option<ec_realtime::EcRow> {
+    let s   = |k: &str| e.get(k).and_then(|v| v.as_str()).map(String::from);
+    let i   = |k: &str| e.get(k).and_then(|v| v.as_i64());
+    let f   = |k: &str| e.get(k).and_then(|v| v.as_f64());
+    Some(ec_realtime::EcRow {
+        event_date_id: s("event_date_id")?,
+        event_id:      s("event_id").unwrap_or_default(),
+        event_name:    s("event_name").unwrap_or_default(),
+        currency:      s("currency")?,
+        country_code:  s("country_code").unwrap_or_default(),
+        volatility:    i("volatility").unwrap_or(0) as i8,
+        timestamp_utc: s("timestamp_utc")?,
+        weekday:       i("weekday").unwrap_or(0) as i8,
+        hour_utc:      i("hour_utc").unwrap_or(0) as i8,
+        actual_raw:    s("actual_raw"),
+        forecast_raw:  s("forecast_raw"),
+        previous_raw:  s("previous_raw"),
+        actual:        f("actual"),
+        forecast:      f("forecast"),
+        previous:      f("previous"),
+        surprise:      f("surprise"),
+        beats_forecast: i("beats_forecast").map(|v| v as i8),
+    })
+}
+
+#[derive(serde::Serialize)]
+struct ArchiveImportResult {
+    ec_files: usize,
+    ec_rows: usize,
+    news_files: usize,
+    news_rows: usize,
+    /// Articles imported that carried a non-empty body.
+    news_bodies: usize,
+    message: Option<String>,
+}
+
+/// Tauri command behind the Archives "Import disk → DB" button. Loads every
+/// on-disk per-day JSON archive into the DuckDB tables the app actually reads.
+/// Idempotent: re-running upserts by primary key (event_date_id / article_id)
+/// and never overwrites an existing news body with NULL.
+#[tauri::command]
+async fn import_disk_archives(state: tauri::State<'_, AppState>) -> Result<ArchiveImportResult, String> {
+    let db_mutex = state.db_mutex.clone();
+    tokio::task::spawn_blocking(move || -> Result<ArchiveImportResult, String> {
+        let _lock = db_mutex.lock().map_err(|e| format!("db lock poisoned: {}", e))?;
+        let db = duckdb::Connection::open(DB_PATH).map_err(|e| format!("open db: {}", e))?;
+
+        // Ensure both tables exist before the transaction.
+        ec_realtime::create_xauusd_ec_table(&db)?;
+        db.execute_batch(
+            "CREATE TABLE IF NOT EXISTS news_historical (
+                article_id    VARCHAR PRIMARY KEY,
+                title         VARCHAR NOT NULL,
+                published_utc VARCHAR NOT NULL,
+                summary       VARCHAR,
+                url           VARCHAR,
+                author        VARCHAR,
+                tags          VARCHAR,
+                hour_utc      TINYINT NOT NULL,
+                weekday       TINYINT NOT NULL
+            )"
+        ).map_err(|e| format!("create news_historical: {}", e))?;
+        let _ = db.execute("ALTER TABLE news_historical ADD COLUMN IF NOT EXISTS body VARCHAR", []);
+
+        // One big transaction — DuckDB autocommit per-row would be very slow for
+        // ~85k EC upserts.
+        let _ = db.execute_batch("BEGIN TRANSACTION");
+
+        // ── EC events ──
+        let mut ec_files = 0usize;
+        let mut ec_rows = 0usize;
+        for path in walk_archive_json(EC_ARCHIVE_ROOT) {
+            let Ok(content) = std::fs::read_to_string(&path) else { continue };
+            let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else { continue };
+            if let Some(events) = json.get("events").and_then(|v| v.as_array()) {
+                let rows: Vec<ec_realtime::EcRow> = events.iter().filter_map(parse_ec_event).collect();
+                if let Ok(n) = ec_realtime::upsert_xauusd_ec(&db, &rows) { ec_rows += n; }
+            }
+            ec_files += 1;
+        }
+
+        // ── News (body preserved) ──
+        let news_upsert = "
+            INSERT INTO news_historical
+                (article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday, body)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT (article_id) DO UPDATE SET
+                title   = EXCLUDED.title,
+                summary = EXCLUDED.summary,
+                url     = EXCLUDED.url,
+                author  = EXCLUDED.author,
+                tags    = EXCLUDED.tags,
+                body    = COALESCE(EXCLUDED.body, news_historical.body)
+        ";
+        let mut news_files = 0usize;
+        let mut news_rows = 0usize;
+        let mut news_bodies = 0usize;
+        for path in walk_archive_json(ARCHIVE_ROOT) {
+            let Ok(content) = std::fs::read_to_string(&path) else { continue };
+            let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else { continue };
+            if let Some(articles) = json.get("articles").and_then(|v| v.as_array()) {
+                for a in articles {
+                    let Some(article_id) = a.get("article_id").and_then(|v| v.as_str()) else { continue };
+                    let Some(published_utc) = a.get("published_utc").and_then(|v| v.as_str()) else { continue };
+                    let title   = a.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                    let summary = a.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+                    let url     = a.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                    let author  = a.get("author").and_then(|v| v.as_str()).unwrap_or("");
+                    let tags    = a.get("tags").and_then(|v| v.as_str()).unwrap_or("");
+                    let hour_utc = a.get("hour_utc").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                    let weekday  = a.get("weekday").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                    let body: Option<String> = a.get("body").and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty()).map(String::from);
+                    if body.is_some() { news_bodies += 1; }
+                    let params = duckdb::params![
+                        article_id, title, published_utc, summary, url, author, tags,
+                        hour_utc, weekday, body
+                    ];
+                    if db.execute(news_upsert, params).is_ok() { news_rows += 1; }
+                }
+            }
+            news_files += 1;
+        }
+
+        let _ = db.execute_batch("COMMIT");
+
+        Ok(ArchiveImportResult {
+            ec_files, ec_rows, news_files, news_rows, news_bodies,
+            message: None,
+        })
+    })
+    .await
+    .map_err(|e| format!("import task join: {}", e))?
+}
+
 // ── End Archives tab backend ─────────────────────────────────────────────────
 
 
@@ -3996,6 +4163,7 @@ fn main() {
             update_ec_gold_events,
             store_ec_gold_events,
             get_xauusd_tf_stats,
+            import_disk_archives,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
