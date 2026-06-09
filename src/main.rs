@@ -2076,8 +2076,12 @@ async fn get_gold_sentiment(state: tauri::State<'_, AppState>) -> Result<serde_j
          forward outlook for the current/next session. JSON only.\n\n{}",
         now.format("%Y-%m-%d"), news,
     );
-    let model = std::env::var("CLAUDE_SENTIMENT_MODEL").unwrap_or_else(|_| "sonnet".to_string());
-    let raw = ai::traders::claude_cli_raw(&model, &ai::traders::gold_sentiment_prompt(), &user).await?;
+    let model = std::env::var("CLAUDE_SENTIMENT_MODEL").unwrap_or_else(|_| "opus".to_string());
+    // Reading a day of news is heavier than the trade-idea calls — give it room
+    // (opus is slower still). 4 min cap.
+    let raw = ai::traders::claude_cli_raw_timeout(
+        &model, &ai::traders::gold_sentiment_prompt(), &user, std::time::Duration::from_secs(240),
+    ).await?;
     let mut val = extract_sentiment_json(&raw)
         .ok_or_else(|| "could not parse sentiment JSON from the model output".to_string())?;
 

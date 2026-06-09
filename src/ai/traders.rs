@@ -249,6 +249,13 @@ pub async fn run_gemini(provider: &str, model: &str, api_key: &str, system: &str
 /// stdin — passing them as args trips Rust's .cmd "unsafe argument" guard on
 /// Windows because of `{}"`.
 pub async fn claude_cli_raw(model: &str, system: &str, user: &str) -> Result<String, String> {
+    claude_cli_raw_timeout(model, system, user, CLAUDE_CLI_TIMEOUT).await
+}
+
+/// Same as [`claude_cli_raw`] but with a caller-chosen timeout — heavier tasks
+/// (e.g. reading a day of news for sentiment) legitimately need longer than the
+/// short single-shot trade-idea calls.
+pub async fn claude_cli_raw_timeout(model: &str, system: &str, user: &str, timeout: Duration) -> Result<String, String> {
     use tokio::io::AsyncWriteExt;
     // Resolve the claude binary. The npm install ships `claude.cmd`; the native
     // installer ships `claude.exe` (e.g. ~/.local/bin/claude.exe). Try each in
@@ -281,7 +288,7 @@ pub async fn claude_cli_raw(model: &str, system: &str, user: &str) -> Result<Str
         let _ = stdin.write_all(prompt.as_bytes()).await;
         let _ = stdin.shutdown().await;
     }
-    let out = match tokio::time::timeout(CLAUDE_CLI_TIMEOUT, child.wait_with_output()).await {
+    let out = match tokio::time::timeout(timeout, child.wait_with_output()).await {
         Ok(Ok(o)) => o,
         Ok(Err(e)) => return Err(format!("claude CLI: {}", e)),
         Err(_) => return Err("timed out".into()),
