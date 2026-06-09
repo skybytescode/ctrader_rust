@@ -249,6 +249,7 @@ html, body, #root {
 }
 
 /* Market Predictor · sentiment panel */
+.sent-loading { margin: 10px 0; max-width: 360px; }
 .sent-panel { margin-top: 10px; font-size: 12.5px; line-height: 1.5; }
 .sent-head { display: flex; align-items: center; gap: 12px; }
 .sent-badge { color: #0b0b0d; font-weight: 700; font-size: 13px; padding: 3px 10px; border-radius: 4px; letter-spacing: .5px; }

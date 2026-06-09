@@ -2458,6 +2458,19 @@ function DailyAnalysisView() {
       .catch(() => {})
   }, [])
 
+  // Elapsed timer + estimated progress while the (slow) opus call runs. There's
+  // no real progress signal from the CLI, so the bar is an honest estimate that
+  // eases toward ~95% over the typical duration; the timer shows the true time.
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!loading) { setElapsed(0); return }
+    const start = Date.now()
+    const id = window.setInterval(() => setElapsed((Date.now() - start) / 1000), 250)
+    return () => window.clearInterval(id)
+  }, [loading])
+  const EXPECTED = 75 // seconds, typical opus read of a day's news
+  const progress = Math.min(96, Math.round((1 - Math.exp(-elapsed / EXPECTED)) * 130))
+
   const run = async () => {
     setLoading(true); setError(null)
     try { setSent(await invoke<GoldSentiment>('get_gold_sentiment')) }
@@ -2469,9 +2482,17 @@ function DailyAnalysisView() {
     <div>
       <div className="archive-actions">
         <button className="btn" onClick={run} disabled={loading}>
-          {loading ? 'Analyzing today’s news…' : "Today’s Sentiment"}
+          {loading ? 'Analyzing…' : "Today’s Sentiment"}
         </button>
       </div>
+      {loading && (
+        <div className="sent-loading">
+          <div className="progress-bar"><div className="progress-fill" style={{ width: `${progress}%` }} /></div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+            Reading today’s news with opus… {elapsed.toFixed(0)}s
+          </div>
+        </div>
+      )}
       {error && <div className="archive-result err">Error: {error}</div>}
       {sent
         ? <GoldSentimentPanel s={sent} />
