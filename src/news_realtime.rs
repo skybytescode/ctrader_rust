@@ -344,75 +344,49 @@ CREATE TABLE IF NOT EXISTS news_historical (
 
 /// Write news to `news_today` (replace all) and upsert into `news_historical`.
 pub fn write_news_to_db(db: &duckdb::Connection, rows: &[NewsRow]) -> Result<usize, String> {
-    // Drop and recreate today table
-    let _ = db.execute("DROP TABLE IF EXISTS news_today", []);
-    db.execute_batch(CREATE_NEWS_TODAY).map_err(|e| format!("create news_today: {}", e))?;
-
-    // Ensure historical table exists
+    // Ensure the historical archive exists FIRST — news_today is rebuilt from it
+    // below — and migrate legacy DBs that predate the body column.
     db.execute_batch(CREATE_NEWS_HISTORICAL).map_err(|e| format!("create news_historical: {}", e))?;
-
-    // Migrate legacy DBs that still have the pre-body schema.
     let _ = db.execute("ALTER TABLE news_historical ADD COLUMN IF NOT EXISTS body VARCHAR", []);
 
-    let insert_today = "INSERT INTO news_today (article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday) VALUES (?,?,?,?,?,?,?,?,?)";
-    let mut inserted = 0usize;
-
-    // Filter to today's articles only for the today table
-    let today_str = Utc::now().format("%Y-%m-%d").to_string();
-
+    // Upsert every fetched article into the historical archive. Explicit column
+    // list so we don't break when the `body` column was added by ALTER TABLE.
+    let upsert = "
+        INSERT INTO news_historical
+            (article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday)
+        VALUES (?,?,?,?,?,?,?,?,?)
+        ON CONFLICT (article_id) DO UPDATE SET
+            title         = EXCLUDED.title,
+            summary       = EXCLUDED.summary,
+            url           = EXCLUDED.url,
+            author        = EXCLUDED.author,
+            tags          = EXCLUDED.tags
+    ";
     for r in rows {
-        let is_today = r.published_utc.starts_with(&today_str);
-
-        if is_today {
-            let params = duckdb::params![
-                r.article_id,
-                r.title,
-                r.published_utc,
-                r.summary,
-                r.url,
-                r.author,
-                r.tags,
-                r.hour_utc as i32,
-                r.weekday as i32,
-            ];
-            match db.execute(insert_today, params) {
-                Ok(_) => inserted += 1,
-                Err(e) => {
-                    if inserted == 0 {
-                        println!("News: insert error (first row): {}", e);
-                    }
-                }
-            }
-        }
-
-        // Upsert into historical (all articles). Explicit column list so we don't
-        // break when a `body` column was added by ALTER TABLE on an existing DB.
-        let upsert = "
-            INSERT INTO news_historical
-                (article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday)
-            VALUES (?,?,?,?,?,?,?,?,?)
-            ON CONFLICT (article_id) DO UPDATE SET
-                title         = EXCLUDED.title,
-                summary       = EXCLUDED.summary,
-                url           = EXCLUDED.url,
-                author        = EXCLUDED.author,
-                tags          = EXCLUDED.tags
-        ";
         let params = duckdb::params![
-            r.article_id,
-            r.title,
-            r.published_utc,
-            r.summary,
-            r.url,
-            r.author,
-            r.tags,
-            r.hour_utc as i32,
-            r.weekday as i32,
+            r.article_id, r.title, r.published_utc, r.summary, r.url,
+            r.author, r.tags, r.hour_utc as i32, r.weekday as i32,
         ];
         let _ = db.execute(upsert, params);
     }
 
-    println!("News: {} today, {} total fetched", inserted, rows.len());
+    // Rebuild news_today from the archive so it always reflects ALL of today's
+    // articles — not just this fetch batch. A steady-state fetch often returns 0
+    // new rows; rebuilding from the batch would wrongly empty the News tab even
+    // though today's articles are safe in news_historical.
+    let _ = db.execute("DROP TABLE IF EXISTS news_today", []);
+    db.execute_batch(CREATE_NEWS_TODAY).map_err(|e| format!("create news_today: {}", e))?;
+    let today_str = Utc::now().format("%Y-%m-%d").to_string();
+    let inserted = db.execute(
+        "INSERT INTO news_today
+            (article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday)
+         SELECT article_id, title, published_utc, summary, url, author, tags, hour_utc, weekday
+         FROM news_historical
+         WHERE published_utc LIKE ? || '%'",
+        duckdb::params![today_str],
+    ).map_err(|e| format!("rebuild news_today: {}", e))?;
+
+    println!("News: {} today (from archive), {} fetched", inserted, rows.len());
     Ok(inserted)
 }
 

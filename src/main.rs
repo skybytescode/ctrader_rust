@@ -5673,7 +5673,7 @@ async fn run_session(
 
                 match news_realtime::fetch_news_since(50, 200, since.as_deref(), None).await {
                     Ok(rows) => {
-                        let total = rows.len();
+                        let fetched = rows.len();
 
                         let db_clone = shared_db.clone();
                         let today_rows = tokio::task::spawn_blocking(move || {
@@ -5689,10 +5689,13 @@ async fn run_session(
                         .await
                         .unwrap_or_default();
 
+                        // Status shows TODAY's article count (what the tab displays),
+                        // with how many were newly fetched this cycle in parentheses.
+                        let today_count = today_rows.len();
                         let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
                         let _ = tx.send(PriceUpdate::NewsStatus(format!(
-                            "{} articles | next: 5m | updated: {}",
-                            total, now_str
+                            "{} articles (+{} new) | next: 5m | updated: {}",
+                            today_count, fetched, now_str
                         ))).await;
                         let _ = tx.send(PriceUpdate::NewsTodayArticles(today_rows)).await;
 
