@@ -29,6 +29,7 @@ pub mod news_realtime;
 pub mod news_sentiment;
 pub mod myfxbook_cal;
 pub mod myfxbook_news;
+pub mod forexfactory;
 pub mod volume_profile;
 pub mod strategy;
 
@@ -72,6 +73,12 @@ pub enum PriceUpdate {
     MfbNewsToday(Vec<myfxbook_news::MfbNewsRow>),
     /// MyFXBook news status message.
     MfbNewsStatus(String),
+    /// ForexFactory calendar today's events.
+    FfCalToday(Vec<forexfactory::FfCalRow>),
+    FfCalStatus(String),
+    /// ForexFactory news items.
+    FfNewsToday(Vec<forexfactory::FfNewsRow>),
+    FfNewsStatus(String),
     /// News capture status (for the button)
     NewsCaptureActive(bool),
     /// Full snapshot of open positions + pending orders (pushed on reconcile and
@@ -1049,6 +1056,10 @@ const MFB_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/myfxbook_ev
 
 /// Per-day archive root for MyFXBook news/analysis/press-release items.
 const MFB_NEWS_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/myfxbook_news_data/all");
+
+/// Per-day archive roots for the ForexFactory calendar + news.
+const FF_CAL_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/forexfactory_calendar_data/all");
+const FF_NEWS_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/forexfactory_news_data/all");
 
 /// Guard so the MyFXBook article-body backfill never overlaps itself (each cycle
 /// fetches up to N full article pages, which can outlast the 5-min tick).
@@ -4201,6 +4212,29 @@ fn main() {
                                 .collect();
                             serde_json::json!({"type":"mfb_news_today","items":arr})
                         }
+                        PriceUpdate::FfCalStatus(s) => serde_json::json!({"type":"ff_cal_status","value":s}),
+                        PriceUpdate::FfCalToday(events) => {
+                            let arr: Vec<serde_json::Value> = events.into_iter()
+                                .map(|(ts, currency, impact, title, country, actual, forecast, previous)| {
+                                    serde_json::json!({
+                                        "ts": ts, "currency": currency, "volatility": impact,
+                                        "name": title, "country": country,
+                                        "actual": actual, "forecast": forecast, "previous": previous,
+                                    })
+                                }).collect();
+                            serde_json::json!({"type":"ff_cal_today","events":arr})
+                        }
+                        PriceUpdate::FfNewsStatus(s) => serde_json::json!({"type":"ff_news_status","value":s}),
+                        PriceUpdate::FfNewsToday(items) => {
+                            let arr: Vec<serde_json::Value> = items.into_iter()
+                                .map(|(id, title, url, source, preview, published_utc)| {
+                                    serde_json::json!({
+                                        "article_id": id, "title": title, "url": url,
+                                        "source": source, "preview": preview, "published_utc": published_utc,
+                                    })
+                                }).collect();
+                            serde_json::json!({"type":"ff_news_today","items":arr})
+                        }
                         PriceUpdate::PositionsSnapshot(v) => {
                             serde_json::json!({"type":"positions","positions":v.get("positions").cloned().unwrap_or(serde_json::json!([])),"orders":v.get("orders").cloned().unwrap_or(serde_json::json!([]))})
                         }
@@ -4614,6 +4648,11 @@ async fn run_session(
     // MyFXBook news/analysis/press-release fetch — staggered after the calendar.
     let mut mfb_news_next_fetch: Option<tokio::time::Instant> =
         Some(tokio::time::Instant::now() + Duration::from_secs(18));
+    // ForexFactory calendar + news — staggered after the MyFXBook fetches.
+    let mut ff_cal_next_fetch: Option<tokio::time::Instant> =
+        Some(tokio::time::Instant::now() + Duration::from_secs(24));
+    let mut ff_news_next_fetch: Option<tokio::time::Instant> =
+        Some(tokio::time::Instant::now() + Duration::from_secs(30));
 
     loop {
         let mut header = [0u8; 4];
@@ -5936,6 +5975,80 @@ async fn run_session(
                         let _ = tx.send(PriceUpdate::MfbNewsStatus(format!("MyFXBook news error: {}", e))).await;
                         mfb_news_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(30));
                         println!("MyFXBook news: fetch failed ({}), retrying in 30s...", e);
+                    }
+                }
+            }
+        }
+
+        // ── ForexFactory calendar periodic fetching ──────────────────────
+        if _auth_state == AuthState::Subscribed {
+            if matches!(ff_cal_next_fetch, Some(t) if tokio::time::Instant::now() >= t) {
+                ff_cal_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(300));
+                match forexfactory::fetch_calendar().await {
+                    Ok(events) => {
+                        let total = events.len();
+                        let days: std::collections::BTreeSet<String> = events.iter()
+                            .filter_map(|e| if e.timestamp_utc.len() >= 10 { Some(e.timestamp_utc[..10].to_string()) } else { None })
+                            .collect();
+                        let db_clone = shared_db.clone();
+                        let today_rows = tokio::task::spawn_blocking(move || {
+                            let _lock = db_clone.lock().unwrap();
+                            match duckdb::Connection::open(DB_PATH) {
+                                Ok(db) => {
+                                    let _ = forexfactory::upsert_cal(&db, &events);
+                                    let _ = forexfactory::write_cal_today(&db);
+                                    for day in &days { let _ = forexfactory::write_cal_archive_day(&db, FF_CAL_ARCHIVE_ROOT, day); }
+                                    forexfactory::read_cal_today(&db)
+                                }
+                                Err(_) => Vec::new(),
+                            }
+                        }).await.unwrap_or_default();
+                        let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
+                        let _ = tx.send(PriceUpdate::FfCalStatus(format!(
+                            "{} events today ({} fetched) | next: 5m | updated: {}", today_rows.len(), total, now_str))).await;
+                        let _ = tx.send(PriceUpdate::FfCalToday(today_rows)).await;
+                    }
+                    Err(e) => {
+                        let _ = tx.send(PriceUpdate::FfCalStatus(format!("ForexFactory calendar error: {}", e))).await;
+                        ff_cal_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(30));
+                        println!("ForexFactory calendar: fetch failed ({})", e);
+                    }
+                }
+            }
+        }
+
+        // ── ForexFactory news periodic fetching ──────────────────────────
+        if _auth_state == AuthState::Subscribed {
+            if matches!(ff_news_next_fetch, Some(t) if tokio::time::Instant::now() >= t) {
+                ff_news_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(300));
+                match forexfactory::fetch_news().await {
+                    Ok(items) => {
+                        let total = items.len();
+                        let days: std::collections::BTreeSet<String> = items.iter()
+                            .filter_map(|i| if i.published_utc.len() >= 10 { Some(i.published_utc[..10].to_string()) } else { None })
+                            .collect();
+                        let db_clone = shared_db.clone();
+                        let today_rows = tokio::task::spawn_blocking(move || {
+                            let _lock = db_clone.lock().unwrap();
+                            match duckdb::Connection::open(DB_PATH) {
+                                Ok(db) => {
+                                    let _ = forexfactory::upsert_news(&db, &items);
+                                    let _ = forexfactory::write_news_today(&db);
+                                    for day in &days { let _ = forexfactory::write_news_archive_day(&db, FF_NEWS_ARCHIVE_ROOT, day); }
+                                    forexfactory::read_news_today(&db)
+                                }
+                                Err(_) => Vec::new(),
+                            }
+                        }).await.unwrap_or_default();
+                        let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
+                        let _ = tx.send(PriceUpdate::FfNewsStatus(format!(
+                            "{} items today ({} fetched) | next: 5m | updated: {}", today_rows.len(), total, now_str))).await;
+                        let _ = tx.send(PriceUpdate::FfNewsToday(today_rows)).await;
+                    }
+                    Err(e) => {
+                        let _ = tx.send(PriceUpdate::FfNewsStatus(format!("ForexFactory news error: {}", e))).await;
+                        ff_news_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(30));
+                        println!("ForexFactory news: fetch failed ({})", e);
                     }
                 }
             }

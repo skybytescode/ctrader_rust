@@ -42,6 +42,28 @@ type MfbNewsItem = {
 }
 type MfbNewsStatusMsg = { type: 'mfb_news_status'; value: string }
 type MfbNewsTodayMsg = { type: 'mfb_news_today'; items: MfbNewsItem[] }
+type FfCalEvent = {
+  ts: string
+  currency: string
+  volatility: number
+  name: string
+  country: string
+  actual: string | null
+  forecast: string | null
+  previous: string | null
+}
+type FfNewsItem = {
+  article_id: string
+  title: string
+  url: string
+  source: string
+  preview: string
+  published_utc: string
+}
+type FfCalStatusMsg = { type: 'ff_cal_status'; value: string }
+type FfCalTodayMsg = { type: 'ff_cal_today'; events: FfCalEvent[] }
+type FfNewsStatusMsg = { type: 'ff_news_status'; value: string }
+type FfNewsTodayMsg = { type: 'ff_news_today'; items: FfNewsItem[] }
 type NewsStatusMsg = { type: 'news_status'; value: string }
 type NewsArticle = {
   article_id: string
@@ -109,11 +131,11 @@ type TradeEventMsg = { type: 'trade_event'; notice: TradeNotice }
 type AutoState = { enabled: boolean; oz: number; status: string }
 type AutoStatusMsg = { type: 'auto_status'; auto: AutoState }
 
-type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTodayMsg | MfbStatusMsg | MfbTodayMsg | MfbNewsStatusMsg | MfbNewsTodayMsg
+type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTodayMsg | MfbStatusMsg | MfbTodayMsg | MfbNewsStatusMsg | MfbNewsTodayMsg | FfCalStatusMsg | FfCalTodayMsg | FfNewsStatusMsg | FfNewsTodayMsg
   | PositionsMsg | TradeEventMsg | AutoStatusMsg
 
 type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error'
-type Tab = 'dashboard' | 'calendar' | 'news' | 'archive' | 'trade-ideas' | 'positions' | 'automate'
+type Tab = 'dashboard' | 'calendar' | 'news' | 'archive' | 'trade-ideas' | 'positions' | 'automate' | 'forexfactory'
 
 // ── Archives tab types (ported from origin/web_gold) ──────────────────────────
 type NewsUpdateResult = {
@@ -434,6 +456,10 @@ function App() {
   const [mfbEvents, setMfbEvents] = useState<MfbEvent[]>([])
   const [mfbNewsStatus, setMfbNewsStatus] = useState('')
   const [mfbNewsItems, setMfbNewsItems] = useState<MfbNewsItem[]>([])
+  const [ffCalStatus, setFfCalStatus] = useState('')
+  const [ffCalEvents, setFfCalEvents] = useState<FfCalEvent[]>([])
+  const [ffNewsStatus, setFfNewsStatus] = useState('')
+  const [ffNewsItems, setFfNewsItems] = useState<FfNewsItem[]>([])
   const [newsStatus, setNewsStatus] = useState('')
   const [newsArticles, setNewsArticles] = useState<NewsArticle[]>([])
   const [openArticle, setOpenArticle] = useState<NewsArticle | null>(null)
@@ -497,6 +523,18 @@ function App() {
               break
             case 'mfb_news_today':
               setMfbNewsItems(msg.items)
+              break
+            case 'ff_cal_status':
+              setFfCalStatus(msg.value)
+              break
+            case 'ff_cal_today':
+              setFfCalEvents(msg.events)
+              break
+            case 'ff_news_status':
+              setFfNewsStatus(msg.value)
+              break
+            case 'ff_news_today':
+              setFfNewsItems(msg.items)
               break
             case 'positions':
               setPositions(msg.positions ?? [])
@@ -636,6 +674,9 @@ function App() {
               <button className={tab === 'archive' ? 'tab active' : 'tab'} onClick={() => setTab('archive')}>
                 Archives
               </button>
+              <button className={tab === 'forexfactory' ? 'tab active' : 'tab'} onClick={() => setTab('forexfactory')}>
+                Forex Factory
+              </button>
               <button className={tab === 'trade-ideas' ? 'tab active' : 'tab'} onClick={() => setTab('trade-ideas')}>
                 Trade Ideas
               </button>
@@ -693,6 +734,18 @@ function App() {
             </div>
           )}
           {tab === 'archive' && <ArchiveView />}
+          {tab === 'forexfactory' && (
+            <div className="calendar-split">
+              <div className="calendar-pane">
+                <h4 className="calendar-pane-title">Forex Factory · News</h4>
+                <FFNewsView items={ffNewsItems} status={ffNewsStatus} />
+              </div>
+              <div className="calendar-pane">
+                <h4 className="calendar-pane-title">Forex Factory · Calendar</h4>
+                <FFCalendarView events={ffCalEvents} status={ffCalStatus} />
+              </div>
+            </div>
+          )}
           {tab === 'trade-ideas' && (
             selectedSymbol === 'EURUSD'
               ? <ComingSoon title="EURUSD Trade Ideas" note="Multi-model EURUSD trade ideas are the next step." />
@@ -2210,6 +2263,66 @@ function MyFXBookNewsView({ items, status }: { items: MfbNewsItem[]; status: str
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// ForexFactory news — flat time-sorted list, each linking to its FF article.
+function FFNewsView({ items, status }: { items: FfNewsItem[]; status: string }) {
+  if (items.length === 0) {
+    return <div className="placeholder">{status || 'Waiting for ForexFactory news…'}</div>
+  }
+  const fmtTime = (iso: string) => {
+    try {
+      const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z')
+      return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    } catch { return iso.slice(11, 16) }
+  }
+  return (
+    <div className="news-list">
+      <div className="news-status">{status}</div>
+      <ul>
+        {items.map((i) => (
+          <li key={i.article_id} className="news-item">
+            <a href={i.url} target="_blank" rel="noreferrer" title={i.preview}>
+              <span className="news-time">{fmtTime(i.published_utc)}</span>
+              {i.source && <span className="news-ago">({i.source})</span>}
+              <span className="news-title">{i.title}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// ForexFactory calendar — same table layout as the FXStreet/MyFXBook views.
+// actual/forecast/previous are raw display strings (e.g. "150K").
+function FFCalendarView({ events, status }: { events: FfCalEvent[]; status: string }) {
+  if (events.length === 0) {
+    return <div className="placeholder">{status || 'Waiting for ForexFactory calendar…'}</div>
+  }
+  return (
+    <div className="ec-list">
+      <div className="ec-status">{status}</div>
+      <table className="ec-table">
+        <thead>
+          <tr><th>Time</th><th>Cur</th><th>Vol</th><th>Event</th><th>Actual</th><th>Fcst</th><th>Prev</th></tr>
+        </thead>
+        <tbody>
+          {events.map((e, i) => (
+            <tr key={i} className={`vol-${Math.min(3, Math.max(0, e.volatility))}`}>
+              <td>{formatTime(e.ts)}</td>
+              <td>{e.currency}</td>
+              <td><span className="vol-dot" /></td>
+              <td className="ec-name" title={`${e.name}${e.country ? ' · ' + e.country : ''}`}>{e.name}</td>
+              <td>{e.actual ?? '—'}</td>
+              <td>{e.forecast ?? '—'}</td>
+              <td>{e.previous ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
