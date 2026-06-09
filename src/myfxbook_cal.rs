@@ -54,18 +54,33 @@ fn norm(s: String) -> Option<String> {
 
 /// Fetch the MyFXBook calendar HTML and parse it into events. Async fetch, then
 /// a synchronous parse (scraper's `Html` is !Send, so it must not cross .await).
+///
+/// MyFXBook is behind Cloudflare, which blocks `reqwest` (rustls) with HTTP 403
+/// based on its TLS fingerprint — but allows curl. So we shell out to curl (same
+/// approach the news scraper uses for Cloudflare-protected pages).
 pub async fn fetch_calendar() -> Result<Vec<MfbEvent>, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
-        .timeout(std::time::Duration::from_secs(20))
-        .build()
-        .map_err(|e| format!("build client: {}", e))?;
-    let resp = client.get(CAL_URL).send().await.map_err(|e| format!("fetch: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+    let html = fetch_html_via_curl(CAL_URL).await?;
+    if html.trim().is_empty() {
+        return Err("empty response (Cloudflare?)".into());
     }
-    let html = resp.text().await.map_err(|e| format!("read body: {}", e))?;
     Ok(parse_calendar(&html))
+}
+
+async fn fetch_html_via_curl(url: &str) -> Result<String, String> {
+    let curl_bin = if cfg!(windows) { "curl.exe" } else { "curl" };
+    let mut cmd = tokio::process::Command::new(curl_bin);
+    cmd.args([
+        "-s", "-L", "--compressed", "--max-time", "25",
+        "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        url,
+    ]);
+    #[cfg(windows)]
+    { cmd.creation_flags(0x08000000); } // CREATE_NO_WINDOW — no console flash
+    let out = cmd.output().await.map_err(|e| format!("curl spawn: {}", e))?;
+    if !out.status.success() {
+        return Err(format!("curl exit {}", out.status));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
 /// Parse the MyFXBook calendar page HTML into events. Pure / synchronous so it's
