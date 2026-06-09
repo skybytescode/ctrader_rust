@@ -463,6 +463,7 @@ function App() {
   const [newsStatus, setNewsStatus] = useState('')
   const [newsArticles, setNewsArticles] = useState<NewsArticle[]>([])
   const [openArticle, setOpenArticle] = useState<NewsArticle | null>(null)
+  const [openFfNews, setOpenFfNews] = useState<FfNewsItem | null>(null)
   const [tab, setTab] = useState<Tab>('dashboard')
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
   const [positions, setPositions] = useState<OpenPosition[]>([])
@@ -738,7 +739,7 @@ function App() {
             <div className="calendar-split">
               <div className="calendar-pane">
                 <h4 className="calendar-pane-title">Forex Factory · News</h4>
-                <FFNewsView items={ffNewsItems} status={ffNewsStatus} />
+                <FFNewsView items={ffNewsItems} status={ffNewsStatus} onOpen={setOpenFfNews} />
               </div>
               <div className="calendar-pane">
                 <h4 className="calendar-pane-title">Forex Factory · Calendar</h4>
@@ -759,6 +760,9 @@ function App() {
 
         {openArticle && (
           <ArticleModal article={openArticle} onClose={() => setOpenArticle(null)} />
+        )}
+        {openFfNews && (
+          <FFNewsModal item={openFfNews} onClose={() => setOpenFfNews(null)} />
         )}
       </main>
     </div>
@@ -2267,8 +2271,8 @@ function MyFXBookNewsView({ items, status }: { items: MfbNewsItem[]; status: str
   )
 }
 
-// ForexFactory news — flat time-sorted list, each linking to its FF article.
-function FFNewsView({ items, status }: { items: FfNewsItem[]; status: string }) {
+// ForexFactory news — flat time-sorted list; clicking an item opens a card.
+function FFNewsView({ items, status, onOpen }: { items: FfNewsItem[]; status: string; onOpen: (i: FfNewsItem) => void }) {
   if (items.length === 0) {
     return <div className="placeholder">{status || 'Waiting for ForexFactory news…'}</div>
   }
@@ -2283,15 +2287,47 @@ function FFNewsView({ items, status }: { items: FfNewsItem[]; status: string }) 
       <div className="news-status">{status}</div>
       <ul>
         {items.map((i) => (
-          <li key={i.article_id} className="news-item">
-            <a href={i.url} target="_blank" rel="noreferrer" title={i.preview}>
-              <span className="news-time">{fmtTime(i.published_utc)}</span>
-              {i.source && <span className="news-ago">({i.source})</span>}
-              <span className="news-title">{i.title}</span>
-            </a>
+          <li key={i.article_id} className="news-item" onClick={() => onOpen(i)} title={i.preview}>
+            <span className="news-time">{fmtTime(i.published_utc)}</span>
+            {i.source && <span className="news-ago">({i.source})</span>}
+            <span className="news-title">{i.title}</span>
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+// Forex Factory news card — same modal styling as the FXStreet ArticleModal.
+// FF aggregates and links out to the original source, so the card shows the
+// preview plus a link to the full article rather than a fetched body.
+function FFNewsModal({ item, onClose }: { item: FfNewsItem; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+  const date = new Date(item.published_utc.endsWith('Z') ? item.published_utc : item.published_utc + 'Z')
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+        <h2 className="modal-title">{item.title}</h2>
+        <div className="modal-meta">
+          <span>{date.toLocaleString()}</span>
+          {item.source && <span> · {item.source}</span>}
+        </div>
+        <div className="modal-body">
+          {item.preview
+            ? item.preview.split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)
+            : <div className="muted">No preview available — open the original for the full article.</div>}
+        </div>
+        {item.url && (
+          <a className="modal-url" href={item.url} target="_blank" rel="noreferrer">
+            Read full article on forexfactory.com ↗
+          </a>
+        )}
+      </div>
     </div>
   )
 }
