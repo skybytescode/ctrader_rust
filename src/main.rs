@@ -27,6 +27,7 @@ pub mod data_retrieval;
 pub mod ec_realtime;
 pub mod news_realtime;
 pub mod news_sentiment;
+pub mod myfxbook_cal;
 pub mod volume_profile;
 pub mod strategy;
 
@@ -62,6 +63,10 @@ pub enum PriceUpdate {
     NewsTodayArticles(Vec<news_realtime::NewsRow>),
     /// News status message
     NewsStatus(String),
+    /// MyFXBook calendar today's events for UI display.
+    MfbTodayRaw(Vec<myfxbook_cal::MfbTodayRow>),
+    /// MyFXBook calendar status message.
+    MfbStatus(String),
     /// News capture status (for the button)
     NewsCaptureActive(bool),
     /// Full snapshot of open positions + pending orders (pushed on reconcile and
@@ -1032,6 +1037,10 @@ async fn get_xauusd_tf_stats(state: tauri::State<'_, AppState>) -> Result<Xauusd
 /// Root directory for the per-day EC events archive. Mirrors `news_data/all/`
 /// in layout: `ec_events_data/all/YYYY-MM/YYYY-MM-DD.json`.
 const EC_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/ec_events_data/all");
+
+/// Per-day archive root for the MyFXBook calendar — same layout as the EC/news
+/// archives: `myfxbook_events_data/all/YYYY-MM/YYYY-MM-DD.json`.
+const MFB_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/myfxbook_events_data/all");
 
 #[derive(serde::Serialize, Clone)]
 struct EcGoldStorageProgress {
@@ -4107,6 +4116,21 @@ fn main() {
                         PriceUpdate::NewsTodayArticles(articles) => {
                             serde_json::json!({"type":"news_today","articles":articles})
                         }
+                        PriceUpdate::MfbStatus(s) => {
+                            serde_json::json!({"type":"mfb_status","value":s})
+                        }
+                        PriceUpdate::MfbTodayRaw(events) => {
+                            let arr: Vec<serde_json::Value> = events.into_iter()
+                                .map(|(ts, currency, importance, name, country, actual, forecast, previous)| {
+                                    serde_json::json!({
+                                        "ts": ts, "currency": currency, "volatility": importance,
+                                        "name": name, "country": country,
+                                        "actual": actual, "forecast": forecast, "previous": previous,
+                                    })
+                                })
+                                .collect();
+                            serde_json::json!({"type":"mfb_today","events":arr})
+                        }
                         PriceUpdate::PositionsSnapshot(v) => {
                             serde_json::json!({"type":"positions","positions":v.get("positions").cloned().unwrap_or(serde_json::json!([])),"orders":v.get("orders").cloned().unwrap_or(serde_json::json!([]))})
                         }
@@ -4512,6 +4536,11 @@ async fn run_session(
     let mut news_capturing = true;
     let mut news_next_fetch: Option<tokio::time::Instant> = None;
     let mut news_today_date: Option<String> = None;
+
+    // MyFXBook calendar: fetch the current week (incl. today) on a schedule,
+    // upsert into the archive table, write per-day JSON, and push to the UI.
+    let mut mfb_next_fetch: Option<tokio::time::Instant> =
+        Some(tokio::time::Instant::now() + Duration::from_secs(12));
 
     loop {
         let mut header = [0u8; 4];
@@ -5729,6 +5758,55 @@ async fn run_session(
                             tokio::time::Instant::now() + Duration::from_secs(15)
                         );
                         println!("News: fetch failed ({}), retrying in 15s...", e);
+                    }
+                }
+            }
+        }
+
+        // ── MyFXBook calendar periodic fetching ──────────────────────────
+        // Fetch the current week (server-rendered HTML), upsert into the archive
+        // table, rebuild today's table, write one per-day JSON file per day in the
+        // fetch, and push today's events to the UI. Mirrors the EC auto pattern.
+        if _auth_state == AuthState::Subscribed {
+            let should_fetch_mfb = matches!(mfb_next_fetch, Some(t) if tokio::time::Instant::now() >= t);
+            if should_fetch_mfb {
+                mfb_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(300));
+                match myfxbook_cal::fetch_calendar().await {
+                    Ok(events) => {
+                        let week = events.len();
+                        let days: std::collections::BTreeSet<String> = events.iter()
+                            .filter_map(|e| if e.timestamp_utc.len() >= 10 {
+                                Some(e.timestamp_utc[..10].to_string())
+                            } else { None })
+                            .collect();
+                        let db_clone = shared_db.clone();
+                        let today_rows = tokio::task::spawn_blocking(move || {
+                            let _lock = db_clone.lock().unwrap();
+                            match duckdb::Connection::open(DB_PATH) {
+                                Ok(db) => {
+                                    let _ = myfxbook_cal::upsert_mfb(&db, &events);
+                                    let _ = myfxbook_cal::write_today_from_archive(&db);
+                                    for day in &days {
+                                        let _ = myfxbook_cal::write_archive_day(&db, MFB_ARCHIVE_ROOT, day);
+                                    }
+                                    myfxbook_cal::read_today(&db)
+                                }
+                                Err(_) => Vec::new(),
+                            }
+                        }).await.unwrap_or_default();
+
+                        let today_count = today_rows.len();
+                        let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
+                        let _ = tx.send(PriceUpdate::MfbStatus(format!(
+                            "{} events today ({} this week) | next: 5m | updated: {}",
+                            today_count, week, now_str
+                        ))).await;
+                        let _ = tx.send(PriceUpdate::MfbTodayRaw(today_rows)).await;
+                    }
+                    Err(e) => {
+                        let _ = tx.send(PriceUpdate::MfbStatus(format!("MyFXBook error: {}", e))).await;
+                        mfb_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(30));
+                        println!("MyFXBook: fetch failed ({}), retrying in 30s...", e);
                     }
                 }
             }

@@ -248,6 +248,16 @@ html, body, #root {
   padding: 40px 0;
 }
 
+/* Calendar tab: two side-by-side panes (FXStreet | MyFXBook) */
+.calendar-split { display: flex; gap: 16px; align-items: flex-start; }
+.calendar-pane { flex: 1 1 0; min-width: 0; }
+.calendar-pane-title {
+  margin: 0 0 6px; padding-bottom: 4px;
+  color: #f4f4f5; font-size: 13px; font-weight: 600;
+  border-bottom: 1px solid #2a2a2e;
+}
+@media (max-width: 900px) { .calendar-split { flex-direction: column; } }
+
 .ec-list, .news-list { font-size: 12px; }
 .ec-status, .news-status {
   font-size: 11px;

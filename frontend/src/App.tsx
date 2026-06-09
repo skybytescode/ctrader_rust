@@ -19,6 +19,18 @@ type EcEvent = {
   surprise: number | null
 }
 type EcTodayMsg = { type: 'ec_today'; events: EcEvent[] }
+type MfbEvent = {
+  ts: string
+  currency: string
+  volatility: number
+  name: string
+  country: string
+  actual: number | null
+  forecast: number | null
+  previous: number | null
+}
+type MfbStatusMsg = { type: 'mfb_status'; value: string }
+type MfbTodayMsg = { type: 'mfb_today'; events: MfbEvent[] }
 type NewsStatusMsg = { type: 'news_status'; value: string }
 type NewsArticle = {
   article_id: string
@@ -86,7 +98,7 @@ type TradeEventMsg = { type: 'trade_event'; notice: TradeNotice }
 type AutoState = { enabled: boolean; oz: number; status: string }
 type AutoStatusMsg = { type: 'auto_status'; auto: AutoState }
 
-type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTodayMsg
+type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTodayMsg | MfbStatusMsg | MfbTodayMsg
   | PositionsMsg | TradeEventMsg | AutoStatusMsg
 
 type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -407,6 +419,8 @@ function App() {
   const [serverStatus, setServerStatus] = useState('')
   const [ecStatus, setEcStatus] = useState('')
   const [ecEvents, setEcEvents] = useState<EcEvent[]>([])
+  const [mfbStatus, setMfbStatus] = useState('')
+  const [mfbEvents, setMfbEvents] = useState<MfbEvent[]>([])
   const [newsStatus, setNewsStatus] = useState('')
   const [newsArticles, setNewsArticles] = useState<NewsArticle[]>([])
   const [openArticle, setOpenArticle] = useState<NewsArticle | null>(null)
@@ -452,6 +466,12 @@ function App() {
               break
             case 'ec_today':
               setEcEvents(msg.events)
+              break
+            case 'mfb_status':
+              setMfbStatus(msg.value)
+              break
+            case 'mfb_today':
+              setMfbEvents(msg.events)
               break
             case 'news_status':
               setNewsStatus(msg.value)
@@ -525,6 +545,7 @@ function App() {
   const ccyFilter = selectedSymbol ? SYMBOL_CCYS[selectedSymbol] : undefined
   const newsRe = selectedSymbol ? SYMBOL_NEWS_RE[selectedSymbol] : undefined
   const shownEc = ccyFilter ? ecEvents.filter((e) => ccyFilter.includes(e.currency)) : ecEvents
+  const shownMfb = ccyFilter ? mfbEvents.filter((e) => ccyFilter.includes(e.currency)) : mfbEvents
   const shownNews = newsRe ? newsArticles.filter((a) => newsRe.test(`${a.tags} ${a.title}`)) : newsArticles
 
   return (
@@ -628,7 +649,18 @@ function App() {
                 ? <ChartView symbol={selectedSymbol} tick={selectedTick} />
                 : <DashboardView tick={tick} />
           )}
-          {tab === 'calendar' && <CalendarView events={shownEc} status={ecStatus} />}
+          {tab === 'calendar' && (
+            <div className="calendar-split">
+              <div className="calendar-pane">
+                <h4 className="calendar-pane-title">FXStreet (live)</h4>
+                <CalendarView events={shownEc} status={ecStatus} />
+              </div>
+              <div className="calendar-pane">
+                <h4 className="calendar-pane-title">MyFXBook (today)</h4>
+                <MyFXBookView events={shownMfb} status={mfbStatus} />
+              </div>
+            </div>
+          )}
           {tab === 'news' && (
             <NewsView articles={shownNews} status={newsStatus} onOpen={setOpenArticle} />
           )}
@@ -2019,6 +2051,46 @@ function CalendarView({ events, status }: { events: EcEvent[]; status: string })
               <td>{e.currency}</td>
               <td><span className="vol-dot" /></td>
               <td className="ec-name" title={e.name}>{e.name}</td>
+              <td>{fmtNum(e.actual)}</td>
+              <td>{fmtNum(e.forecast)}</td>
+              <td>{fmtNum(e.previous)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// MyFXBook calendar (today's events). Same column layout as CalendarView; the
+// event name's tooltip shows the country. Source values are the raw display
+// strings parsed from MyFXBook (numbers when parseable).
+function MyFXBookView({ events, status }: { events: MfbEvent[]; status: string }) {
+  if (events.length === 0) {
+    return <div className="placeholder">{status || 'Waiting for MyFXBook calendar data…'}</div>
+  }
+  return (
+    <div className="ec-list">
+      <div className="ec-status">{status}</div>
+      <table className="ec-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Cur</th>
+            <th>Vol</th>
+            <th>Event</th>
+            <th>Actual</th>
+            <th>Fcst</th>
+            <th>Prev</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((e, i) => (
+            <tr key={i} className={`vol-${Math.min(3, Math.max(0, e.volatility))}`}>
+              <td>{formatTime(e.ts)}</td>
+              <td>{e.currency}</td>
+              <td><span className="vol-dot" /></td>
+              <td className="ec-name" title={`${e.name}${e.country ? ' · ' + e.country : ''}`}>{e.name}</td>
               <td>{fmtNum(e.actual)}</td>
               <td>{fmtNum(e.forecast)}</td>
               <td>{fmtNum(e.previous)}</td>
