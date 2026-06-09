@@ -182,7 +182,9 @@ fn relative_to_utc(s: &str, now: DateTime<Utc>) -> DateTime<Utc> {
 pub fn parse_news(html: &str, now: DateTime<Utc>) -> Vec<FfNewsItem> {
     use scraper::{Html, Selector};
     let doc = Html::parse_document(html);
-    let block_sel = Selector::parse("div.news-block").unwrap();
+    // The /news page has a small featured set (.news-block) plus the full list
+    // (.news-block__item) — match both; dedup by id handles any overlap.
+    let block_sel = Selector::parse("div.news-block__item, div.news-block").unwrap();
     let title_sel = Selector::parse(".news-block__title a, a.news-block__title").unwrap();
     let any_title_a = Selector::parse("a[href^='/news/']").unwrap();
     let src_sel = Selector::parse(".news-block__details a.darklink").unwrap();
