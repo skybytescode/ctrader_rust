@@ -2005,6 +2005,119 @@ async fn get_mfb_news_body(
     }
 }
 
+/// Collect today's (UTC) news from all three sources as a compact text block for
+/// the sentiment agent: "[Source] HH:MM | Title — summary". Bounded per source.
+fn gather_todays_news(db: &duckdb::Connection) -> (String, usize) {
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let hhmm = |ts: &str| if ts.len() >= 16 { ts[11..16].to_string() } else { ts.to_string() };
+    let trunc = |s: &str, n: usize| { let t = s.trim(); if t.chars().count() > n { t.chars().take(n).collect::<String>() + "…" } else { t.to_string() } };
+    let mut lines: Vec<String> = Vec::new();
+
+    if let Ok(mut s) = db.prepare("SELECT published_utc, title, COALESCE(summary,'') FROM news_historical WHERE published_utc LIKE ? || '%' ORDER BY published_utc DESC LIMIT 70") {
+        if let Ok(rows) = s.query_map([&today], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))) {
+            for (ts, title, sum) in rows.flatten() {
+                let s2 = trunc(&sum, 180);
+                lines.push(format!("[FXStreet] {} | {}{}", hhmm(&ts), title, if s2.is_empty() { String::new() } else { format!(" — {}", s2) }));
+            }
+        }
+    }
+    if let Ok(mut s) = db.prepare("SELECT published_utc, category, title, COALESCE(summary,'') FROM myfxbook_news_historical WHERE published_utc LIKE ? || '%' ORDER BY published_utc DESC LIMIT 60") {
+        if let Ok(rows) = s.query_map([&today], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?))) {
+            for (ts, cat, title, sum) in rows.flatten() {
+                let s2 = trunc(&sum, 180);
+                lines.push(format!("[MyFXBook/{}] {} | {}{}", cat, hhmm(&ts), title, if s2.is_empty() { String::new() } else { format!(" — {}", s2) }));
+            }
+        }
+    }
+    if let Ok(mut s) = db.prepare("SELECT published_utc, COALESCE(source,''), title, COALESCE(preview,'') FROM forexfactory_news WHERE published_utc LIKE ? || '%' ORDER BY published_utc DESC LIMIT 60") {
+        if let Ok(rows) = s.query_map([&today], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?))) {
+            for (ts, src, title, prev) in rows.flatten() {
+                let p2 = trunc(&prev, 180);
+                lines.push(format!("[ForexFactory{}] {} | {}{}", if src.is_empty() { String::new() } else { format!("/{}", src) }, hhmm(&ts), title, if p2.is_empty() { String::new() } else { format!(" — {}", p2) }));
+            }
+        }
+    }
+    let count = lines.len();
+    (lines.join("\n"), count)
+}
+
+/// Pull the first balanced JSON object out of the model's raw text.
+fn extract_sentiment_json(raw: &str) -> Option<serde_json::Value> {
+    let t = raw.trim();
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(t) { return Some(v); }
+    let start = t.find('{')?;
+    let end = t.rfind('}')?;
+    if end > start { serde_json::from_str(&t[start..=end]).ok() } else { None }
+}
+
+/// Tauri command behind the Market Predictor "Today's Sentiment" button. Sends
+/// today's news (all 3 sources) to the gold-sentiment agent, parses the JSON,
+/// stamps it, persists it (so the panel survives until the next click), returns it.
+#[tauri::command]
+async fn get_gold_sentiment(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    // 1. Gather today's news.
+    let (news, count) = {
+        let db_mutex = state.db_mutex.clone();
+        tokio::task::spawn_blocking(move || {
+            let _lock = db_mutex.lock().ok()?;
+            let db = duckdb::Connection::open(DB_PATH).ok()?;
+            Some(gather_todays_news(&db))
+        }).await.unwrap_or(None).unwrap_or((String::new(), 0))
+    };
+    if count == 0 {
+        return Err("No news stored for today yet — let the news feeds run first.".into());
+    }
+
+    // 2. Ask the gold-sentiment agent.
+    let now = chrono::Utc::now();
+    let user = format!(
+        "Today is {} (UTC). Below are today's market news items from FXStreet, MyFXBook and ForexFactory. \
+         Decrypt them as a human gold trader would and return the XAUUSD market disposition now plus the \
+         forward outlook for the current/next session. JSON only.\n\n{}",
+        now.format("%Y-%m-%d"), news,
+    );
+    let model = std::env::var("CLAUDE_SENTIMENT_MODEL").unwrap_or_else(|_| "sonnet".to_string());
+    let raw = ai::traders::claude_cli_raw(&model, &ai::traders::gold_sentiment_prompt(), &user).await?;
+    let mut val = extract_sentiment_json(&raw)
+        .ok_or_else(|| "could not parse sentiment JSON from the model output".to_string())?;
+
+    // 3. Stamp with meta.
+    if let Some(obj) = val.as_object_mut() {
+        obj.insert("updated_utc".to_string(), serde_json::json!(now.to_rfc3339()));
+        obj.insert("news_count".to_string(), serde_json::json!(count));
+    }
+
+    // 4. Persist (keeps a history; the panel loads the latest).
+    {
+        let db_mutex = state.db_mutex.clone();
+        let updated = now.to_rfc3339();
+        let payload = val.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(_lock) = db_mutex.lock() {
+                if let Ok(db) = duckdb::Connection::open(DB_PATH) {
+                    let _ = db.execute_batch("CREATE TABLE IF NOT EXISTS gold_sentiment (updated_utc VARCHAR, payload VARCHAR)");
+                    let _ = db.execute("INSERT INTO gold_sentiment VALUES (?, ?)", duckdb::params![updated, payload]);
+                }
+            }
+        }).await;
+    }
+    Ok(val)
+}
+
+/// Load the most recent stored gold sentiment (so the panel is persistent across
+/// restarts / tab switches). Returns null if none has been computed yet.
+#[tauri::command]
+async fn get_last_gold_sentiment(state: tauri::State<'_, AppState>) -> Result<Option<serde_json::Value>, String> {
+    let db_mutex = state.db_mutex.clone();
+    let payload: Option<String> = tokio::task::spawn_blocking(move || {
+        let _lock = db_mutex.lock().ok()?;
+        let db = duckdb::Connection::open(DB_PATH).ok()?;
+        let _ = db.execute_batch("CREATE TABLE IF NOT EXISTS gold_sentiment (updated_utc VARCHAR, payload VARCHAR)");
+        db.query_row("SELECT payload FROM gold_sentiment ORDER BY updated_utc DESC LIMIT 1", [], |r| r.get::<_, String>(0)).ok()
+    }).await.unwrap_or(None);
+    Ok(payload.and_then(|p| serde_json::from_str(&p).ok()))
+}
+
 /// Tauri command: fetch one article's body on demand (when a user opens it in the
 /// modal). Hits the econcal proxy API, parses the HTML field, strips tags, and
 /// updates `news_historical.body` so subsequent loads are free.
@@ -4413,6 +4526,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             fetch_article_body_on_demand,
             get_mfb_news_body,
+            get_gold_sentiment,
+            get_last_gold_sentiment,
             get_trendbars,
             get_gold_trade_ideas_multi,
             get_gold_trade_idea,

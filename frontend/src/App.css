@@ -248,6 +248,32 @@ html, body, #root {
   padding: 40px 0;
 }
 
+/* Market Predictor · sentiment panel */
+.sent-panel { margin-top: 10px; font-size: 12.5px; line-height: 1.5; }
+.sent-head { display: flex; align-items: center; gap: 12px; }
+.sent-badge { color: #0b0b0d; font-weight: 700; font-size: 13px; padding: 3px 10px; border-radius: 4px; letter-spacing: .5px; }
+.sent-intensity { font-size: 22px; font-weight: 700; }
+.sent-conviction { font-size: 11.5px; }
+.sent-gauge { margin: 12px 0 6px; }
+.sent-gauge-track { position: relative; height: 8px; border-radius: 5px;
+  background: linear-gradient(90deg,#f87171 0%, #3a3a3e 50%, #2dd47b 100%); opacity: .75; }
+.sent-gauge-mid { position: absolute; left: 50%; top: -3px; width: 1px; height: 14px; background: #6b6b70; }
+.sent-gauge-marker { position: absolute; top: -4px; width: 12px; height: 16px; border-radius: 3px;
+  transform: translateX(-50%); box-shadow: 0 0 0 2px #0b0b0d; }
+.sent-gauge-labels { display: flex; justify-content: space-between; font-size: 10.5px; color: #888; margin-top: 4px; }
+.sent-headline { font-size: 13.5px; font-weight: 600; color: #f4f4f5; margin: 8px 0 4px; }
+.sent-summary { color: #c9c9cf; margin: 4px 0; }
+.sent-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.sent-chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #26262b; color: #d8a657; border: 1px solid #34343a; }
+.sent-section { margin-top: 12px; }
+.sent-section-title { font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px; color: #9a9aa0; margin-bottom: 4px; }
+.sent-drivers { list-style: none; margin: 0; padding: 0; }
+.sent-drivers li { padding: 2px 0; }
+.sent-lean { display: inline-block; min-width: 46px; font-weight: 700; font-size: 11px; }
+.sent-forward { margin-top: 14px; padding-top: 10px; border-top: 1px solid #26262b; }
+.sent-watch { font-size: 11.5px; margin-top: 4px; }
+.sent-foot { font-size: 11px; margin-top: 12px; padding-top: 8px; border-top: 1px solid #1f1f23; }
+
 /* Calendar tab: two side-by-side panes (FXStreet | MyFXBook) */
 .calendar-split { display: flex; gap: 16px; align-items: flex-start; }
 .calendar-pane { flex: 1 1 0; min-width: 0; }

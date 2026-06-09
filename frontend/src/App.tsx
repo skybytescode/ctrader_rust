@@ -757,7 +757,16 @@ function App() {
               : <TradeIdeasView />
           )}
           {tab === 'market-predictor' && (
-            <ComingSoon title="Market Predictor — XAUUSD" note="Directional gold forecast — coming soon." />
+            <div className="calendar-split">
+              <div className="calendar-pane">
+                <h4 className="calendar-pane-title">Daily Analysis</h4>
+                <DailyAnalysisView />
+              </div>
+              <div className="calendar-pane">
+                <h4 className="calendar-pane-title">Current Week &amp; Next Week</h4>
+                <div className="placeholder">No outlook yet.</div>
+              </div>
+            </div>
           )}
           {tab === 'positions' && <PositionsView positions={positions} orders={orders} tick={tick} auto={auto} />}
           {tab === 'automate' && (
@@ -2412,6 +2421,129 @@ function FFCalendarView({ events, status }: { events: FfCalEvent[]; status: stri
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// ── Market Predictor · Daily Analysis (news sentiment) ───────────────────────
+type GoldSentiment = {
+  disposition: string            // BULLISH | BEARISH | NEUTRAL
+  intensity: number              // -100..100
+  conviction: number             // 0..1
+  headline: string
+  summary: string
+  mood: string[]
+  drivers: { factor: string; lean: string; note: string }[]
+  forward: { lean: string; trajectory: string; base_case: string; watch: string[] }
+  updated_utc: string
+  news_count: number
+}
+
+const dispColor = (d: string) =>
+  d === 'BULLISH' ? '#2dd47b' : d === 'BEARISH' ? '#f87171' : '#cbb26b'
+const leanColor = (l: string) =>
+  l === 'BUY' || l === 'BULLISH' ? '#2dd47b' :
+  l === 'SELL' || l === 'BEARISH' ? '#f87171' :
+  l === 'COILED' ? '#d8a657' : '#9ca3af'
+
+function DailyAnalysisView() {
+  const [sent, setSent] = useState<GoldSentiment | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Load the last stored sentiment so the panel persists until the next click.
+  useEffect(() => {
+    invoke<GoldSentiment | null>('get_last_gold_sentiment')
+      .then((s) => { if (s) setSent(s) })
+      .catch(() => {})
+  }, [])
+
+  const run = async () => {
+    setLoading(true); setError(null)
+    try { setSent(await invoke<GoldSentiment>('get_gold_sentiment')) }
+    catch (e) { setError(String(e)) }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <div>
+      <div className="archive-actions">
+        <button className="btn" onClick={run} disabled={loading}>
+          {loading ? 'Analyzing today’s news…' : "Today’s Sentiment"}
+        </button>
+      </div>
+      {error && <div className="archive-result err">Error: {error}</div>}
+      {sent
+        ? <GoldSentimentPanel s={sent} />
+        : !error && <div className="placeholder">Click “Today’s Sentiment” to read the market from today’s news.</div>}
+    </div>
+  )
+}
+
+function GoldSentimentPanel({ s }: { s: GoldSentiment }) {
+  const pct = Math.max(-100, Math.min(100, s.intensity))
+  const markerLeft = (pct + 100) / 2 // 0..100
+  const updated = (() => {
+    try { return new Date(s.updated_utc).toLocaleString() } catch { return s.updated_utc }
+  })()
+  return (
+    <div className="sent-panel">
+      {/* Headline disposition */}
+      <div className="sent-head">
+        <span className="sent-badge" style={{ background: dispColor(s.disposition) }}>{s.disposition}</span>
+        <span className="sent-intensity" style={{ color: dispColor(s.disposition) }}>
+          {pct > 0 ? '+' : ''}{pct}
+        </span>
+        <span className="sent-conviction muted">conviction {Math.round((s.conviction ?? 0) * 100)}%</span>
+      </div>
+
+      {/* Gauge */}
+      <div className="sent-gauge">
+        <div className="sent-gauge-track">
+          <div className="sent-gauge-mid" />
+          <div className="sent-gauge-marker" style={{ left: `${markerLeft}%`, background: dispColor(s.disposition) }} />
+        </div>
+        <div className="sent-gauge-labels"><span>Bearish</span><span>Neutral</span><span>Bullish</span></div>
+      </div>
+
+      {s.headline && <div className="sent-headline">{s.headline}</div>}
+      {s.summary && <div className="sent-summary">{s.summary}</div>}
+
+      {s.mood?.length > 0 && (
+        <div className="sent-chips">{s.mood.map((m, i) => <span key={i} className="sent-chip">{m}</span>)}</div>
+      )}
+
+      {s.drivers?.length > 0 && (
+        <div className="sent-section">
+          <div className="sent-section-title">Drivers</div>
+          <ul className="sent-drivers">
+            {s.drivers.map((d, i) => (
+              <li key={i}>
+                <span className="sent-lean" style={{ color: leanColor(d.lean) }}>{d.lean}</span>
+                <strong>{d.factor}</strong>{d.note ? <span className="muted"> — {d.note}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {s.forward && (
+        <div className="sent-forward">
+          <div className="sent-section-title">
+            Forward outlook ·{' '}
+            <span style={{ color: leanColor(s.forward.lean) }}>{s.forward.lean}</span>
+            {s.forward.trajectory && <span className="muted"> · {s.forward.trajectory.toLowerCase()}</span>}
+          </div>
+          {s.forward.base_case && <div className="sent-summary">{s.forward.base_case}</div>}
+          {s.forward.watch?.length > 0 && (
+            <div className="sent-watch muted">Watch: {s.forward.watch.join(' · ')}</div>
+          )}
+        </div>
+      )}
+
+      <div className="sent-foot muted">
+        Updated {updated} · {s.news_count} news items
+      </div>
     </div>
   )
 }

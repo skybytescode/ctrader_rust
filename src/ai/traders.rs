@@ -42,6 +42,11 @@ const CLAUDE_VOLUME_SKILL: &str =
 const XRP_5M_SKILL: &str =
     include_str!("../../.claude/skills/xrp-5m/SKILL.md");
 
+/// The gold news-sentiment agent — reads the day's news like a human trader and
+/// returns the crowd's XAUUSD disposition + forward outlook. Market Predictor.
+const GOLD_SENTIMENT_SKILL: &str =
+    include_str!("../../.claude/skills/gold-sentiment/SKILL.md");
+
 /// Strip a leading `---\n … \n---\n` YAML frontmatter block from a skill body.
 fn strip_frontmatter(s: &str) -> String {
     if let Some(rest) = s.strip_prefix("---") {
@@ -70,6 +75,11 @@ pub fn volume_prompt() -> String {
 /// XRP 5m agent's system prompt: the XRP 5-minute skill body (frontmatter removed).
 pub fn xrp_5m_prompt() -> String {
     strip_frontmatter(XRP_5M_SKILL)
+}
+
+/// Gold news-sentiment agent's system prompt (frontmatter removed).
+pub fn gold_sentiment_prompt() -> String {
+    strip_frontmatter(GOLD_SENTIMENT_SKILL)
 }
 
 /// One model's answer, ready to serialize to the frontend popup.
