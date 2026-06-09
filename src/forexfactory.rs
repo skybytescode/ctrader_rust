@@ -55,21 +55,25 @@ fn val_str(v: &serde_json::Value) -> Option<String> {
     if t.is_empty() || t == "&nbsp;" { None } else { Some(t) }
 }
 
-/// Extract every balanced-brace JSON object assigned to
-/// `window.calendarComponentStates[N] = { ... };` and return them as strings.
-fn extract_state_objects(html: &str) -> Vec<String> {
+/// Extract every `days: [ ... ]` array from the
+/// `window.calendarComponentStates[N] = { days: [...] }` assignments.
+///
+/// The wrapping object is a JS literal (the `days` key is UNQUOTED), so it isn't
+/// valid JSON — but the `[...]` array value itself is (all inner keys quoted), so
+/// we bracket-match just the array and parse that.
+fn extract_days_arrays(html: &str) -> Vec<String> {
     let mut out = Vec::new();
     let needle = "calendarComponentStates[";
     let bytes = html.as_bytes();
     let mut search = 0usize;
     while let Some(rel) = html[search..].find(needle) {
         let i = search + rel;
-        // advance to the first '{' after the '=' that follows the index.
         let after = &html[i..];
-        let Some(eq) = after.find('=') else { break };
-        let Some(brace_rel) = after[eq..].find('{') else { search = i + needle.len(); continue };
-        let start = i + eq + brace_rel;
-        // brace-match (skipping braces inside strings).
+        // Locate `days:` within this assignment, then its opening '['.
+        let Some(d) = after.find("days:") else { search = i + needle.len(); continue };
+        let Some(br) = after[d..].find('[') else { search = i + needle.len(); continue };
+        let start = i + d + br;
+        // bracket-match (skipping brackets inside strings).
         let mut depth = 0i32; let mut in_str = false; let mut esc = false;
         let mut end = None;
         for j in start..bytes.len() {
@@ -81,8 +85,8 @@ fn extract_state_objects(html: &str) -> Vec<String> {
             } else {
                 match c {
                     b'"' => in_str = true,
-                    b'{' => depth += 1,
-                    b'}' => { depth -= 1; if depth == 0 { end = Some(j); break; } }
+                    b'[' => depth += 1,
+                    b']' => { depth -= 1; if depth == 0 { end = Some(j); break; } }
                     _ => {}
                 }
             }
@@ -99,12 +103,8 @@ fn extract_state_objects(html: &str) -> Vec<String> {
 pub fn parse_calendar(html: &str) -> Vec<FfCalEvent> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for obj in extract_state_objects(html) {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&obj) else { continue };
-        // days may live at top-level "days" or the object may itself be the day list.
-        let days = v.get("days").and_then(|d| d.as_array()).cloned()
-            .or_else(|| v.as_array().cloned())
-            .unwrap_or_default();
+    for arr in extract_days_arrays(html) {
+        let Ok(days) = serde_json::from_str::<Vec<serde_json::Value>>(&arr) else { continue };
         for day in &days {
             let Some(events) = day.get("events").and_then(|e| e.as_array()) else { continue };
             for ev in events {
@@ -388,7 +388,9 @@ mod tests {
 
     #[test]
     fn calendar_json_parses() {
-        let html = r#"<script>window.calendarComponentStates[1] = {"days":[{"date":"x","events":[
+        // Real FF format: the `days` key is UNQUOTED (JS literal); inner keys quoted.
+        let html = r#"<script>window.calendarComponentStates[1] = {
+            days: [{"date":"x","dateline":1780779600,"events":[
             {"id":12345,"name":"Non-Farm Employment Change","country":"US","currency":"USD",
              "impactName":"high","impactTitle":"High Impact Expected","timeLabel":"8:30am",
              "dateline":1780823700,"actual":"150K","forecast":"160K","previous":"140K"}]}]};</script>"#;
