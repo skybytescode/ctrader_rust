@@ -135,7 +135,7 @@ type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTod
   | PositionsMsg | TradeEventMsg | AutoStatusMsg
 
 type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error'
-type Tab = 'dashboard' | 'calendar' | 'news' | 'archive' | 'trade-ideas' | 'positions' | 'automate' | 'forexfactory'
+type Tab = 'dashboard' | 'calendar' | 'news' | 'archive' | 'trade-ideas' | 'positions' | 'automate' | 'forexfactory' | 'market-predictor'
 
 // ── Archives tab types (ported from origin/web_gold) ──────────────────────────
 type NewsUpdateResult = {
@@ -679,6 +679,9 @@ function App() {
               <button className={tab === 'forexfactory' ? 'tab active' : 'tab'} onClick={() => setTab('forexfactory')}>
                 Forex Factory
               </button>
+              <button className={tab === 'market-predictor' ? 'tab active' : 'tab'} onClick={() => setTab('market-predictor')}>
+                Market Predictor
+              </button>
               <button className={tab === 'trade-ideas' ? 'tab active' : 'tab'} onClick={() => setTab('trade-ideas')}>
                 Trade Ideas
               </button>
@@ -752,6 +755,9 @@ function App() {
             selectedSymbol === 'EURUSD'
               ? <ComingSoon title="EURUSD Trade Ideas" note="Multi-model EURUSD trade ideas are the next step." />
               : <TradeIdeasView />
+          )}
+          {tab === 'market-predictor' && (
+            <ComingSoon title="Market Predictor — XAUUSD" note="Directional gold forecast — coming soon." />
           )}
           {tab === 'positions' && <PositionsView positions={positions} orders={orders} tick={tick} auto={auto} />}
           {tab === 'automate' && (
