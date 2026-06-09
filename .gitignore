@@ -53,5 +53,8 @@ ec_events_data/
 # Generated MyFXBook calendar archive (per-day JSON, written live)
 myfxbook_events_data/
 
+# Generated MyFXBook news archive (per-day JSON, written live)
+myfxbook_news_data/
+
 # Backtest research data (regenerable via `cargo run --bin backtest_orb -- download`)
 backtest_data/

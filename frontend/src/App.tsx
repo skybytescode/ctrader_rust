@@ -31,6 +31,17 @@ type MfbEvent = {
 }
 type MfbStatusMsg = { type: 'mfb_status'; value: string }
 type MfbTodayMsg = { type: 'mfb_today'; events: MfbEvent[] }
+type MfbNewsItem = {
+  article_id: string
+  category: string
+  title: string
+  url: string
+  summary: string
+  source: string
+  published_utc: string
+}
+type MfbNewsStatusMsg = { type: 'mfb_news_status'; value: string }
+type MfbNewsTodayMsg = { type: 'mfb_news_today'; items: MfbNewsItem[] }
 type NewsStatusMsg = { type: 'news_status'; value: string }
 type NewsArticle = {
   article_id: string
@@ -98,7 +109,7 @@ type TradeEventMsg = { type: 'trade_event'; notice: TradeNotice }
 type AutoState = { enabled: boolean; oz: number; status: string }
 type AutoStatusMsg = { type: 'auto_status'; auto: AutoState }
 
-type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTodayMsg | MfbStatusMsg | MfbTodayMsg
+type Msg = Tick | StatusMsg | EcStatusMsg | EcTodayMsg | NewsStatusMsg | NewsTodayMsg | MfbStatusMsg | MfbTodayMsg | MfbNewsStatusMsg | MfbNewsTodayMsg
   | PositionsMsg | TradeEventMsg | AutoStatusMsg
 
 type ConnState = 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -421,6 +432,8 @@ function App() {
   const [ecEvents, setEcEvents] = useState<EcEvent[]>([])
   const [mfbStatus, setMfbStatus] = useState('')
   const [mfbEvents, setMfbEvents] = useState<MfbEvent[]>([])
+  const [mfbNewsStatus, setMfbNewsStatus] = useState('')
+  const [mfbNewsItems, setMfbNewsItems] = useState<MfbNewsItem[]>([])
   const [newsStatus, setNewsStatus] = useState('')
   const [newsArticles, setNewsArticles] = useState<NewsArticle[]>([])
   const [openArticle, setOpenArticle] = useState<NewsArticle | null>(null)
@@ -478,6 +491,12 @@ function App() {
               break
             case 'news_today':
               setNewsArticles(msg.articles)
+              break
+            case 'mfb_news_status':
+              setMfbNewsStatus(msg.value)
+              break
+            case 'mfb_news_today':
+              setMfbNewsItems(msg.items)
               break
             case 'positions':
               setPositions(msg.positions ?? [])
@@ -662,7 +681,16 @@ function App() {
             </div>
           )}
           {tab === 'news' && (
-            <NewsView articles={shownNews} status={newsStatus} onOpen={setOpenArticle} />
+            <div className="calendar-split">
+              <div className="calendar-pane">
+                <h4 className="calendar-pane-title">FXStreet (live)</h4>
+                <NewsView articles={shownNews} status={newsStatus} onOpen={setOpenArticle} />
+              </div>
+              <div className="calendar-pane">
+                <h4 className="calendar-pane-title">MyFXBook</h4>
+                <MyFXBookNewsView items={mfbNewsItems} status={mfbNewsStatus} />
+              </div>
+            </div>
           )}
           {tab === 'archive' && <ArchiveView />}
           {tab === 'trade-ideas' && (
@@ -2138,6 +2166,50 @@ function NewsView({
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+// MyFXBook news, grouped into the three categories (News / Analysis / Press
+// Release). Each item links to its MyFXBook article and shows source + time.
+function MyFXBookNewsView({ items, status }: { items: MfbNewsItem[]; status: string }) {
+  if (items.length === 0) {
+    return <div className="placeholder">{status || 'Waiting for MyFXBook news…'}</div>
+  }
+  const fmtTime = (iso: string) => {
+    try {
+      const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z')
+      return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    } catch { return iso.slice(11, 16) }
+  }
+  const SECTIONS: { key: string; label: string }[] = [
+    { key: 'news', label: 'News' },
+    { key: 'analysis', label: 'Analysis' },
+    { key: 'press-release', label: 'Press Release' },
+  ]
+  return (
+    <div className="news-list">
+      <div className="news-status">{status}</div>
+      {SECTIONS.map(({ key, label }) => {
+        const group = items.filter((i) => i.category === key)
+        if (group.length === 0) return null
+        return (
+          <div key={key}>
+            <div className="news-header">--- {label.toUpperCase()} ({group.length}) ---</div>
+            <ul>
+              {group.map((i) => (
+                <li key={i.article_id} className="news-item">
+                  <a href={i.url} target="_blank" rel="noreferrer" title={i.summary}>
+                    <span className="news-time">{fmtTime(i.published_utc)}</span>
+                    {i.source && <span className="news-ago">({i.source})</span>}
+                    <span className="news-title">{i.title}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })}
     </div>
   )
 }

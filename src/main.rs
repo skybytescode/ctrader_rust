@@ -28,6 +28,7 @@ pub mod ec_realtime;
 pub mod news_realtime;
 pub mod news_sentiment;
 pub mod myfxbook_cal;
+pub mod myfxbook_news;
 pub mod volume_profile;
 pub mod strategy;
 
@@ -67,6 +68,10 @@ pub enum PriceUpdate {
     MfbTodayRaw(Vec<myfxbook_cal::MfbTodayRow>),
     /// MyFXBook calendar status message.
     MfbStatus(String),
+    /// MyFXBook news/analysis/press-release items for UI display.
+    MfbNewsToday(Vec<myfxbook_news::MfbNewsRow>),
+    /// MyFXBook news status message.
+    MfbNewsStatus(String),
     /// News capture status (for the button)
     NewsCaptureActive(bool),
     /// Full snapshot of open positions + pending orders (pushed on reconcile and
@@ -1041,6 +1046,9 @@ const EC_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/ec_events_da
 /// Per-day archive root for the MyFXBook calendar — same layout as the EC/news
 /// archives: `myfxbook_events_data/all/YYYY-MM/YYYY-MM-DD.json`.
 const MFB_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/myfxbook_events_data/all");
+
+/// Per-day archive root for MyFXBook news/analysis/press-release items.
+const MFB_NEWS_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/myfxbook_news_data/all");
 
 #[derive(serde::Serialize, Clone)]
 struct EcGoldStorageProgress {
@@ -4131,6 +4139,21 @@ fn main() {
                                 .collect();
                             serde_json::json!({"type":"mfb_today","events":arr})
                         }
+                        PriceUpdate::MfbNewsStatus(s) => {
+                            serde_json::json!({"type":"mfb_news_status","value":s})
+                        }
+                        PriceUpdate::MfbNewsToday(items) => {
+                            let arr: Vec<serde_json::Value> = items.into_iter()
+                                .map(|(id, category, title, url, summary, source, published_utc)| {
+                                    serde_json::json!({
+                                        "article_id": id, "category": category, "title": title,
+                                        "url": url, "summary": summary, "source": source,
+                                        "published_utc": published_utc,
+                                    })
+                                })
+                                .collect();
+                            serde_json::json!({"type":"mfb_news_today","items":arr})
+                        }
                         PriceUpdate::PositionsSnapshot(v) => {
                             serde_json::json!({"type":"positions","positions":v.get("positions").cloned().unwrap_or(serde_json::json!([])),"orders":v.get("orders").cloned().unwrap_or(serde_json::json!([]))})
                         }
@@ -4541,6 +4564,9 @@ async fn run_session(
     // upsert into the archive table, write per-day JSON, and push to the UI.
     let mut mfb_next_fetch: Option<tokio::time::Instant> =
         Some(tokio::time::Instant::now() + Duration::from_secs(12));
+    // MyFXBook news/analysis/press-release fetch — staggered after the calendar.
+    let mut mfb_news_next_fetch: Option<tokio::time::Instant> =
+        Some(tokio::time::Instant::now() + Duration::from_secs(18));
 
     loop {
         let mut header = [0u8; 4];
@@ -5807,6 +5833,51 @@ async fn run_session(
                         let _ = tx.send(PriceUpdate::MfbStatus(format!("MyFXBook error: {}", e))).await;
                         mfb_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(30));
                         println!("MyFXBook: fetch failed ({}), retrying in 30s...", e);
+                    }
+                }
+            }
+        }
+
+        // ── MyFXBook news/analysis/press-release periodic fetching ───────
+        if _auth_state == AuthState::Subscribed {
+            let should_fetch = matches!(mfb_news_next_fetch, Some(t) if tokio::time::Instant::now() >= t);
+            if should_fetch {
+                mfb_news_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(300));
+                match myfxbook_news::fetch_all().await {
+                    Ok(items) => {
+                        let total = items.len();
+                        let days: std::collections::BTreeSet<String> = items.iter()
+                            .filter_map(|i| if i.published_utc.len() >= 10 {
+                                Some(i.published_utc[..10].to_string())
+                            } else { None })
+                            .collect();
+                        let db_clone = shared_db.clone();
+                        let today_rows = tokio::task::spawn_blocking(move || {
+                            let _lock = db_clone.lock().unwrap();
+                            match duckdb::Connection::open(DB_PATH) {
+                                Ok(db) => {
+                                    let _ = myfxbook_news::upsert(&db, &items);
+                                    let _ = myfxbook_news::write_today_from_archive(&db);
+                                    for day in &days {
+                                        let _ = myfxbook_news::write_archive_day(&db, MFB_NEWS_ARCHIVE_ROOT, day);
+                                    }
+                                    myfxbook_news::read_today(&db)
+                                }
+                                Err(_) => Vec::new(),
+                            }
+                        }).await.unwrap_or_default();
+
+                        let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
+                        let _ = tx.send(PriceUpdate::MfbNewsStatus(format!(
+                            "{} items today ({} fetched) | next: 5m | updated: {}",
+                            today_rows.len(), total, now_str
+                        ))).await;
+                        let _ = tx.send(PriceUpdate::MfbNewsToday(today_rows)).await;
+                    }
+                    Err(e) => {
+                        let _ = tx.send(PriceUpdate::MfbNewsStatus(format!("MyFXBook news error: {}", e))).await;
+                        mfb_news_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(30));
+                        println!("MyFXBook news: fetch failed ({}), retrying in 30s...", e);
                     }
                 }
             }

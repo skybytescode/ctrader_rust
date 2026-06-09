@@ -66,7 +66,9 @@ pub async fn fetch_calendar() -> Result<Vec<MfbEvent>, String> {
     Ok(parse_calendar(&html))
 }
 
-async fn fetch_html_via_curl(url: &str) -> Result<String, String> {
+/// Fetch a MyFXBook page via curl (shared by the calendar + news modules) —
+/// curl's TLS fingerprint clears Cloudflare where reqwest/rustls gets 403'd.
+pub async fn fetch_html_via_curl(url: &str) -> Result<String, String> {
     let curl_bin = if cfg!(windows) { "curl.exe" } else { "curl" };
     let mut cmd = tokio::process::Command::new(curl_bin);
     cmd.args([
