@@ -464,6 +464,7 @@ function App() {
   const [newsArticles, setNewsArticles] = useState<NewsArticle[]>([])
   const [openArticle, setOpenArticle] = useState<NewsArticle | null>(null)
   const [openFfNews, setOpenFfNews] = useState<FfNewsItem | null>(null)
+  const [openMfbNews, setOpenMfbNews] = useState<MfbNewsItem | null>(null)
   const [tab, setTab] = useState<Tab>('dashboard')
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
   const [positions, setPositions] = useState<OpenPosition[]>([])
@@ -730,7 +731,7 @@ function App() {
               </div>
               <div className="calendar-pane">
                 <h4 className="calendar-pane-title">MyFXBook</h4>
-                <MyFXBookNewsView items={mfbNewsItems} status={mfbNewsStatus} />
+                <MyFXBookNewsView items={mfbNewsItems} status={mfbNewsStatus} onOpen={setOpenMfbNews} />
               </div>
             </div>
           )}
@@ -763,6 +764,9 @@ function App() {
         )}
         {openFfNews && (
           <FFNewsModal item={openFfNews} onClose={() => setOpenFfNews(null)} />
+        )}
+        {openMfbNews && (
+          <MyFXBookNewsModal item={openMfbNews} onClose={() => setOpenMfbNews(null)} />
         )}
       </main>
     </div>
@@ -2229,7 +2233,7 @@ function NewsView({
 
 // MyFXBook news, grouped into the three categories (News / Analysis / Press
 // Release). Each item links to its MyFXBook article and shows source + time.
-function MyFXBookNewsView({ items, status }: { items: MfbNewsItem[]; status: string }) {
+function MyFXBookNewsView({ items, status, onOpen }: { items: MfbNewsItem[]; status: string; onOpen: (i: MfbNewsItem) => void }) {
   if (items.length === 0) {
     return <div className="placeholder">{status || 'Waiting for MyFXBook news…'}</div>
   }
@@ -2255,18 +2259,61 @@ function MyFXBookNewsView({ items, status }: { items: MfbNewsItem[]; status: str
             <div className="news-header">--- {label.toUpperCase()} ({group.length}) ---</div>
             <ul>
               {group.map((i) => (
-                <li key={i.article_id} className="news-item">
-                  <a href={i.url} target="_blank" rel="noreferrer" title={i.summary}>
-                    <span className="news-time">{fmtTime(i.published_utc)}</span>
-                    {i.source && <span className="news-ago">({i.source})</span>}
-                    <span className="news-title">{i.title}</span>
-                  </a>
+                <li key={i.article_id} className="news-item" onClick={() => onOpen(i)} title={i.summary}>
+                  <span className="news-time">{fmtTime(i.published_utc)}</span>
+                  {i.source && <span className="news-ago">({i.source})</span>}
+                  <span className="news-title">{i.title}</span>
                 </li>
               ))}
             </ul>
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// MyFXBook news card — fetches the full article body on demand (already
+// backfilled into the DB; the command fills it in if missing). Same modal
+// styling as the FXStreet ArticleModal.
+function MyFXBookNewsModal({ item, onClose }: { item: MfbNewsItem; onClose: () => void }) {
+  const [body, setBody] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    setLoading(true); setBody(null)
+    invoke<string | null>('get_mfb_news_body', { articleId: item.article_id, url: item.url })
+      .then((b) => setBody(b ?? ''))
+      .catch(() => setBody(''))
+      .finally(() => setLoading(false))
+  }, [item.article_id, item.url])
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+  const date = new Date(item.published_utc.endsWith('Z') ? item.published_utc : item.published_utc + 'Z')
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+        <h2 className="modal-title">{item.title}</h2>
+        <div className="modal-meta">
+          <span>{date.toLocaleString()}</span>
+          {item.source && <span> · {item.source}</span>}
+          {item.category && <span className="modal-tags"> · {item.category}</span>}
+        </div>
+        {item.summary && <div className="modal-summary">{item.summary}</div>}
+        <div className="modal-body">
+          {loading && <div className="muted">Fetching full article…</div>}
+          {!loading && body === '' && <div className="muted">No body available — open the original for the full article.</div>}
+          {body && body.length > 0 && body.split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}
+        </div>
+        {item.url && (
+          <a className="modal-url" href={item.url} target="_blank" rel="noreferrer">
+            Read full article on myfxbook.com ↗
+          </a>
+        )}
+      </div>
     </div>
   )
 }

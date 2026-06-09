@@ -1962,6 +1962,49 @@ struct ArticleBodyResult {
     message: Option<String>,
 }
 
+/// Tauri command: return a MyFXBook article's full body for the news card.
+/// Uses the already-backfilled `myfxbook_news_historical.body` if present;
+/// otherwise fetches it on demand from the article URL, stores it, and returns it.
+#[tauri::command]
+async fn get_mfb_news_body(
+    article_id: String,
+    url: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    // 1. Already stored?
+    let existing: Option<String> = {
+        let db_mutex = state.db_mutex.clone();
+        let aid = article_id.clone();
+        tokio::task::spawn_blocking(move || {
+            let _lock = db_mutex.lock().ok()?;
+            let db = duckdb::Connection::open(DB_PATH).ok()?;
+            db.query_row(
+                "SELECT body FROM myfxbook_news_historical WHERE article_id = ?",
+                duckdb::params![aid], |r| r.get::<_, Option<String>>(0),
+            ).ok().flatten()
+        }).await.unwrap_or(None)
+    };
+    if let Some(b) = existing { if !b.is_empty() { return Ok(Some(b)); } }
+
+    // 2. Fetch on demand, store, return.
+    if url.is_empty() { return Ok(None); }
+    match myfxbook_news::fetch_body(&url).await {
+        Some(body) => {
+            let db_mutex = state.db_mutex.clone();
+            let (aid, b) = (article_id.clone(), body.clone());
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Ok(_lock) = db_mutex.lock() {
+                    if let Ok(db) = duckdb::Connection::open(DB_PATH) {
+                        myfxbook_news::set_body(&db, &aid, &b);
+                    }
+                }
+            }).await;
+            Ok(Some(body))
+        }
+        None => Ok(None),
+    }
+}
+
 /// Tauri command: fetch one article's body on demand (when a user opens it in the
 /// modal). Hits the econcal proxy API, parses the HTML field, strips tags, and
 /// updates `news_historical.body` so subsequent loads are free.
@@ -4369,6 +4412,7 @@ fn main() {
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             fetch_article_body_on_demand,
+            get_mfb_news_body,
             get_trendbars,
             get_gold_trade_ideas_multi,
             get_gold_trade_idea,
