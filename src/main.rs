@@ -468,6 +468,14 @@ async fn update_news_archive(state: tauri::State<'_, AppState>) -> Result<NewsUp
 /// still-running cycle — body backfill is rate-limited and can outlast 5 min.
 static NEWS_ARCHIVE_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+// Guards so the external (MyFXBook / ForexFactory) web fetches — which run OFF
+// the cTrader session loop so a slow/hung fetch never stalls tick processing —
+// never overlap themselves.
+static MFB_CAL_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static MFB_NEWS_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static FF_CAL_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static FF_NEWS_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The News_Updates cycle as a reusable function. Driven both by the manual
 /// button (`update_news_archive`) and automatically by the 5-min news loop:
 /// find the archive cutoff, fetch newer FXStreet articles, upsert into
@@ -5875,124 +5883,101 @@ async fn run_session(
             }
         }
 
-        // ── MyFXBook calendar periodic fetching ──────────────────────────
-        // Fetch the current week (server-rendered HTML), upsert into the archive
-        // table, rebuild today's table, write one per-day JSON file per day in the
-        // fetch, and push today's events to the UI. Mirrors the EC auto pattern.
-        if _auth_state == AuthState::Subscribed {
-            let should_fetch_mfb = matches!(mfb_next_fetch, Some(t) if tokio::time::Instant::now() >= t);
-            if should_fetch_mfb {
-                mfb_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(300));
+        // ── External web fetches (MyFXBook / ForexFactory) ───────────────
+        // These hit external (Cloudflare-fronted) sites via curl, which can be
+        // slow or hang — so unlike the local EC/news fetches they run in SPAWNED
+        // tasks, NEVER inline, so they can't stall cTrader tick processing. Each
+        // is guarded by an AtomicBool so a slow run never overlaps the next.
+        use std::sync::atomic::Ordering as ExtOrd;
+        let now_inst = tokio::time::Instant::now();
+
+        if _auth_state == AuthState::Subscribed
+            && matches!(mfb_next_fetch, Some(t) if now_inst >= t)
+            && !MFB_CAL_BUSY.swap(true, ExtOrd::AcqRel)
+        {
+            mfb_next_fetch = Some(now_inst + Duration::from_secs(300));
+            let (tx, db) = (tx.clone(), shared_db.clone());
+            tokio::spawn(async move {
                 match myfxbook_cal::fetch_calendar().await {
                     Ok(events) => {
                         let week = events.len();
                         let days: std::collections::BTreeSet<String> = events.iter()
-                            .filter_map(|e| if e.timestamp_utc.len() >= 10 {
-                                Some(e.timestamp_utc[..10].to_string())
-                            } else { None })
-                            .collect();
-                        let db_clone = shared_db.clone();
+                            .filter_map(|e| if e.timestamp_utc.len() >= 10 { Some(e.timestamp_utc[..10].to_string()) } else { None }).collect();
                         let today_rows = tokio::task::spawn_blocking(move || {
-                            let _lock = db_clone.lock().unwrap();
+                            let _lock = db.lock().unwrap();
                             match duckdb::Connection::open(DB_PATH) {
                                 Ok(db) => {
                                     let _ = myfxbook_cal::upsert_mfb(&db, &events);
                                     let _ = myfxbook_cal::write_today_from_archive(&db);
-                                    for day in &days {
-                                        let _ = myfxbook_cal::write_archive_day(&db, MFB_ARCHIVE_ROOT, day);
-                                    }
+                                    for day in &days { let _ = myfxbook_cal::write_archive_day(&db, MFB_ARCHIVE_ROOT, day); }
                                     myfxbook_cal::read_today(&db)
                                 }
                                 Err(_) => Vec::new(),
                             }
                         }).await.unwrap_or_default();
-
-                        let today_count = today_rows.len();
                         let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
-                        let _ = tx.send(PriceUpdate::MfbStatus(format!(
-                            "{} events today ({} this week) | next: 5m | updated: {}",
-                            today_count, week, now_str
-                        ))).await;
+                        let _ = tx.send(PriceUpdate::MfbStatus(format!("{} events today ({} this week) | next: 5m | updated: {}", today_rows.len(), week, now_str))).await;
                         let _ = tx.send(PriceUpdate::MfbTodayRaw(today_rows)).await;
                     }
-                    Err(e) => {
-                        let _ = tx.send(PriceUpdate::MfbStatus(format!("MyFXBook error: {}", e))).await;
-                        mfb_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(30));
-                        println!("MyFXBook: fetch failed ({}), retrying in 30s...", e);
-                    }
+                    Err(e) => { let _ = tx.send(PriceUpdate::MfbStatus(format!("MyFXBook error: {}", e))).await; }
                 }
-            }
+                MFB_CAL_BUSY.store(false, ExtOrd::Release);
+            });
         }
 
-        // ── MyFXBook news/analysis/press-release periodic fetching ───────
-        if _auth_state == AuthState::Subscribed {
-            let should_fetch = matches!(mfb_news_next_fetch, Some(t) if tokio::time::Instant::now() >= t);
-            if should_fetch {
-                mfb_news_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(300));
+        if _auth_state == AuthState::Subscribed
+            && matches!(mfb_news_next_fetch, Some(t) if now_inst >= t)
+            && !MFB_NEWS_BUSY.swap(true, ExtOrd::AcqRel)
+        {
+            mfb_news_next_fetch = Some(now_inst + Duration::from_secs(300));
+            let (tx, db) = (tx.clone(), shared_db.clone());
+            tokio::spawn(async move {
                 match myfxbook_news::fetch_all().await {
                     Ok(items) => {
                         let total = items.len();
                         let days: std::collections::BTreeSet<String> = items.iter()
-                            .filter_map(|i| if i.published_utc.len() >= 10 {
-                                Some(i.published_utc[..10].to_string())
-                            } else { None })
-                            .collect();
-                        let db_clone = shared_db.clone();
+                            .filter_map(|i| if i.published_utc.len() >= 10 { Some(i.published_utc[..10].to_string()) } else { None }).collect();
+                        let db2 = db.clone();
                         let today_rows = tokio::task::spawn_blocking(move || {
-                            let _lock = db_clone.lock().unwrap();
+                            let _lock = db2.lock().unwrap();
                             match duckdb::Connection::open(DB_PATH) {
                                 Ok(db) => {
                                     let _ = myfxbook_news::upsert(&db, &items);
                                     let _ = myfxbook_news::write_today_from_archive(&db);
-                                    for day in &days {
-                                        let _ = myfxbook_news::write_archive_day(&db, MFB_NEWS_ARCHIVE_ROOT, day);
-                                    }
+                                    for day in &days { let _ = myfxbook_news::write_archive_day(&db, MFB_NEWS_ARCHIVE_ROOT, day); }
                                     myfxbook_news::read_today(&db)
                                 }
                                 Err(_) => Vec::new(),
                             }
                         }).await.unwrap_or_default();
-
                         let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
-                        let _ = tx.send(PriceUpdate::MfbNewsStatus(format!(
-                            "{} items today ({} fetched) | next: 5m | updated: {}",
-                            today_rows.len(), total, now_str
-                        ))).await;
+                        let _ = tx.send(PriceUpdate::MfbNewsStatus(format!("{} items today ({} fetched) | next: 5m | updated: {}", today_rows.len(), total, now_str))).await;
                         let _ = tx.send(PriceUpdate::MfbNewsToday(today_rows)).await;
-
-                        // Backfill full article bodies off-loop (each is a page
-                        // fetch). Guarded so a slow run never overlaps the next.
-                        use std::sync::atomic::Ordering as MfbBodyOrd;
-                        if !MFB_NEWS_BODY_BUSY.swap(true, MfbBodyOrd::AcqRel) {
-                            let db = shared_db.clone();
-                            tokio::spawn(async move {
-                                run_mfb_news_body_backfill(db).await;
-                                MFB_NEWS_BODY_BUSY.store(false, MfbBodyOrd::Release);
-                            });
+                        if !MFB_NEWS_BODY_BUSY.swap(true, ExtOrd::AcqRel) {
+                            run_mfb_news_body_backfill(db).await;
+                            MFB_NEWS_BODY_BUSY.store(false, ExtOrd::Release);
                         }
                     }
-                    Err(e) => {
-                        let _ = tx.send(PriceUpdate::MfbNewsStatus(format!("MyFXBook news error: {}", e))).await;
-                        mfb_news_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(30));
-                        println!("MyFXBook news: fetch failed ({}), retrying in 30s...", e);
-                    }
+                    Err(e) => { let _ = tx.send(PriceUpdate::MfbNewsStatus(format!("MyFXBook news error: {}", e))).await; }
                 }
-            }
+                MFB_NEWS_BUSY.store(false, ExtOrd::Release);
+            });
         }
 
-        // ── ForexFactory calendar periodic fetching ──────────────────────
-        if _auth_state == AuthState::Subscribed {
-            if matches!(ff_cal_next_fetch, Some(t) if tokio::time::Instant::now() >= t) {
-                ff_cal_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(300));
+        if _auth_state == AuthState::Subscribed
+            && matches!(ff_cal_next_fetch, Some(t) if now_inst >= t)
+            && !FF_CAL_BUSY.swap(true, ExtOrd::AcqRel)
+        {
+            ff_cal_next_fetch = Some(now_inst + Duration::from_secs(300));
+            let (tx, db) = (tx.clone(), shared_db.clone());
+            tokio::spawn(async move {
                 match forexfactory::fetch_calendar().await {
                     Ok(events) => {
                         let total = events.len();
                         let days: std::collections::BTreeSet<String> = events.iter()
-                            .filter_map(|e| if e.timestamp_utc.len() >= 10 { Some(e.timestamp_utc[..10].to_string()) } else { None })
-                            .collect();
-                        let db_clone = shared_db.clone();
+                            .filter_map(|e| if e.timestamp_utc.len() >= 10 { Some(e.timestamp_utc[..10].to_string()) } else { None }).collect();
                         let today_rows = tokio::task::spawn_blocking(move || {
-                            let _lock = db_clone.lock().unwrap();
+                            let _lock = db.lock().unwrap();
                             match duckdb::Connection::open(DB_PATH) {
                                 Ok(db) => {
                                     let _ = forexfactory::upsert_cal(&db, &events);
@@ -6004,32 +5989,29 @@ async fn run_session(
                             }
                         }).await.unwrap_or_default();
                         let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
-                        let _ = tx.send(PriceUpdate::FfCalStatus(format!(
-                            "{} events today ({} fetched) | next: 5m | updated: {}", today_rows.len(), total, now_str))).await;
+                        let _ = tx.send(PriceUpdate::FfCalStatus(format!("{} events today ({} fetched) | next: 5m | updated: {}", today_rows.len(), total, now_str))).await;
                         let _ = tx.send(PriceUpdate::FfCalToday(today_rows)).await;
                     }
-                    Err(e) => {
-                        let _ = tx.send(PriceUpdate::FfCalStatus(format!("ForexFactory calendar error: {}", e))).await;
-                        ff_cal_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(30));
-                        println!("ForexFactory calendar: fetch failed ({})", e);
-                    }
+                    Err(e) => { let _ = tx.send(PriceUpdate::FfCalStatus(format!("ForexFactory calendar error: {}", e))).await; }
                 }
-            }
+                FF_CAL_BUSY.store(false, ExtOrd::Release);
+            });
         }
 
-        // ── ForexFactory news periodic fetching ──────────────────────────
-        if _auth_state == AuthState::Subscribed {
-            if matches!(ff_news_next_fetch, Some(t) if tokio::time::Instant::now() >= t) {
-                ff_news_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(300));
+        if _auth_state == AuthState::Subscribed
+            && matches!(ff_news_next_fetch, Some(t) if now_inst >= t)
+            && !FF_NEWS_BUSY.swap(true, ExtOrd::AcqRel)
+        {
+            ff_news_next_fetch = Some(now_inst + Duration::from_secs(300));
+            let (tx, db) = (tx.clone(), shared_db.clone());
+            tokio::spawn(async move {
                 match forexfactory::fetch_news().await {
                     Ok(items) => {
                         let total = items.len();
                         let days: std::collections::BTreeSet<String> = items.iter()
-                            .filter_map(|i| if i.published_utc.len() >= 10 { Some(i.published_utc[..10].to_string()) } else { None })
-                            .collect();
-                        let db_clone = shared_db.clone();
+                            .filter_map(|i| if i.published_utc.len() >= 10 { Some(i.published_utc[..10].to_string()) } else { None }).collect();
                         let today_rows = tokio::task::spawn_blocking(move || {
-                            let _lock = db_clone.lock().unwrap();
+                            let _lock = db.lock().unwrap();
                             match duckdb::Connection::open(DB_PATH) {
                                 Ok(db) => {
                                     let _ = forexfactory::upsert_news(&db, &items);
@@ -6041,17 +6023,13 @@ async fn run_session(
                             }
                         }).await.unwrap_or_default();
                         let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
-                        let _ = tx.send(PriceUpdate::FfNewsStatus(format!(
-                            "{} items today ({} fetched) | next: 5m | updated: {}", today_rows.len(), total, now_str))).await;
+                        let _ = tx.send(PriceUpdate::FfNewsStatus(format!("{} items today ({} fetched) | next: 5m | updated: {}", today_rows.len(), total, now_str))).await;
                         let _ = tx.send(PriceUpdate::FfNewsToday(today_rows)).await;
                     }
-                    Err(e) => {
-                        let _ = tx.send(PriceUpdate::FfNewsStatus(format!("ForexFactory news error: {}", e))).await;
-                        ff_news_next_fetch = Some(tokio::time::Instant::now() + Duration::from_secs(30));
-                        println!("ForexFactory news: fetch failed ({})", e);
-                    }
+                    Err(e) => { let _ = tx.send(PriceUpdate::FfNewsStatus(format!("ForexFactory news error: {}", e))).await; }
                 }
-            }
+                FF_NEWS_BUSY.store(false, ExtOrd::Release);
+            });
         }
     }
 
