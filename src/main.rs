@@ -1050,6 +1050,53 @@ const MFB_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/myfxbook_ev
 /// Per-day archive root for MyFXBook news/analysis/press-release items.
 const MFB_NEWS_ARCHIVE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/myfxbook_news_data/all");
 
+/// Guard so the MyFXBook article-body backfill never overlaps itself (each cycle
+/// fetches up to N full article pages, which can outlast the 5-min tick).
+static MFB_NEWS_BODY_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Backfill full article bodies for MyFXBook news items that don't have one yet.
+/// Runs OFF the session loop (each body is a separate page fetch). Bounded per
+/// run; remaining items are picked up on later cycles. After writing bodies it
+/// rewrites the affected per-day JSON files (and today's table) so the stored
+/// archive carries the entire article, not just the URL.
+async fn run_mfb_news_body_backfill(db_mutex: SharedDb) {
+    // 1. List items still missing a body (newest first, bounded).
+    let missing: Vec<(String, String, String)> = {
+        let db_mutex = db_mutex.clone();
+        match tokio::task::spawn_blocking(move || {
+            let _lock = db_mutex.lock().ok()?;
+            let db = duckdb::Connection::open(DB_PATH).ok()?;
+            Some(myfxbook_news::list_missing_bodies(&db, 40))
+        }).await {
+            Ok(Some(v)) => v,
+            _ => Vec::new(),
+        }
+    };
+    if missing.is_empty() { return; }
+
+    // 2. Fetch each article body (sequential — be gentle on the source).
+    let mut fetched: Vec<(String, String)> = Vec::new();
+    let mut days: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for (id, url, day) in &missing {
+        if let Some(body) = myfxbook_news::fetch_body(url).await {
+            fetched.push((id.clone(), body));
+            days.insert(day.clone());
+        }
+    }
+    if fetched.is_empty() { return; }
+    let n = fetched.len();
+
+    // 3. Persist bodies + rewrite the affected day-files and today's table.
+    let _ = tokio::task::spawn_blocking(move || {
+        let Ok(_lock) = db_mutex.lock() else { return };
+        let Ok(db) = duckdb::Connection::open(DB_PATH) else { return };
+        for (id, body) in &fetched { myfxbook_news::set_body(&db, id, body); }
+        for day in &days { let _ = myfxbook_news::write_archive_day(&db, MFB_NEWS_ARCHIVE_ROOT, day); }
+        let _ = myfxbook_news::write_today_from_archive(&db);
+    }).await;
+    println!("[mfb-news-body] backfilled {} article bodies", n);
+}
+
 #[derive(serde::Serialize, Clone)]
 struct EcGoldStorageProgress {
     files_done: usize,
@@ -5873,6 +5920,17 @@ async fn run_session(
                             today_rows.len(), total, now_str
                         ))).await;
                         let _ = tx.send(PriceUpdate::MfbNewsToday(today_rows)).await;
+
+                        // Backfill full article bodies off-loop (each is a page
+                        // fetch). Guarded so a slow run never overlaps the next.
+                        use std::sync::atomic::Ordering as MfbBodyOrd;
+                        if !MFB_NEWS_BODY_BUSY.swap(true, MfbBodyOrd::AcqRel) {
+                            let db = shared_db.clone();
+                            tokio::spawn(async move {
+                                run_mfb_news_body_backfill(db).await;
+                                MFB_NEWS_BODY_BUSY.store(false, MfbBodyOrd::Release);
+                            });
+                        }
                     }
                     Err(e) => {
                         let _ = tx.send(PriceUpdate::MfbNewsStatus(format!("MyFXBook news error: {}", e))).await;

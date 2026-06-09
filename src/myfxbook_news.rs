@@ -149,7 +149,8 @@ CREATE TABLE IF NOT EXISTS myfxbook_news_historical (
     published_utc VARCHAR NOT NULL,
     image_url     VARCHAR,
     hour_utc      TINYINT,
-    weekday       TINYINT
+    weekday       TINYINT,
+    body          VARCHAR
 )";
 
 const CREATE_NEWS_TODAY: &str = "
@@ -163,11 +164,54 @@ CREATE TABLE IF NOT EXISTS myfxbook_news_today (
     published_utc VARCHAR NOT NULL,
     image_url     VARCHAR,
     hour_utc      TINYINT,
-    weekday       TINYINT
+    weekday       TINYINT,
+    body          VARCHAR
 )";
 
 pub fn create_table(db: &duckdb::Connection) -> Result<(), String> {
-    db.execute_batch(CREATE_NEWS).map_err(|e| format!("create myfxbook_news_historical: {}", e))
+    db.execute_batch(CREATE_NEWS).map_err(|e| format!("create myfxbook_news_historical: {}", e))?;
+    // Migrate DBs created before the body column existed.
+    let _ = db.execute("ALTER TABLE myfxbook_news_historical ADD COLUMN IF NOT EXISTS body VARCHAR", []);
+    Ok(())
+}
+
+/// Parse the article body from a MyFXBook article page (`#news-body`).
+pub fn parse_body(html: &str) -> Option<String> {
+    use scraper::{Html, Selector};
+    let doc = Html::parse_document(html);
+    let sel = Selector::parse("#news-body").ok()?;
+    let el = doc.select(&sel).next()?;
+    let text = el.text().collect::<Vec<_>>().join(" ");
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ").trim().to_string();
+    if text.is_empty() { None } else { Some(text) }
+}
+
+/// Fetch one article's full body text via curl (Cloudflare-safe).
+pub async fn fetch_body(url: &str) -> Option<String> {
+    let html = crate::myfxbook_cal::fetch_html_via_curl(url).await.ok()?;
+    parse_body(&html)
+}
+
+/// List up to `limit` (article_id, url, day) for items still missing a body,
+/// newest first, so the body backfill can fill them incrementally.
+pub fn list_missing_bodies(db: &duckdb::Connection, limit: usize) -> Vec<(String, String, String)> {
+    let q = "SELECT article_id, url, substr(published_utc,1,10) AS day
+             FROM myfxbook_news_historical
+             WHERE body IS NULL AND url IS NOT NULL AND url <> ''
+             ORDER BY published_utc DESC LIMIT ?";
+    let Ok(mut stmt) = db.prepare(q) else { return Vec::new() };
+    let rows = stmt.query_map([limit as i64], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+    });
+    match rows { Ok(it) => it.flatten().collect(), Err(_) => Vec::new() }
+}
+
+/// Write a fetched body back to the archive.
+pub fn set_body(db: &duckdb::Connection, article_id: &str, body: &str) {
+    let _ = db.execute(
+        "UPDATE myfxbook_news_historical SET body = ? WHERE article_id = ?",
+        duckdb::params![body, article_id],
+    );
 }
 
 /// Upsert items into the archive. On conflict, refresh the mutable fields (title,
@@ -197,11 +241,16 @@ pub fn upsert(db: &duckdb::Connection, items: &[MfbNewsItem]) -> Result<usize, S
 pub fn write_today_from_archive(db: &duckdb::Connection) -> Result<usize, String> {
     create_table(db)?;
     db.execute_batch(CREATE_NEWS_TODAY).map_err(|e| format!("create myfxbook_news_today: {}", e))?;
+    let _ = db.execute("ALTER TABLE myfxbook_news_today ADD COLUMN IF NOT EXISTS body VARCHAR", []);
     let _ = db.execute("DELETE FROM myfxbook_news_today", []);
     let today = Utc::now().format("%Y-%m-%d").to_string();
+    // Explicit column list (not SELECT *) so column order can't drift after the
+    // body column is added by ALTER on one table but baked into the other.
     db.execute(
         "INSERT INTO myfxbook_news_today
-         SELECT * FROM myfxbook_news_historical WHERE published_utc LIKE ? || '%'",
+            (article_id, category, title, url, summary, source, published_utc, image_url, hour_utc, weekday, body)
+         SELECT article_id, category, title, url, summary, source, published_utc, image_url, hour_utc, weekday, body
+         FROM myfxbook_news_historical WHERE published_utc LIKE ? || '%'",
         duckdb::params![today],
     ).map_err(|e| format!("rebuild myfxbook_news_today: {}", e))
 }
@@ -227,7 +276,7 @@ pub fn read_today(db: &duckdb::Connection) -> Vec<MfbNewsRow> {
 pub fn write_archive_day(db: &duckdb::Connection, root: &str, day: &str) -> Result<(String, usize), String> {
     if day.len() < 7 { return Err("bad day".into()); }
     let mut stmt = db.prepare(
-        "SELECT article_id, category, title, url, summary, source, published_utc, image_url, hour_utc, weekday
+        "SELECT article_id, category, title, url, summary, source, published_utc, image_url, hour_utc, weekday, body
          FROM myfxbook_news_historical WHERE published_utc LIKE ? || '%' ORDER BY published_utc DESC"
     ).map_err(|e| format!("prepare archive query: {}", e))?;
     let rows = stmt.query_map([day], |r| {
@@ -237,6 +286,7 @@ pub fn write_archive_day(db: &duckdb::Connection, root: &str, day: &str) -> Resu
             "summary": r.get::<_, Option<String>>(4)?, "source": r.get::<_, Option<String>>(5)?,
             "published_utc": r.get::<_, String>(6)?, "image_url": r.get::<_, Option<String>>(7)?,
             "hour_utc": r.get::<_, Option<i32>>(8)?, "weekday": r.get::<_, Option<i32>>(9)?,
+            "body": r.get::<_, Option<String>>(10)?,
         }))
     }).map_err(|e| format!("query archive: {}", e))?;
     let items: Vec<serde_json::Value> = rows.flatten().collect();
