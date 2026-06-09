@@ -475,6 +475,7 @@ static MFB_CAL_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 static MFB_NEWS_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static FF_CAL_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static FF_NEWS_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static FF_NEWS_BODY_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The News_Updates cycle as a reusable function. Driven both by the manual
 /// button (`update_news_archive`) and automatically by the 5-min news loop:
@@ -1114,6 +1115,45 @@ async fn run_mfb_news_body_backfill(db_mutex: SharedDb) {
         let _ = myfxbook_news::write_today_from_archive(&db);
     }).await;
     println!("[mfb-news-body] backfilled {} article bodies", n);
+}
+
+/// Backfill ForexFactory news bodies by following each item's `/hit` redirect to
+/// the original publisher and extracting the article text (best-effort — many FF
+/// sources are social posts / JS-rendered, so some bodies stay empty). Off-loop,
+/// bounded; rewrites the affected per-day JSON files + today's table.
+async fn run_ff_news_body_backfill(db_mutex: SharedDb) {
+    let missing: Vec<(String, String, String)> = {
+        let db_mutex = db_mutex.clone();
+        match tokio::task::spawn_blocking(move || {
+            let _lock = db_mutex.lock().ok()?;
+            let db = duckdb::Connection::open(DB_PATH).ok()?;
+            Some(forexfactory::list_missing_news_bodies(&db, 25))
+        }).await {
+            Ok(Some(v)) => v,
+            _ => Vec::new(),
+        }
+    };
+    if missing.is_empty() { return; }
+
+    let mut fetched: Vec<(String, String)> = Vec::new();
+    let mut days: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for (id, hit_url, day) in &missing {
+        if let Some(body) = forexfactory::fetch_body(hit_url).await {
+            fetched.push((id.clone(), body));
+            days.insert(day.clone());
+        }
+    }
+    if fetched.is_empty() { return; }
+    let n = fetched.len();
+
+    let _ = tokio::task::spawn_blocking(move || {
+        let Ok(_lock) = db_mutex.lock() else { return };
+        let Ok(db) = duckdb::Connection::open(DB_PATH) else { return };
+        for (id, body) in &fetched { forexfactory::set_news_body(&db, id, body); }
+        for day in &days { let _ = forexfactory::write_news_archive_day(&db, FF_NEWS_ARCHIVE_ROOT, day); }
+        let _ = forexfactory::write_news_today(&db);
+    }).await;
+    println!("[ff-news-body] backfilled {} article bodies", n);
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -6010,8 +6050,9 @@ async fn run_session(
                         let total = items.len();
                         let days: std::collections::BTreeSet<String> = items.iter()
                             .filter_map(|i| if i.published_utc.len() >= 10 { Some(i.published_utc[..10].to_string()) } else { None }).collect();
+                        let db2 = db.clone();
                         let today_rows = tokio::task::spawn_blocking(move || {
-                            let _lock = db.lock().unwrap();
+                            let _lock = db2.lock().unwrap();
                             match duckdb::Connection::open(DB_PATH) {
                                 Ok(db) => {
                                     let _ = forexfactory::upsert_news(&db, &items);
@@ -6025,6 +6066,10 @@ async fn run_session(
                         let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
                         let _ = tx.send(PriceUpdate::FfNewsStatus(format!("{} items today ({} fetched) | next: 5m | updated: {}", today_rows.len(), total, now_str))).await;
                         let _ = tx.send(PriceUpdate::FfNewsToday(today_rows)).await;
+                        if !FF_NEWS_BODY_BUSY.swap(true, ExtOrd::AcqRel) {
+                            run_ff_news_body_backfill(db).await;
+                            FF_NEWS_BODY_BUSY.store(false, ExtOrd::Release);
+                        }
                     }
                     Err(e) => { let _ = tx.send(PriceUpdate::FfNewsStatus(format!("ForexFactory news error: {}", e))).await; }
                 }

@@ -313,14 +313,97 @@ pub fn write_cal_archive_day(db: &duckdb::Connection, root: &str, day: &str) -> 
 const CREATE_NEWS: &str = "
 CREATE TABLE IF NOT EXISTS forexfactory_news (
     article_id VARCHAR PRIMARY KEY, title VARCHAR NOT NULL, url VARCHAR, source VARCHAR,
-    preview VARCHAR, published_utc VARCHAR NOT NULL, image_url VARCHAR, hour_utc TINYINT, weekday TINYINT )";
+    preview VARCHAR, published_utc VARCHAR NOT NULL, image_url VARCHAR, hour_utc TINYINT, weekday TINYINT, body VARCHAR )";
 const CREATE_NEWS_TODAY: &str = "
 CREATE TABLE IF NOT EXISTS forexfactory_news_today (
     article_id VARCHAR PRIMARY KEY, title VARCHAR NOT NULL, url VARCHAR, source VARCHAR,
-    preview VARCHAR, published_utc VARCHAR NOT NULL, image_url VARCHAR, hour_utc TINYINT, weekday TINYINT )";
+    preview VARCHAR, published_utc VARCHAR NOT NULL, image_url VARCHAR, hour_utc TINYINT, weekday TINYINT, body VARCHAR )";
 
 pub fn create_news(db: &duckdb::Connection) -> Result<(), String> {
-    db.execute_batch(CREATE_NEWS).map_err(|e| format!("create forexfactory_news: {}", e))
+    db.execute_batch(CREATE_NEWS).map_err(|e| format!("create forexfactory_news: {}", e))?;
+    let _ = db.execute("ALTER TABLE forexfactory_news ADD COLUMN IF NOT EXISTS body VARCHAR", []);
+    Ok(())
+}
+
+/// Recursively search a JSON-LD value for an `articleBody` string.
+fn find_article_body(v: &serde_json::Value) -> Option<String> {
+    match v {
+        serde_json::Value::Object(o) => {
+            if let Some(b) = o.get("articleBody").and_then(|x| x.as_str()) {
+                if !b.trim().is_empty() { return Some(b.to_string()); }
+            }
+            for val in o.values() { if let Some(b) = find_article_body(val) { return Some(b); } }
+            None
+        }
+        serde_json::Value::Array(a) => a.iter().find_map(find_article_body),
+        _ => None,
+    }
+}
+
+fn collapse_ws(s: &str) -> String { s.split_whitespace().collect::<Vec<_>>().join(" ").trim().to_string() }
+
+/// Best-effort extraction of an article body from an arbitrary publisher page:
+/// JSON-LD `articleBody` → article/content paragraphs → og:description (captures
+/// social-post / summary text). Returns None if nothing usable is found.
+pub fn extract_body(html: &str) -> Option<String> {
+    use scraper::{Html, Selector};
+    let doc = Html::parse_document(html);
+
+    if let Ok(sel) = Selector::parse(r#"script[type="application/ld+json"]"#) {
+        for s in doc.select(&sel) {
+            let raw = s.text().collect::<String>();
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(raw.trim()) {
+                if let Some(b) = find_article_body(&v) {
+                    let b = collapse_ws(&b);
+                    if b.len() > 120 { return Some(b); }
+                }
+            }
+        }
+    }
+    for sel_str in ["article p", ".article-body p", ".entry-content p", ".post-content p",
+                    ".story-body p", "main p"] {
+        if let Ok(sel) = Selector::parse(sel_str) {
+            let paras: Vec<String> = doc.select(&sel)
+                .map(|p| collapse_ws(&p.text().collect::<String>()))
+                .filter(|t| t.len() > 40)
+                .collect();
+            let joined = paras.join("\n\n");
+            if joined.len() > 200 { return Some(joined); }
+        }
+    }
+    if let Ok(sel) = Selector::parse(r#"meta[property="og:description"], meta[name="description"]"#) {
+        if let Some(m) = doc.select(&sel).next() {
+            if let Some(c) = m.value().attr("content") {
+                let c = collapse_ws(c);
+                if c.len() > 40 { return Some(c); }
+            }
+        }
+    }
+    None
+}
+
+/// Follow the FF `/hit` redirect to the original publisher and extract the body.
+pub async fn fetch_body(hit_url: &str) -> Option<String> {
+    let html = crate::myfxbook_cal::fetch_html_via_curl(hit_url).await.ok()?;
+    extract_body(&html)
+}
+
+/// (article_id, hit_url, day) for items still missing a body, newest first.
+pub fn list_missing_news_bodies(db: &duckdb::Connection, limit: usize) -> Vec<(String, String, String)> {
+    let q = "SELECT article_id, url, substr(published_utc,1,10) FROM forexfactory_news
+             WHERE body IS NULL AND url IS NOT NULL AND url <> ''
+             ORDER BY published_utc DESC LIMIT ?";
+    let Ok(mut s) = db.prepare(q) else { return Vec::new() };
+    let r = s.query_map([limit as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)));
+    match r {
+        Ok(it) => it.flatten().map(|(id, url, day)| (id, format!("{}/hit", url), day)).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+pub fn set_news_body(db: &duckdb::Connection, article_id: &str, body: &str) {
+    let _ = db.execute("UPDATE forexfactory_news SET body = ? WHERE article_id = ?",
+        duckdb::params![body, article_id]);
 }
 
 pub fn upsert_news(db: &duckdb::Connection, items: &[FfNewsItem]) -> Result<usize, String> {
@@ -342,9 +425,13 @@ pub fn upsert_news(db: &duckdb::Connection, items: &[FfNewsItem]) -> Result<usiz
 pub fn write_news_today(db: &duckdb::Connection) -> Result<usize, String> {
     create_news(db)?;
     db.execute_batch(CREATE_NEWS_TODAY).map_err(|e| format!("create forexfactory_news_today: {}", e))?;
+    let _ = db.execute("ALTER TABLE forexfactory_news_today ADD COLUMN IF NOT EXISTS body VARCHAR", []);
     let _ = db.execute("DELETE FROM forexfactory_news_today", []);
     let today = Utc::now().format("%Y-%m-%d").to_string();
-    db.execute("INSERT INTO forexfactory_news_today SELECT * FROM forexfactory_news WHERE published_utc LIKE ? || '%'",
+    db.execute("INSERT INTO forexfactory_news_today
+        (article_id,title,url,source,preview,published_utc,image_url,hour_utc,weekday,body)
+        SELECT article_id,title,url,source,preview,published_utc,image_url,hour_utc,weekday,body
+        FROM forexfactory_news WHERE published_utc LIKE ? || '%'",
         duckdb::params![today]).map_err(|e| format!("rebuild ff news today: {}", e))
 }
 
@@ -360,12 +447,13 @@ pub fn read_news_today(db: &duckdb::Connection) -> Vec<FfNewsRow> {
 
 pub fn write_news_archive_day(db: &duckdb::Connection, root: &str, day: &str) -> Result<(String, usize), String> {
     if day.len() < 7 { return Err("bad day".into()); }
-    let mut s = db.prepare("SELECT article_id,title,url,source,preview,published_utc,image_url
+    let mut s = db.prepare("SELECT article_id,title,url,source,preview,published_utc,image_url,body
         FROM forexfactory_news WHERE published_utc LIKE ? || '%' ORDER BY published_utc DESC").map_err(|e| format!("prep: {}", e))?;
     let rows = s.query_map([day], |r| Ok(serde_json::json!({
         "article_id":r.get::<_,String>(0)?,"title":r.get::<_,String>(1)?,"url":r.get::<_,Option<String>>(2)?,
         "source":r.get::<_,Option<String>>(3)?,"preview":r.get::<_,Option<String>>(4)?,
         "published_utc":r.get::<_,String>(5)?,"image_url":r.get::<_,Option<String>>(6)?,
+        "body":r.get::<_,Option<String>>(7)?,
     }))).map_err(|e| format!("query: {}", e))?;
     let items: Vec<serde_json::Value> = rows.flatten().collect();
     write_day_file(root, day, "items", items)
