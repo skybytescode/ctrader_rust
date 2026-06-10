@@ -248,6 +248,11 @@ html, body, #root {
   padding: 40px 0;
 }
 
+/* US30 opportunity cards */
+.us30-opps { margin-bottom: 10px; }
+.us30-opp { padding: 8px 10px; margin-bottom: 6px; background: #1b1b1f; border-left: 3px solid #34343a; border-radius: 4px; }
+.us30-opp .sent-lean { min-width: 46px; }
+
 /* Market Predictor · sentiment panel */
 .sent-loading { margin: 10px 0; max-width: 360px; }
 .sent-panel { margin-top: 10px; font-size: 12.5px; line-height: 1.5; }

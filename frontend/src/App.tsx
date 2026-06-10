@@ -571,7 +571,7 @@ function App() {
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      for (const sym of ['XAUUSD', 'EURUSD', 'XRPUSD']) {
+      for (const sym of ['XAUUSD', 'EURUSD', 'XRPUSD', 'US30']) {
         try {
           const candles = await invoke<Candle[]>('get_trendbars', { symbol: sym, timeframe: 'D1', count: 1 })
           const bar = candles.at(-1)
@@ -648,6 +648,16 @@ function App() {
             selected={selectedSymbol === 'XRPUSD'}
             onSelect={() => { setSelectedSymbol('XRPUSD'); setTab('dashboard'); }}
           />
+          <InstrumentTile
+            symbol="US30"
+            tick={ticks['US30'] ?? null}
+            prevBid={prevBids['US30'] ?? null}
+            decimals={1}
+            dailyOpen={dailyBars['US30']?.open}
+            lastClose={dailyBars['US30']?.close}
+            selected={selectedSymbol === 'US30'}
+            onSelect={() => { setSelectedSymbol('US30'); setTab('dashboard'); }}
+          />
         </ul>
 
         <footer className="footer">
@@ -710,9 +720,11 @@ function App() {
           {tab === 'dashboard' && (
             isXrp
               ? <XrpBotView tick={selectedTick} />
-              : (selectedSymbol === 'XAUUSD' || selectedSymbol === 'EURUSD')
-                ? <ChartView symbol={selectedSymbol} tick={selectedTick} />
-                : <DashboardView tick={tick} />
+              : selectedSymbol === 'US30'
+                ? <US30View tick={selectedTick} />
+                : (selectedSymbol === 'XAUUSD' || selectedSymbol === 'EURUSD')
+                  ? <ChartView symbol={selectedSymbol} tick={selectedTick} />
+                  : <DashboardView tick={tick} />
           )}
           {tab === 'calendar' && (
             <div className="calendar-split">
@@ -865,7 +877,62 @@ function computeOverlays(candles: Candle[]):
 type VolumeLevel = { price: number; kind: string; scope: string; week: string; label: string; volume: number }
 type VolumeSnapshot = { now_utc: string; price: number | null; atr_intraday: number | null; levels: VolumeLevel[]; m15_recent: unknown[] }
 
-function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
+// US30 (Dow) — locked 5-minute chart with on-demand opportunity detection.
+type Us30Opp = {
+  side: string; strategy?: string; entry: number; stop: number
+  target1: number; target2: number | null; confidence: string; rationale: string
+}
+type Us30Result = { opportunities: Us30Opp[]; note?: string }
+
+function US30View({ tick }: { tick: Tick | null }) {
+  const [res, setRes] = useState<Us30Result | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const detect = async () => {
+    setLoading(true); setError(null)
+    try { setRes(await invoke<Us30Result>('get_us30_opportunities')) }
+    catch (e) { setError(String(e)) }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <div className="us30-view">
+      <div className="archive-actions" style={{ marginBottom: 8 }}>
+        <button className="btn" onClick={detect} disabled={loading}>
+          {loading ? 'Detecting…' : 'Detect Opportunities'}
+        </button>
+        <button className="btn" disabled title="Coming next — places the chosen order (real money; needs the US30 order spec wired in)">
+          Place Order
+        </button>
+      </div>
+
+      {error && <div className="archive-result err">Error: {error}</div>}
+      {res && (
+        <div className="us30-opps">
+          {res.note && <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{res.note}</div>}
+          {res.opportunities.length === 0
+            ? <div className="placeholder">No clean setup right now.</div>
+            : res.opportunities.map((o, i) => (
+                <div key={i} className="us30-opp">
+                  <span className="sent-lean" style={{ color: leanColor(o.side) }}>{o.side}</span>
+                  {o.strategy && <strong>{o.strategy}</strong>}
+                  <span className="muted"> · {o.confidence}</span>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    entry {o.entry} · stop {o.stop} · tp {o.target1}{o.target2 ? ` / ${o.target2}` : ''}
+                  </div>
+                  {o.rationale && <div style={{ fontSize: 12 }}>{o.rationale}</div>}
+                </div>
+              ))}
+        </div>
+      )}
+
+      <ChartView symbol="US30" tick={tick} lockTf="M5" />
+    </div>
+  )
+}
+
+function ChartView({ symbol, tick, lockTf }: { symbol: string; tick: Tick | null; lockTf?: Timeframe }) {
   // Per-symbol display config. EURUSD prices need 5 decimals; the volume-profile
   // feature is XAUUSD-only (backed by an XAUUSD-specific command).
   const decimals = symbol === 'EURUSD' ? 5 : 2
@@ -902,7 +969,7 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
   // internal bar spacing — without per-TF restore *and* a hard reset on first
   // visit, the previous TF's zoom would visibly leak into the next.
   const zoomByTfRef = useRef<Partial<Record<Timeframe, { from: number; to: number }>>>({})
-  const [timeframe, setTimeframe] = useState<Timeframe>('M1')
+  const [timeframe, setTimeframe] = useState<Timeframe>(lockTf ?? 'M1')
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1486,7 +1553,9 @@ function ChartView({ symbol, tick }: { symbol: string; tick: Tick | null }) {
       <div className="chart-header">
         <span className="chart-symbol">{symbol}</span>
         <div className="chart-tfs">
-          {TIMEFRAMES.map((t) => (
+          {lockTf ? (
+            <span className="chart-tf-btn active">{lockTf}</span>
+          ) : TIMEFRAMES.map((t) => (
             <button
               key={t}
               className={`chart-tf-btn ${t === timeframe ? 'active' : ''}`}
