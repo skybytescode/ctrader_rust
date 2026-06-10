@@ -721,7 +721,7 @@ function App() {
             isXrp
               ? <XrpBotView tick={selectedTick} />
               : selectedSymbol === 'US30'
-                ? <US30View tick={selectedTick} />
+                ? <US30View />
                 : (selectedSymbol === 'XAUUSD' || selectedSymbol === 'EURUSD')
                   ? <ChartView symbol={selectedSymbol} tick={selectedTick} />
                   : <DashboardView tick={tick} />
@@ -877,6 +877,72 @@ function computeOverlays(candles: Candle[]):
 type VolumeLevel = { price: number; kind: string; scope: string; week: string; label: string; volume: number }
 type VolumeSnapshot = { now_utc: string; price: number | null; atr_intraday: number | null; levels: VolumeLevel[]; m15_recent: unknown[] }
 
+// Minimal US30 5-minute candle chart. ChartView is heavily XAUUSD-tuned (session
+// VWAP from tick-volume, per-TF zoom memory, a deliberate no-fitContent policy for
+// 1000-bar charts) which leaves US30's ~150 bars out of view — so this is a clean,
+// self-contained candle chart that just loads M5 and fitContent()s.
+function Us30Chart() {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const chartRef = useRef<any>(null)
+  const seriesRef = useRef<any>(null)
+  const firstRef = useRef(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = async () => {
+    const series = seriesRef.current
+    if (!series) return
+    try {
+      const candles = await invoke<Candle[]>('get_trendbars', { symbol: 'US30', timeframe: 'M5', count: 200 })
+      const sorted = [...candles].sort((a, b) => a.time - b.time)
+      const dedup: Candle[] = []
+      for (const c of sorted) {
+        if (c.open > 0 && c.low > 0 && c.low < c.open * 0.5) continue // delta-decode glitch
+        if (dedup.length === 0 || dedup[dedup.length - 1].time !== c.time) dedup.push(c)
+        else dedup[dedup.length - 1] = c
+      }
+      if (dedup.length === 0) { setError('No US30 candles returned.'); return }
+      series.setData(dedup.map(c => ({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close })))
+      setError(null)
+      if (firstRef.current) { chartRef.current?.timeScale().fitContent(); firstRef.current = false }
+    } catch (e) { setError(String(e)) }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    let cleanup = () => {}
+    ;(async () => {
+      const { createChart, CandlestickSeries } = await import('lightweight-charts')
+      if (!containerRef.current || cancelled) return
+      const chart = createChart(containerRef.current, {
+        autoSize: true,
+        layout: { background: { color: '#0b0b0d' }, textColor: '#9a9aa0' },
+        grid: { vertLines: { color: '#1b1b1f' }, horzLines: { color: '#1b1b1f' } },
+        timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 6, borderColor: '#26262b' },
+        rightPriceScale: { borderColor: '#26262b' },
+      })
+      const series = chart.addSeries(CandlestickSeries, {
+        upColor: '#2dd47b', downColor: '#f87171', borderVisible: false,
+        wickUpColor: '#2dd47b', wickDownColor: '#f87171',
+        priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
+      })
+      chartRef.current = chart
+      seriesRef.current = series
+      await load()
+      const id = window.setInterval(load, 10000) // keep the forming bar ~live
+      cleanup = () => { window.clearInterval(id); chart.remove() }
+    })()
+    return () => { cancelled = true; cleanup() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <div>
+      {error && <div className="archive-result err">Chart: {error}</div>}
+      <div ref={containerRef} style={{ height: 460, width: '100%' }} />
+    </div>
+  )
+}
+
 // US30 (Dow) — locked 5-minute chart with on-demand opportunity detection.
 type Us30Opp = {
   side: string; strategy?: string; entry: number; stop: number
@@ -884,7 +950,7 @@ type Us30Opp = {
 }
 type Us30Result = { opportunities: Us30Opp[]; note?: string }
 
-function US30View({ tick }: { tick: Tick | null }) {
+function US30View() {
   const [res, setRes] = useState<Us30Result | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -933,7 +999,7 @@ function US30View({ tick }: { tick: Tick | null }) {
         </div>
       )}
 
-      <ChartView symbol="US30" tick={tick} lockTf="M5" plain />
+      <Us30Chart />
     </div>
   )
 }
