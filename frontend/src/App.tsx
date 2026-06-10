@@ -877,6 +877,100 @@ function computeOverlays(candles: Candle[]):
 type VolumeLevel = { price: number; kind: string; scope: string; week: string; label: string; volume: number }
 type VolumeSnapshot = { now_utc: string; price: number | null; atr_intraday: number | null; levels: VolumeLevel[]; m15_recent: unknown[] }
 
+// One US30 opportunity rendered like the XAUUSD trade-idea card: side badge,
+// strategy, Entry/SL/TP1/TP2, rationale, then an editable order form + confirm.
+function Us30OppCard({ opp }: { opp: Us30Opp }) {
+  const sideU = (opp.side || '').toUpperCase()
+  const side = sideU === 'LONG' ? 'BUY' : 'SELL'
+  const sideClass = side === 'BUY' ? 'value-gain' : 'value-loss'
+  const [qty, setQty] = useState(1)
+  const [confirming, setConfirming] = useState(false)
+  const [placing, setPlacing] = useState(false)
+  const [order, setOrder] = useState<OrderResult | null>(null)
+  const [entryPx, setEntryPx] = useState<number | null>(opp.entry ?? null)
+  const [slPx, setSlPx] = useState<number | null>(opp.stop ?? null)
+  const [tpPx, setTpPx] = useState<number | null>(opp.target1 ?? null)
+  const r2 = (n: number) => Math.round(n * 100) / 100
+
+  // Moving the entry shifts SL & TP by the same delta (keeps the R:R).
+  const onEntryChange = (v: number) => {
+    setEntryPx(v)
+    if (opp.entry != null && Number.isFinite(v)) {
+      const d = v - opp.entry
+      if (opp.stop != null) setSlPx(r2(opp.stop + d))
+      if (opp.target1 != null) setTpPx(r2(opp.target1 + d))
+    }
+  }
+
+  const confirmOrder = async () => {
+    setPlacing(true)
+    try {
+      const r = await invoke<OrderResult>('place_us30_order', { side: opp.side, qty, entry: entryPx, stop: slPx, target1: tpPx })
+      setOrder(r)
+    } catch (e) {
+      setOrder({ sent: false, side, symbol: 'US30', oz: qty, ctrader_volume: 0, order_type: 'MARKET', entry: null, sl: null, tp: null, status: null, error: String(e) })
+    } finally { setPlacing(false); setConfirming(false) }
+  }
+
+  return (
+    <div className="model-popup us30-card">
+      <div className="model-popup-bias">
+        <span className={`bias-badge ${biasClassOf(opp.side)}`}>{sideU}</span>
+        {opp.strategy && <span className="strategy-pill">{opp.strategy}</span>}
+        {opp.confidence && <span className="muted small" style={{ marginLeft: 'auto' }}>{opp.confidence}</span>}
+      </div>
+      <div className="model-levels">
+        <div className="lvl"><span className="lvl-k">Entry</span><span className="lvl-v">{fmtNum(opp.entry)}</span></div>
+        <div className="lvl"><span className="lvl-k">SL</span><span className="lvl-v value-loss">{fmtNum(opp.stop)}</span></div>
+        <div className="lvl"><span className="lvl-k">TP1</span><span className="lvl-v value-gain">{fmtNum(opp.target1)}</span></div>
+        <div className="lvl"><span className="lvl-k">TP2</span><span className="lvl-v value-gain">{fmtNum(opp.target2)}</span></div>
+      </div>
+      {opp.rationale && <div className="model-popup-rationale">{opp.rationale}</div>}
+
+      <div className="model-order">
+        {order ? (
+          <div className="order-result">
+            <div className={order.sent ? 'value-gain' : 'err'}>{order.sent ? '✓ order placed' : '✗ not placed'}</div>
+            {order.error && <div className="err small">{order.error}</div>}
+            <button className="btn-sm" onClick={() => setOrder(null)}>New order</button>
+          </div>
+        ) : confirming ? (
+          <div className="order-confirm">
+            <div className="small">
+              ⚠ <strong>LIVE</strong> order — <strong className={sideClass}>{side}</strong> {qty} US30
+              {entryPx != null ? <> @ entry {fmtNum(entryPx)} (pending)</> : <> at market</>}
+              {slPx != null && <> · SL {fmtNum(slPx)}</>}
+              {tpPx != null && <> · TP {fmtNum(tpPx)}</>}
+            </div>
+            <div className="order-confirm-actions">
+              <button className="btn-sm btn-go" onClick={confirmOrder} disabled={placing}>{placing ? 'Placing…' : 'Confirm & send'}</button>
+              <button className="btn-sm" onClick={() => setConfirming(false)} disabled={placing}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div className="order-place">
+            <div className="order-fields">
+              <label className="order-fld small">Entry
+                <input type="number" step="0.1" value={entryPx ?? ''} onChange={e => onEntryChange(parseFloat(e.target.value))} /></label>
+              <label className="order-fld small">SL
+                <input type="number" step="0.1" value={slPx ?? ''} onChange={e => setSlPx(e.target.value === '' ? null : parseFloat(e.target.value))} /></label>
+              <label className="order-fld small">TP
+                <input type="number" step="0.1" value={tpPx ?? ''} onChange={e => setTpPx(e.target.value === '' ? null : parseFloat(e.target.value))} /></label>
+              <label className="order-fld small">Qty
+                <select value={qty} onChange={e => setQty(Number(e.target.value))}>
+                  {Array.from({ length: 10 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+                </select></label>
+            </div>
+            <button className={`btn-sm order-go ${side === 'BUY' ? 'btn-buy' : 'btn-sell'}`} onClick={() => setConfirming(true)}>
+              {side} {qty} US30 {entryPx != null ? `@ ${fmtNum(entryPx)}` : 'market'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // Minimal US30 5-minute candle chart. ChartView is heavily XAUUSD-tuned (session
 // VWAP from tick-volume, per-TF zoom memory, a deliberate no-fitContent policy for
 // 1000-bar charts) which leaves US30's ~150 bars out of view — so this is a clean,
@@ -976,26 +1070,7 @@ function US30View() {
           {res.note && <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{res.note}</div>}
           {res.opportunities.length === 0
             ? <div className="placeholder">No clean setup right now.</div>
-            : res.opportunities.map((o, i) => (
-                <div key={i} className="us30-opp" style={{ borderLeftColor: leanColor(o.side) }}>
-                  <div className="us30-opp-head">
-                    <span className="sent-lean" style={{ color: leanColor(o.side) }}>{o.side}</span>
-                    {o.strategy && <strong>{o.strategy}</strong>}
-                    <span className="muted"> · {o.confidence}</span>
-                    <button
-                      className="btn us30-place"
-                      disabled
-                      title="US30 order placement — coming next (real money; needs the US30 order spec + sizing wired in)"
-                    >
-                      Place
-                    </button>
-                  </div>
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    entry {o.entry} · stop {o.stop} · tp {o.target1}{o.target2 ? ` / ${o.target2}` : ''}
-                  </div>
-                  {o.rationale && <div style={{ fontSize: 12 }}>{o.rationale}</div>}
-                </div>
-              ))}
+            : res.opportunities.map((o, i) => <Us30OppCard key={i} opp={o} />)}
         </div>
       )}
 

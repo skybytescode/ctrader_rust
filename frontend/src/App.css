@@ -249,7 +249,8 @@ html, body, #root {
 }
 
 /* US30 opportunity cards */
-.us30-opps { margin-bottom: 10px; }
+.us30-opps { margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 10px; }
+.us30-card { max-width: 360px; }
 .us30-opp { padding: 9px 11px; margin-bottom: 8px; background: #1b1b1f; border-left: 3px solid #34343a; border-radius: 5px; line-height: 1.5; }
 .us30-opp .sent-lean { min-width: 46px; }
 .us30-opp-head { display: flex; align-items: center; gap: 8px; }

@@ -3873,6 +3873,21 @@ async fn place_gold_order(
     submit_gold_order(side, oz, entry, stop, target1).await
 }
 
+/// Place a live US30 order from a detected opportunity. Not enabled yet — US30
+/// needs its own symbol spec (digits / volume step / min-max) and a sizing model
+/// wired in like XAUUSD before we fire real orders. Returns a clear error so the
+/// card shows "not placed" rather than risking a mis-sized real-money order.
+#[tauri::command]
+async fn place_us30_order(
+    _side: String,
+    _qty: u32,
+    _entry: Option<f64>,
+    _stop: Option<f64>,
+    _target1: Option<f64>,
+) -> Result<OrderResult, String> {
+    Err("US30 live order placement isn't enabled yet — it needs the US30 symbol spec & sizing wired in (next step). The levels above are ready to place once that's done.".to_string())
+}
+
 /// Tauri command behind the US30 "Detect Opportunities" button. Builds a live
 /// US30 5-minute snapshot and asks Claude (no agent/skill — just the snapshot +
 /// an inline prompt) for any clean intraday trade opportunities right now.
@@ -4787,6 +4802,7 @@ fn main() {
             get_volume_trade_idea,
             place_gold_order,
             get_us30_opportunities,
+            place_us30_order,
             review_pending_order,
             cancel_order,
             review_position,
