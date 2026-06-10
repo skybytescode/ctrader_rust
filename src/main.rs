@@ -4038,6 +4038,65 @@ async fn get_us30_opportunities(_state: tauri::State<'_, AppState>) -> Result<se
         .ok_or_else(|| "could not parse opportunities JSON from the model output".to_string())
 }
 
+/// One open position / resting order the US30 review should judge.
+#[derive(serde::Deserialize)]
+struct Us30ReviewItem {
+    id: i64,
+    kind: String, // "position" | "order"
+    side: String,
+    entry: Option<f64>,
+    sl: Option<f64>,
+    tp: Option<f64>,
+}
+
+/// Review the trader's currently-open US30 positions and resting orders against
+/// the live 5-minute picture and say KEEP or CLOSE for each (no agent — just the
+/// snapshot + items + an inline prompt). Powers the US30 "Review" button.
+#[tauri::command]
+async fn review_us30_positions(items: Vec<Us30ReviewItem>) -> Result<serde_json::Value, String> {
+    use openapi::ProtoOaTrendbarPeriod as P;
+    if items.is_empty() {
+        return Ok(serde_json::json!({ "reviews": [], "note": "No open US30 trades to review." }));
+    }
+    let symbol_id = {
+        let map = symbol_map().lock().map_err(|e| e.to_string())?;
+        map.get("US30").copied().ok_or("US30 not subscribed yet.")?
+    };
+    let m5 = fetch_trendbars_for_snapshot(symbol_id, P::M5, 5, 150).await.unwrap_or_default();
+    if m5.is_empty() { return Err("No US30 candle data from cTrader yet.".into()); }
+    let (m5_full, vwap_now, ema8_m5) = candles_with_indicators(&m5);
+    let (sess_hi, sess_lo) = session_high_low(&m5);
+    let atr_m5 = atr_simple(&m5, 14);
+    let price = {
+        let bits = LATEST_US30_BID.load(std::sync::atomic::Ordering::Relaxed);
+        let live = if bits != 0 { f64::from_bits(bits) } else { 0.0 };
+        if live > 0.0 { live } else { m5.last().map(|c| c.close).unwrap_or(0.0) }
+    };
+    let m5_recent: Vec<serde_json::Value> =
+        m5_full.iter().skip(m5_full.len().saturating_sub(60)).cloned().collect();
+    let picture = serde_json::json!({
+        "now_utc": chrono::Utc::now().to_rfc3339(),
+        "price": round2(price), "vwap": vwap_now, "ema8": ema8_m5,
+        "session_high": sess_hi, "session_low": sess_lo, "atr": atr_m5,
+        "m5_recent": m5_recent,
+    });
+    let trades: Vec<serde_json::Value> = items.iter().map(|i| serde_json::json!({
+        "id": i.id, "kind": i.kind, "side": i.side.to_uppercase(),
+        "entry": i.entry, "sl": i.sl, "tp": i.tp,
+    })).collect();
+
+    let system = "You are an intraday US30 (Dow) trader reviewing the trader's CURRENTLY-OPEN positions and RESTING pending orders against the live 5-minute picture (price, VWAP, 8 EMA on M5, session high/low, ATR, recent M5 candles). For each item decide KEEP or CLOSE: for an open position (kind=position), is the thesis still valid and price respecting the level, or has it broken down / hit its invalidation (CLOSE)? For a resting order (kind=order), is the setup still worth waiting for (KEEP) or stale / invalidated (CLOSE = cancel it)? Be decisive and concrete — reference price vs VWAP / 8 EMA / session levels and the item's own SL/TP.\n\nOutput ONLY one JSON object, no prose/markdown/code-fences/<think>: {\"reviews\":[{\"id\":<number>,\"verdict\":\"KEEP|CLOSE\",\"confidence\":\"high|medium|low\",\"reason\":\"<=160 chars\"}],\"note\":\"<=200 chars overall\"}. Return exactly one review per input id.";
+    let user = format!(
+        "Live US30 picture:\n```json\n{}\n```\n\nOpen positions / resting orders to review:\n```json\n{}\n```\n\nKEEP or CLOSE each, by id. JSON only.",
+        serde_json::to_string(&picture).unwrap_or_default(),
+        serde_json::to_string(&trades).unwrap_or_default(),
+    );
+    let model = std::env::var("CLAUDE_US30_MODEL").unwrap_or_else(|_| "haiku".to_string());
+    let raw = ai::traders::claude_cli_raw(&model, system, &user).await?;
+    extract_sentiment_json(&raw)
+        .ok_or_else(|| "could not parse review JSON from the model output".to_string())
+}
+
 /// Enable/disable the auto-trade loop and set the per-trade size (oz).
 #[tauri::command]
 fn set_auto_trade(enabled: bool, oz: u32) {
@@ -4914,6 +4973,7 @@ fn main() {
             place_gold_order,
             get_us30_opportunities,
             place_us30_order,
+            review_us30_positions,
             review_pending_order,
             cancel_order,
             review_position,

@@ -256,6 +256,15 @@ html, body, #root {
 .us30-opp-head { display: flex; align-items: center; gap: 8px; }
 .us30-place { margin-left: auto; padding: 2px 14px; font-size: 12px; }
 
+/* US30 open trades (positions + resting orders) */
+.us30-open { margin-bottom: 12px; padding: 10px 11px; background: #161619; border: 1px solid #26262b; border-radius: 6px; }
+.us30-open-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.us30-trade { padding: 6px 8px; margin-bottom: 5px; background: #1b1b1f; border-left: 3px solid #34343a; border-radius: 4px; }
+.us30-trade.flag-close { border-left-color: #f87171; }
+.us30-trade-row { display: flex; align-items: center; gap: 8px; }
+.us30-trade-act { margin-left: auto; }
+.us30-trade-reason { margin-top: 4px; }
+
 /* Market Predictor · sentiment panel */
 .sent-loading { margin: 10px 0; max-width: 360px; }
 .sent-panel { margin-top: 10px; font-size: 12.5px; line-height: 1.5; }

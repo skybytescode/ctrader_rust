@@ -721,7 +721,7 @@ function App() {
             isXrp
               ? <XrpBotView tick={selectedTick} />
               : selectedSymbol === 'US30'
-                ? <US30View />
+                ? <US30View positions={positions} orders={orders} tick={selectedTick} />
                 : (selectedSymbol === 'XAUUSD' || selectedSymbol === 'EURUSD')
                   ? <ChartView symbol={selectedSymbol} tick={selectedTick} />
                   : <DashboardView tick={tick} />
@@ -1044,7 +1044,9 @@ type Us30Opp = {
 }
 type Us30Result = { opportunities: Us30Opp[]; note?: string }
 
-function US30View() {
+type Us30Verdict = { id: number; verdict: string; confidence?: string; reason?: string }
+
+function US30View({ positions, orders, tick }: { positions: OpenPosition[]; orders: PendingOrder[]; tick: Tick | null }) {
   const [res, setRes] = useState<Us30Result | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1056,6 +1058,52 @@ function US30View() {
     finally { setLoading(false) }
   }
 
+  // Live US30 positions + resting orders, auto-detected from the reconcile stream.
+  const myPos = positions.filter(p => p.symbol === 'US30')
+  const myOrd = orders.filter(o => o.symbol === 'US30')
+  const px = tick?.bid ?? null
+  const pnlOf = (p: OpenPosition): number | null =>
+    (px == null || p.entry == null) ? null : (px - p.entry) * p.oz * (p.side === 'BUY' ? 1 : -1)
+
+  const [reviews, setReviews] = useState<Record<number, Us30Verdict>>({})
+  const [reviewNote, setReviewNote] = useState<string | null>(null)
+  const [reviewing, setReviewing] = useState(false)
+  const [busyId, setBusyId] = useState<number | null>(null)
+
+  const reviewTrades = async () => {
+    setReviewing(true); setReviewNote(null)
+    try {
+      const items = [
+        ...myPos.map(p => ({ id: p.id, kind: 'position', side: p.side, entry: p.entry, sl: p.sl, tp: p.tp })),
+        ...myOrd.map(o => ({ id: o.id, kind: 'order', side: o.side, entry: o.price, sl: o.sl, tp: o.tp })),
+      ]
+      const r = await invoke<{ reviews: Us30Verdict[]; note?: string }>('review_us30_positions', { items })
+      const map: Record<number, Us30Verdict> = {}
+      for (const v of (r.reviews || [])) map[v.id] = v
+      setReviews(map); setReviewNote(r.note ?? null)
+    } catch (e) { setReviewNote('Review failed: ' + String(e)) }
+    finally { setReviewing(false) }
+  }
+  const closePos = async (p: OpenPosition) => {
+    setBusyId(p.id)
+    try { await invoke('close_position', { positionId: p.id, oz: p.oz }) }
+    catch (e) { setReviewNote('Close failed: ' + String(e)) }
+    finally { setBusyId(null) }
+  }
+  const cancelOrd = async (o: PendingOrder) => {
+    setBusyId(o.id)
+    try { await invoke('cancel_order', { orderId: o.id }) }
+    catch (e) { setReviewNote('Cancel failed: ' + String(e)) }
+    finally { setBusyId(null) }
+  }
+  const verdictBadge = (v?: Us30Verdict, isOrder = false) => {
+    if (!v) return null
+    const close = (v.verdict || '').toUpperCase() === 'CLOSE'
+    return <span className={`bias-badge ${close ? 'bias-short' : 'bias-long'}`} title={v.reason}>
+      {close ? (isOrder ? 'CANCEL' : 'CLOSE') : 'KEEP'}
+    </span>
+  }
+
   return (
     <div className="us30-view">
       <div className="archive-actions" style={{ marginBottom: 8 }}>
@@ -1063,6 +1111,47 @@ function US30View() {
           {loading ? 'Detecting…' : 'Detect Opportunities'}
         </button>
       </div>
+
+      {(myPos.length > 0 || myOrd.length > 0) && (
+        <div className="us30-open">
+          <div className="us30-open-head">
+            <strong>Open US30 trades</strong>
+            <button className="btn" onClick={reviewTrades} disabled={reviewing}>
+              {reviewing ? 'Reviewing…' : 'Review — keep / close'}
+            </button>
+          </div>
+          {reviewNote && <div className="muted small" style={{ marginBottom: 6 }}>{reviewNote}</div>}
+          {myPos.map(p => {
+            const pnl = pnlOf(p); const v = reviews[p.id]
+            return (
+              <div key={`p${p.id}`} className={`us30-trade ${v?.verdict?.toUpperCase() === 'CLOSE' ? 'flag-close' : ''}`}>
+                <div className="us30-trade-row">
+                  <span className={p.side === 'BUY' ? 'value-gain' : 'value-loss'}><strong>{p.side}</strong></span>
+                  <span className="muted small">@ {fmtNum(p.entry)} · {p.oz}</span>
+                  {pnl != null && <span className={pnl >= 0 ? 'value-gain' : 'value-loss'} style={{ fontSize: 12 }}>{pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}</span>}
+                  {verdictBadge(v)}
+                  <button className="btn-sm btn-sell us30-trade-act" onClick={() => closePos(p)} disabled={busyId === p.id}>{busyId === p.id ? '…' : 'Close'}</button>
+                </div>
+                {v?.reason && <div className="muted small us30-trade-reason">{v.reason}</div>}
+              </div>
+            )
+          })}
+          {myOrd.map(o => {
+            const v = reviews[o.id]; const dist = (px != null && o.price != null) ? Math.abs(px - o.price) : null
+            return (
+              <div key={`o${o.id}`} className={`us30-trade ${v?.verdict?.toUpperCase() === 'CLOSE' ? 'flag-close' : ''}`}>
+                <div className="us30-trade-row">
+                  <span className={o.side === 'BUY' ? 'value-gain' : 'value-loss'}><strong>{o.side}</strong></span>
+                  <span className="muted small">{o.type} @ {fmtNum(o.price)}{dist != null ? ` · ${dist.toFixed(1)} away` : ''}</span>
+                  {verdictBadge(v, true)}
+                  <button className="btn-sm us30-trade-act" onClick={() => cancelOrd(o)} disabled={busyId === o.id}>{busyId === o.id ? '…' : 'Cancel'}</button>
+                </div>
+                {v?.reason && <div className="muted small us30-trade-reason">{v.reason}</div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {error && <div className="archive-result err">Error: {error}</div>}
       {res && (
