@@ -47,6 +47,11 @@ const XRP_5M_SKILL: &str =
 const GOLD_SENTIMENT_SKILL: &str =
     include_str!("../../.claude/skills/gold-sentiment/SKILL.md");
 
+/// The gold EC-events agent — reads today's economic calendar (actual vs
+/// forecast) and returns the data-driven XAUUSD disposition. Market Predictor.
+const GOLD_EC_EVENTS_SKILL: &str =
+    include_str!("../../.claude/skills/gold-ec-events/SKILL.md");
+
 /// Strip a leading `---\n … \n---\n` YAML frontmatter block from a skill body.
 fn strip_frontmatter(s: &str) -> String {
     if let Some(rest) = s.strip_prefix("---") {
@@ -80,6 +85,11 @@ pub fn xrp_5m_prompt() -> String {
 /// Gold news-sentiment agent's system prompt (frontmatter removed).
 pub fn gold_sentiment_prompt() -> String {
     strip_frontmatter(GOLD_SENTIMENT_SKILL)
+}
+
+/// Gold EC-events agent's system prompt (frontmatter removed).
+pub fn gold_ec_events_prompt() -> String {
+    strip_frontmatter(GOLD_EC_EVENTS_SKILL)
 }
 
 /// One model's answer, ready to serialize to the frontend popup.

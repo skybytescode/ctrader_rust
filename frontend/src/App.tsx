@@ -2446,57 +2446,80 @@ const leanColor = (l: string) =>
   l === 'SELL' || l === 'BEARISH' ? '#f87171' :
   l === 'COILED' ? '#d8a657' : '#9ca3af'
 
-function DailyAnalysisView() {
-  const [sent, setSent] = useState<GoldSentiment | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  // Load the last stored sentiment so the panel persists until the next click.
-  useEffect(() => {
-    invoke<GoldSentiment | null>('get_last_gold_sentiment')
-      .then((s) => { if (s) setSent(s) })
-      .catch(() => {})
-  }, [])
-
-  // Elapsed timer + estimated progress while the (slow) opus call runs. There's
-  // no real progress signal from the CLI, so the bar is an honest estimate that
-  // eases toward ~95% over the typical duration; the timer shows the true time.
+// Elapsed timer (seconds) while a slow opus call runs. No real progress signal
+// from the CLI, so the bar is an honest estimate; this returns the true elapsed.
+function useElapsed(active: boolean) {
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
-    if (!loading) { setElapsed(0); return }
+    if (!active) { setElapsed(0); return }
     const start = Date.now()
     const id = window.setInterval(() => setElapsed((Date.now() - start) / 1000), 250)
     return () => window.clearInterval(id)
-  }, [loading])
-  const EXPECTED = 75 // seconds, typical opus read of a day's news
-  const progress = Math.min(96, Math.round((1 - Math.exp(-elapsed / EXPECTED)) * 130))
+  }, [active])
+  return elapsed
+}
+const estProgress = (elapsed: number) => Math.min(96, Math.round((1 - Math.exp(-elapsed / 75)) * 130))
 
-  const run = async () => {
-    setLoading(true); setError(null)
+function LoadingBar({ elapsed, label }: { elapsed: number; label: string }) {
+  return (
+    <div className="sent-loading">
+      <div className="progress-bar"><div className="progress-fill" style={{ width: `${estProgress(elapsed)}%` }} /></div>
+      <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{label} {elapsed.toFixed(0)}s</div>
+    </div>
+  )
+}
+
+function DailyAnalysisView() {
+  // News sentiment
+  const [sent, setSent] = useState<GoldSentiment | null>(null)
+  const [sLoading, setSLoading] = useState(false)
+  const [sError, setSError] = useState<string | null>(null)
+  const sElapsed = useElapsed(sLoading)
+  // EC events
+  const [ec, setEc] = useState<GoldEc | null>(null)
+  const [eLoading, setELoading] = useState(false)
+  const [eError, setEError] = useState<string | null>(null)
+  const eElapsed = useElapsed(eLoading)
+
+  // Load the last stored results so the panels persist until the next click.
+  useEffect(() => {
+    invoke<GoldSentiment | null>('get_last_gold_sentiment').then((s) => { if (s) setSent(s) }).catch(() => {})
+    invoke<GoldEc | null>('get_last_gold_ec_analysis').then((s) => { if (s) setEc(s) }).catch(() => {})
+  }, [])
+
+  const runSent = async () => {
+    setSLoading(true); setSError(null)
     try { setSent(await invoke<GoldSentiment>('get_gold_sentiment')) }
-    catch (e) { setError(String(e)) }
-    finally { setLoading(false) }
+    catch (e) { setSError(String(e)) }
+    finally { setSLoading(false) }
+  }
+  const runEc = async () => {
+    setELoading(true); setEError(null)
+    try { setEc(await invoke<GoldEc>('get_gold_ec_analysis')) }
+    catch (e) { setEError(String(e)) }
+    finally { setELoading(false) }
   }
 
   return (
     <div>
       <div className="archive-actions">
-        <button className="btn" onClick={run} disabled={loading}>
-          {loading ? 'Analyzing…' : "Today’s Sentiment"}
+        <button className="btn" onClick={runSent} disabled={sLoading}>
+          {sLoading ? 'Analyzing…' : "Today’s Sentiment"}
+        </button>
+        <button className="btn" onClick={runEc} disabled={eLoading}>
+          {eLoading ? 'Analyzing…' : "Today’s EC Events"}
         </button>
       </div>
-      {loading && (
-        <div className="sent-loading">
-          <div className="progress-bar"><div className="progress-fill" style={{ width: `${progress}%` }} /></div>
-          <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-            Reading today’s news with opus… {elapsed.toFixed(0)}s
-          </div>
-        </div>
-      )}
-      {error && <div className="archive-result err">Error: {error}</div>}
+
+      {sLoading && <LoadingBar elapsed={sElapsed} label="Reading today’s news with opus…" />}
+      {sError && <div className="archive-result err">Error: {sError}</div>}
       {sent
         ? <GoldSentimentPanel s={sent} />
-        : !error && <div className="placeholder">Click “Today’s Sentiment” to read the market from today’s news.</div>}
+        : !sLoading && !sError && <div className="placeholder">Click “Today’s Sentiment” to read the market from today’s news.</div>}
+
+      {eLoading && <LoadingBar elapsed={eElapsed} label="Reading today’s economic calendar with opus…" />}
+      {eError && <div className="archive-result err">Error: {eError}</div>}
+      {ec && <GoldEcPanel s={ec} />}
     </div>
   )
 }
@@ -2565,6 +2588,87 @@ function GoldSentimentPanel({ s }: { s: GoldSentiment }) {
       <div className="sent-foot muted">
         Updated {updated} · {s.news_count} news items
       </div>
+    </div>
+  )
+}
+
+// ── Market Predictor · Today's EC Events (economic-calendar impact) ──────────
+type GoldEc = {
+  bias: string                   // BULLISH | BEARISH | NEUTRAL
+  intensity: number              // -100..100
+  conviction: number
+  headline: string
+  summary: string
+  released: { event: string; currency: string; surprise: string; gold_impact: string; note: string }[]
+  upcoming: { time: string; currency: string; importance: string; event: string; why: string }[]
+  forward: { base_case: string; watch: string[] }
+  updated_utc: string
+  events_count: number
+}
+
+function GoldEcPanel({ s }: { s: GoldEc }) {
+  const pct = Math.max(-100, Math.min(100, s.intensity))
+  const markerLeft = (pct + 100) / 2
+  const updated = (() => { try { return new Date(s.updated_utc).toLocaleString() } catch { return s.updated_utc } })()
+  return (
+    <div className="sent-panel">
+      <div className="sent-head">
+        <span className="sent-badge" style={{ background: dispColor(s.bias) }}>{s.bias}</span>
+        <span className="sent-intensity" style={{ color: dispColor(s.bias) }}>{pct > 0 ? '+' : ''}{pct}</span>
+        <span className="sent-conviction muted">conviction {Math.round((s.conviction ?? 0) * 100)}%</span>
+      </div>
+      <div className="sent-gauge">
+        <div className="sent-gauge-track">
+          <div className="sent-gauge-mid" />
+          <div className="sent-gauge-marker" style={{ left: `${markerLeft}%`, background: dispColor(s.bias) }} />
+        </div>
+        <div className="sent-gauge-labels"><span>Bearish</span><span>Neutral</span><span>Bullish</span></div>
+      </div>
+
+      {s.headline && <div className="sent-headline">{s.headline}</div>}
+      {s.summary && <div className="sent-summary">{s.summary}</div>}
+
+      {s.released?.length > 0 && (
+        <div className="sent-section">
+          <div className="sent-section-title">Released</div>
+          <ul className="sent-drivers">
+            {s.released.map((r, i) => (
+              <li key={i}>
+                <span className="sent-lean" style={{ color: leanColor(r.gold_impact) }}>{r.gold_impact}</span>
+                <strong>{r.currency} {r.event}</strong>
+                {r.surprise && <span className="muted"> · {r.surprise.toLowerCase()}</span>}
+                {r.note ? <span className="muted"> — {r.note}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {s.upcoming?.length > 0 && (
+        <div className="sent-section">
+          <div className="sent-section-title">Upcoming today</div>
+          <ul className="sent-drivers">
+            {s.upcoming.map((u, i) => (
+              <li key={i}>
+                <span className="sent-lean muted">{u.time}</span>
+                <strong>{u.currency} {u.event}</strong>
+                {u.importance && <span className="muted"> · {u.importance.toLowerCase()}</span>}
+                {u.why ? <span className="muted"> — {u.why}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {s.forward && (s.forward.base_case || s.forward.watch?.length > 0) && (
+        <div className="sent-forward">
+          <div className="sent-section-title">Forward</div>
+          {s.forward.base_case && <div className="sent-summary">{s.forward.base_case}</div>}
+          {s.forward.watch?.length > 0 && <div className="sent-watch muted">Watch: {s.forward.watch.join(' · ')}</div>}
+        </div>
+      )}
+
+      <div className="sent-foot muted">Updated {updated} · {s.events_count} events</div>
     </div>
   )
 }

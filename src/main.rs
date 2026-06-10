@@ -2122,6 +2122,105 @@ async fn get_last_gold_sentiment(state: tauri::State<'_, AppState>) -> Result<Op
     Ok(payload.and_then(|p| serde_json::from_str(&p).ok()))
 }
 
+/// Collect today's (UTC) economic-calendar events from all three sources as a
+/// compact text block for the EC agent: "[Source] HH:MM CUR (impN) Event | A:.. F:.. P:..".
+fn gather_todays_ec_events(db: &duckdb::Connection) -> (String, usize) {
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let hhmm = |ts: &str| if ts.len() >= 16 { ts[11..16].to_string() } else { ts.to_string() };
+    let vfp = |a: Option<String>, f: Option<String>, p: Option<String>| {
+        let g = |o: Option<String>| o.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "—".to_string());
+        format!("A:{} F:{} P:{}", g(a), g(f), g(p))
+    };
+    let mut lines: Vec<String> = Vec::new();
+
+    if let Ok(mut s) = db.prepare("SELECT timestamp_utc, currency, volatility, event_name, actual_raw, forecast_raw, previous_raw FROM xauusd_economic_calendar WHERE timestamp_utc LIKE ? || '%' ORDER BY timestamp_utc ASC LIMIT 60") {
+        if let Ok(rows) = s.query_map([&today], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i32>(2)?, r.get::<_, String>(3)?, r.get::<_, Option<String>>(4)?, r.get::<_, Option<String>>(5)?, r.get::<_, Option<String>>(6)?))) {
+            for (ts, cur, imp, ev, a, f, p) in rows.flatten() {
+                lines.push(format!("[FXStreet] {} {} (i{}) {} | {}", hhmm(&ts), cur, imp, ev, vfp(a, f, p)));
+            }
+        }
+    }
+    if let Ok(mut s) = db.prepare("SELECT timestamp_utc, currency, importance, event_name, actual_raw, forecast_raw, previous_raw FROM myfxbook_economic_calendar WHERE timestamp_utc LIKE ? || '%' ORDER BY timestamp_utc ASC LIMIT 60") {
+        if let Ok(rows) = s.query_map([&today], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i32>(2)?, r.get::<_, String>(3)?, r.get::<_, Option<String>>(4)?, r.get::<_, Option<String>>(5)?, r.get::<_, Option<String>>(6)?))) {
+            for (ts, cur, imp, ev, a, f, p) in rows.flatten() {
+                lines.push(format!("[MyFXBook] {} {} (i{}) {} | {}", hhmm(&ts), cur, imp, ev, vfp(a, f, p)));
+            }
+        }
+    }
+    if let Ok(mut s) = db.prepare("SELECT timestamp_utc, currency, impact, title, actual_raw, forecast_raw, previous_raw FROM forexfactory_calendar WHERE timestamp_utc LIKE ? || '%' ORDER BY timestamp_utc ASC LIMIT 60") {
+        if let Ok(rows) = s.query_map([&today], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i32>(2)?, r.get::<_, String>(3)?, r.get::<_, Option<String>>(4)?, r.get::<_, Option<String>>(5)?, r.get::<_, Option<String>>(6)?))) {
+            for (ts, cur, imp, ev, a, f, p) in rows.flatten() {
+                lines.push(format!("[ForexFactory] {} {} (i{}) {} | {}", hhmm(&ts), cur, imp, ev, vfp(a, f, p)));
+            }
+        }
+    }
+    let count = lines.len();
+    (lines.join("\n"), count)
+}
+
+/// Tauri command behind the Market Predictor "Today's EC Events" button. Sends
+/// today's economic calendar (all 3 sources) to the gold-ec-events agent, parses,
+/// stamps, persists (panel survives until next click), returns it.
+#[tauri::command]
+async fn get_gold_ec_analysis(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let (events, count) = {
+        let db_mutex = state.db_mutex.clone();
+        tokio::task::spawn_blocking(move || {
+            let _lock = db_mutex.lock().ok()?;
+            let db = duckdb::Connection::open(DB_PATH).ok()?;
+            Some(gather_todays_ec_events(&db))
+        }).await.unwrap_or(None).unwrap_or((String::new(), 0))
+    };
+    if count == 0 {
+        return Err("No economic-calendar events stored for today yet.".into());
+    }
+
+    let now = chrono::Utc::now();
+    let user = format!(
+        "Today is {} (UTC). Below are today's economic-calendar events from FXStreet, MyFXBook and ForexFactory \
+         (impact i0..i3; A=actual, F=forecast, P=previous; '—' means not yet released). Judge the surprises and \
+         their push on XAUUSD, and flag the key upcoming risks. JSON only.\n\n{}",
+        now.format("%Y-%m-%d"), events,
+    );
+    let model = std::env::var("CLAUDE_SENTIMENT_MODEL").unwrap_or_else(|_| "opus".to_string());
+    let raw = ai::traders::claude_cli_raw_timeout(
+        &model, &ai::traders::gold_ec_events_prompt(), &user, std::time::Duration::from_secs(240),
+    ).await?;
+    let mut val = extract_sentiment_json(&raw)
+        .ok_or_else(|| "could not parse EC analysis JSON from the model output".to_string())?;
+    if let Some(obj) = val.as_object_mut() {
+        obj.insert("updated_utc".to_string(), serde_json::json!(now.to_rfc3339()));
+        obj.insert("events_count".to_string(), serde_json::json!(count));
+    }
+    {
+        let db_mutex = state.db_mutex.clone();
+        let updated = now.to_rfc3339();
+        let payload = val.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(_lock) = db_mutex.lock() {
+                if let Ok(db) = duckdb::Connection::open(DB_PATH) {
+                    let _ = db.execute_batch("CREATE TABLE IF NOT EXISTS gold_ec_analysis (updated_utc VARCHAR, payload VARCHAR)");
+                    let _ = db.execute("INSERT INTO gold_ec_analysis VALUES (?, ?)", duckdb::params![updated, payload]);
+                }
+            }
+        }).await;
+    }
+    Ok(val)
+}
+
+/// Load the most recent stored EC analysis (so the panel is persistent).
+#[tauri::command]
+async fn get_last_gold_ec_analysis(state: tauri::State<'_, AppState>) -> Result<Option<serde_json::Value>, String> {
+    let db_mutex = state.db_mutex.clone();
+    let payload: Option<String> = tokio::task::spawn_blocking(move || {
+        let _lock = db_mutex.lock().ok()?;
+        let db = duckdb::Connection::open(DB_PATH).ok()?;
+        let _ = db.execute_batch("CREATE TABLE IF NOT EXISTS gold_ec_analysis (updated_utc VARCHAR, payload VARCHAR)");
+        db.query_row("SELECT payload FROM gold_ec_analysis ORDER BY updated_utc DESC LIMIT 1", [], |r| r.get::<_, String>(0)).ok()
+    }).await.unwrap_or(None);
+    Ok(payload.and_then(|p| serde_json::from_str(&p).ok()))
+}
+
 /// Tauri command: fetch one article's body on demand (when a user opens it in the
 /// modal). Hits the econcal proxy API, parses the HTML field, strips tags, and
 /// updates `news_historical.body` so subsequent loads are free.
@@ -4532,6 +4631,8 @@ fn main() {
             get_mfb_news_body,
             get_gold_sentiment,
             get_last_gold_sentiment,
+            get_gold_ec_analysis,
+            get_last_gold_ec_analysis,
             get_trendbars,
             get_gold_trade_ideas_multi,
             get_gold_trade_idea,
