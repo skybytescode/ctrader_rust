@@ -902,9 +902,6 @@ function US30View({ tick }: { tick: Tick | null }) {
         <button className="btn" onClick={detect} disabled={loading}>
           {loading ? 'Detecting…' : 'Detect Opportunities'}
         </button>
-        <button className="btn" disabled title="Coming next — places the chosen order (real money; needs the US30 order spec wired in)">
-          Place Order
-        </button>
       </div>
 
       {error && <div className="archive-result err">Error: {error}</div>}
@@ -914,10 +911,19 @@ function US30View({ tick }: { tick: Tick | null }) {
           {res.opportunities.length === 0
             ? <div className="placeholder">No clean setup right now.</div>
             : res.opportunities.map((o, i) => (
-                <div key={i} className="us30-opp">
-                  <span className="sent-lean" style={{ color: leanColor(o.side) }}>{o.side}</span>
-                  {o.strategy && <strong>{o.strategy}</strong>}
-                  <span className="muted"> · {o.confidence}</span>
+                <div key={i} className="us30-opp" style={{ borderLeftColor: leanColor(o.side) }}>
+                  <div className="us30-opp-head">
+                    <span className="sent-lean" style={{ color: leanColor(o.side) }}>{o.side}</span>
+                    {o.strategy && <strong>{o.strategy}</strong>}
+                    <span className="muted"> · {o.confidence}</span>
+                    <button
+                      className="btn us30-place"
+                      disabled
+                      title="US30 order placement — coming next (real money; needs the US30 order spec + sizing wired in)"
+                    >
+                      Place
+                    </button>
+                  </div>
                   <div className="muted" style={{ fontSize: 12 }}>
                     entry {o.entry} · stop {o.stop} · tp {o.target1}{o.target2 ? ` / ${o.target2}` : ''}
                   </div>
@@ -927,12 +933,12 @@ function US30View({ tick }: { tick: Tick | null }) {
         </div>
       )}
 
-      <ChartView symbol="US30" tick={tick} lockTf="M5" />
+      <ChartView symbol="US30" tick={tick} lockTf="M5" plain />
     </div>
   )
 }
 
-function ChartView({ symbol, tick, lockTf }: { symbol: string; tick: Tick | null; lockTf?: Timeframe }) {
+function ChartView({ symbol, tick, lockTf, plain }: { symbol: string; tick: Tick | null; lockTf?: Timeframe; plain?: boolean }) {
   // Per-symbol display config. EURUSD prices need 5 decimals; the volume-profile
   // feature is XAUUSD-only (backed by an XAUUSD-specific command).
   const decimals = symbol === 'EURUSD' ? 5 : 2
@@ -1177,14 +1183,17 @@ function ChartView({ symbol, tick, lockTf }: { symbol: string; tick: Tick | null
       // VWAP (yellow) + 8 EMA (blue) overlays. Always create the series so
       // the lifecycle is identical across TFs; hide on non-intraday TFs by
       // pushing empty data.
-      const vwapSeries = chart.addSeries(LineSeries, {
+      // `plain` (e.g. US30): no overlays — index trendbars can carry 0 volume,
+      // which makes the client-side VWAP NaN/0 and stretches the price scale,
+      // squashing the candles. Showing just candles keeps the scale correct.
+      const vwapSeries = plain ? null : chart.addSeries(LineSeries, {
         color: '#f4c430',          // VWAP — gold/yellow
         lineWidth: 2,
         priceLineVisible: false,
         lastValueVisible: false,
         title: 'VWAP',
       })
-      const emaSeries = chart.addSeries(LineSeries, {
+      const emaSeries = plain ? null : chart.addSeries(LineSeries, {
         color: '#3b82f6',          // 8 EMA — blue
         lineWidth: 2,
         priceLineVisible: false,
