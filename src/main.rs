@@ -229,6 +229,15 @@ fn xauusd_spec() -> &'static std::sync::Mutex<Option<SymbolSpec>> {
     XAUUSD_SPEC.get_or_init(|| std::sync::Mutex::new(None))
 }
 
+/// Cached trading spec for US30 — same mechanism as XAUUSD, used to size US30
+/// orders safely (volume floored to step, clamped to min/max).
+static US30_SPEC: std::sync::OnceLock<std::sync::Mutex<Option<SymbolSpec>>>
+    = std::sync::OnceLock::new();
+
+fn us30_spec() -> &'static std::sync::Mutex<Option<SymbolSpec>> {
+    US30_SPEC.get_or_init(|| std::sync::Mutex::new(None))
+}
+
 /// Cache of symbol name → cTrader symbol_id, populated by the bridge task each
 /// time the session emits a SymbolMapping. Tauri commands resolve names here.
 static SYMBOL_MAP: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, i64>>>
@@ -3873,19 +3882,104 @@ async fn place_gold_order(
     submit_gold_order(side, oz, entry, stop, target1).await
 }
 
-/// Place a live US30 order from a detected opportunity. Not enabled yet — US30
-/// needs its own symbol spec (digits / volume step / min-max) and a sizing model
-/// wired in like XAUUSD before we fire real orders. Returns a clear error so the
-/// card shows "not placed" rather than risking a mis-sized real-money order.
+/// Place a live US30 PENDING order from a detected opportunity. Sizes volume from
+/// the US30 symbol spec (qty × min lot, floored to step, clamped to max). Requires
+/// an entry (places a LIMIT/STOP there) — US30 market orders aren't enabled, which
+/// also avoids needing a live-bid feed. Absolute SL/TP are validated against the
+/// entry. The UI gates this behind a LIVE confirm step.
+async fn submit_us30_order(
+    side: String,
+    qty: u32,
+    entry: Option<f64>,
+    stop: Option<f64>,
+    target1: Option<f64>,
+) -> Result<OrderResult, String> {
+    use openapi::ProtoOaTrendbarPeriod as P;
+    let qty = qty.clamp(1, 10);
+    let (trade_side, side_str) = match side.to_uppercase().as_str() {
+        "LONG" | "BUY"  => (openapi::ProtoOaTradeSide::Buy, "BUY"),
+        "SHORT" | "SELL" => (openapi::ProtoOaTradeSide::Sell, "SELL"),
+        other => return Err(format!("can't place an order for side '{}'", other)),
+    };
+    let is_buy = matches!(trade_side, openapi::ProtoOaTradeSide::Buy);
+
+    let spec = us30_spec().lock().map_err(|e| e.to_string())?.ok_or(
+        "US30 trading spec not loaded yet — wait a few seconds after connect and retry."
+    )?;
+    let round = |x: f64| { let f = 10f64.powi(spec.digits.max(0)); (x * f).round() / f };
+
+    // Size: qty × the minimum lot, floored to a step multiple, clamped to max.
+    let base = if spec.min_volume > 0 { spec.min_volume } else if spec.step_volume > 0 { spec.step_volume } else { 100 };
+    let mut volume = qty as i64 * base;
+    if spec.step_volume > 0 { volume = (volume / spec.step_volume) * spec.step_volume; }
+    if spec.max_volume > 0 { volume = volume.min(spec.max_volume); }
+    if spec.min_volume > 0 && volume < spec.min_volume { volume = spec.min_volume; }
+    if volume <= 0 {
+        return Err(format!("computed volume {} invalid for US30 spec min={} step={}", volume, spec.min_volume, spec.step_volume));
+    }
+
+    let Some(e) = entry.map(round) else {
+        return Err("US30 needs an entry price (pending order) — market orders aren't enabled for US30.".into());
+    };
+    // Price reference (last M5 close) to choose LIMIT vs STOP at the entry.
+    let m5 = fetch_trendbars_for_snapshot(spec.symbol_id, P::M5, 5, 3).await.unwrap_or_default();
+    let price = m5.last().map(|c| c.close).unwrap_or(0.0);
+    if price <= 0.0 {
+        return Err("no US30 price reference yet — wait for candle data and retry.".into());
+    }
+
+    let ot = if is_buy {
+        if e <= price { openapi::ProtoOaOrderType::Limit } else { openapi::ProtoOaOrderType::Stop }
+    } else if e >= price { openapi::ProtoOaOrderType::Limit } else { openapi::ProtoOaOrderType::Stop };
+    let sl = stop.map(round).filter(|&s| if is_buy { s < e } else { s > e });
+    let tp = target1.map(round).filter(|&t| if is_buy { t > e } else { t < e });
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    let order = OrderRequest {
+        symbol_id: spec.symbol_id,
+        trade_side,
+        order_type: ot,
+        volume,
+        limit_price: if matches!(ot, openapi::ProtoOaOrderType::Limit) { Some(e) } else { None },
+        stop_price:  if matches!(ot, openapi::ProtoOaOrderType::Limit) { None } else { Some(e) },
+        stop_loss: sl,
+        take_profit: tp,
+        rel_sl: None,
+        rel_tp: None,
+        label: "US30Idea".into(),
+        reply: reply_tx,
+    };
+    let tx = ORDER_REQ_TX.get().ok_or("order channel not initialised")?;
+    tx.send(order).await.map_err(|e| format!("send order: {}", e))?;
+
+    let outcome = match tokio::time::timeout(std::time::Duration::from_secs(15), reply_rx).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(_)) => Err("order request cancelled".into()),
+        Err(_) => Err("broker response timeout (order may or may not have been placed — check cTrader)".into()),
+    };
+    let out_type = ot.as_str_name().to_string();
+    match outcome {
+        Ok(status) => Ok(OrderResult {
+            sent: true, side: side_str.into(), symbol: "US30".into(), oz: qty,
+            ctrader_volume: volume, order_type: out_type, entry: Some(e), sl, tp, status: Some(status), error: None,
+        }),
+        Err(err) => Ok(OrderResult {
+            sent: false, side: side_str.into(), symbol: "US30".into(), oz: qty,
+            ctrader_volume: volume, order_type: out_type, entry: Some(e), sl, tp, status: None, error: Some(err),
+        }),
+    }
+}
+
+/// Tauri command wrapper around [`submit_us30_order`].
 #[tauri::command]
 async fn place_us30_order(
-    _side: String,
-    _qty: u32,
-    _entry: Option<f64>,
-    _stop: Option<f64>,
-    _target1: Option<f64>,
+    side: String,
+    qty: u32,
+    entry: Option<f64>,
+    stop: Option<f64>,
+    target1: Option<f64>,
 ) -> Result<OrderResult, String> {
-    Err("US30 live order placement isn't enabled yet — it needs the US30 symbol spec & sizing wired in (next step). The levels above are ready to place once that's done.".to_string())
+    submit_us30_order(side, qty, entry, stop, target1).await
 }
 
 /// Tauri command behind the US30 "Detect Opportunities" button. Builds a live
@@ -5247,19 +5341,24 @@ async fn run_session(
                                 // Fetch the full XAUUSD symbol spec (digits / min /
                                 // step / max volume) so live orders can be sized and
                                 // priced safely. Cached on the 2117 response.
-                                if let Some(xau_id) = symbol_id_to_name.iter()
-                                    .find(|(_, n)| n.as_str() == "XAUUSD").map(|(&id, _)| id)
                                 {
-                                    let spec_req = openapi::ProtoOaSymbolByIdReq {
-                                        payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaSymbolByIdReq as i32),
-                                        ctid_trader_account_id: account_id,
-                                        symbol_id: vec![xau_id],
-                                    };
-                                    let _ = send_message(
-                                        &mut tls_stream,
-                                        openapi::ProtoOaPayloadType::ProtoOaSymbolByIdReq as u32,
-                                        spec_req,
-                                    ).await;
+                                    let id_of = |want: &str| symbol_id_to_name.iter()
+                                        .find(|(_, n)| n.as_str() == want).map(|(&id, _)| id);
+                                    let mut spec_ids: Vec<i64> = Vec::new();
+                                    if let Some(id) = id_of("XAUUSD") { spec_ids.push(id); }
+                                    if let Some(id) = id_of("US30") { spec_ids.push(id); }
+                                    if !spec_ids.is_empty() {
+                                        let spec_req = openapi::ProtoOaSymbolByIdReq {
+                                            payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaSymbolByIdReq as i32),
+                                            ctid_trader_account_id: account_id,
+                                            symbol_id: spec_ids,
+                                        };
+                                        let _ = send_message(
+                                            &mut tls_stream,
+                                            openapi::ProtoOaPayloadType::ProtoOaSymbolByIdReq as u32,
+                                            spec_req,
+                                        ).await;
+                                    }
                                 }
 
                                 // Seed the Positions panel with current open positions
@@ -5298,10 +5397,10 @@ async fn run_session(
                             }
                         }
                     },
-                    2117 => { // ProtoOASymbolByIdRes — cache XAUUSD trading spec
+                    2117 => { // ProtoOASymbolByIdRes — cache trading specs (XAUUSD + US30)
                         if let Some(payload) = &msg.payload {
                             if let Ok(res) = openapi::ProtoOaSymbolByIdRes::decode(payload.as_slice()) {
-                                if let Some(sym) = res.symbol.first() {
+                                for sym in &res.symbol {
                                     let spec = SymbolSpec {
                                         symbol_id: sym.symbol_id,
                                         digits: sym.digits,
@@ -5309,9 +5408,14 @@ async fn run_session(
                                         step_volume: sym.step_volume.unwrap_or(0),
                                         max_volume: sym.max_volume.unwrap_or(i64::MAX),
                                     };
-                                    println!("[order] XAUUSD spec: digits={} min_vol={} step_vol={} max_vol={}",
-                                             spec.digits, spec.min_volume, spec.step_volume, spec.max_volume);
-                                    if let Ok(mut g) = xauusd_spec().lock() { *g = Some(spec); }
+                                    let name = symbol_id_to_name.get(&sym.symbol_id).cloned().unwrap_or_default();
+                                    println!("[order] {} spec: digits={} min_vol={} step_vol={} max_vol={}",
+                                             name, spec.digits, spec.min_volume, spec.step_volume, spec.max_volume);
+                                    match name.as_str() {
+                                        "XAUUSD" => { if let Ok(mut g) = xauusd_spec().lock() { *g = Some(spec); } }
+                                        "US30"   => { if let Ok(mut g) = us30_spec().lock() { *g = Some(spec); } }
+                                        _ => {}
+                                    }
                                 }
                             }
                         }
