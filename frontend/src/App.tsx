@@ -764,7 +764,7 @@ function App() {
               </div>
               <div className="calendar-pane">
                 <h4 className="calendar-pane-title">Current Week &amp; Next Week</h4>
-                <div className="placeholder">No outlook yet.</div>
+                <WeeklyAnalysisView />
               </div>
             </div>
           )}
@@ -2651,6 +2651,121 @@ function GoldEcPanel({ s }: { s: GoldEc }) {
             {s.upcoming.map((u, i) => (
               <li key={i}>
                 <span className="sent-lean muted">{u.time}</span>
+                <strong>{u.currency} {u.event}</strong>
+                {u.importance && <span className="muted"> · {u.importance.toLowerCase()}</span>}
+                {u.why ? <span className="muted"> — {u.why}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {s.forward && (s.forward.base_case || s.forward.watch?.length > 0) && (
+        <div className="sent-forward">
+          <div className="sent-section-title">Forward</div>
+          {s.forward.base_case && <div className="sent-summary">{s.forward.base_case}</div>}
+          {s.forward.watch?.length > 0 && <div className="sent-watch muted">Watch: {s.forward.watch.join(' · ')}</div>}
+        </div>
+      )}
+
+      <div className="sent-foot muted">Updated {updated} · {s.events_count} events</div>
+    </div>
+  )
+}
+
+// ── Market Predictor · Current Week & Next Week (weekly EC outlook) ──────────
+type GoldWeek = {
+  bias: string
+  intensity: number
+  conviction: number
+  headline: string
+  summary: string
+  happened: { when: string; currency: string; event: string; surprise: string; gold_impact: string; note: string }[]
+  upcoming: { when: string; currency: string; event: string; importance: string; why: string }[]
+  forward: { base_case: string; watch: string[] }
+  updated_utc: string
+  events_count: number
+}
+
+function WeeklyAnalysisView() {
+  const [wk, setWk] = useState<GoldWeek | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const elapsed = useElapsed(loading)
+
+  useEffect(() => {
+    invoke<GoldWeek | null>('get_last_gold_week_analysis').then((s) => { if (s) setWk(s) }).catch(() => {})
+  }, [])
+
+  const run = async () => {
+    setLoading(true); setError(null)
+    try { setWk(await invoke<GoldWeek>('get_gold_week_analysis')) }
+    catch (e) { setError(String(e)) }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <div>
+      <div className="archive-actions">
+        <button className="btn" onClick={run} disabled={loading}>
+          {loading ? 'Analyzing…' : 'This Week'}
+        </button>
+      </div>
+      {loading && <LoadingBar elapsed={elapsed} label="Reading this & next week’s calendar with opus…" />}
+      {error && <div className="archive-result err">Error: {error}</div>}
+      {wk
+        ? <WeeklyEcPanel s={wk} />
+        : !loading && !error && <div className="placeholder">Click “This Week” for the week’s gold outlook — what happened and what’s coming.</div>}
+    </div>
+  )
+}
+
+function WeeklyEcPanel({ s }: { s: GoldWeek }) {
+  const pct = Math.max(-100, Math.min(100, s.intensity))
+  const markerLeft = (pct + 100) / 2
+  const updated = (() => { try { return new Date(s.updated_utc).toLocaleString() } catch { return s.updated_utc } })()
+  return (
+    <div className="sent-panel">
+      <div className="sent-head">
+        <span className="sent-badge" style={{ background: dispColor(s.bias) }}>{s.bias}</span>
+        <span className="sent-intensity" style={{ color: dispColor(s.bias) }}>{pct > 0 ? '+' : ''}{pct}</span>
+        <span className="sent-conviction muted">conviction {Math.round((s.conviction ?? 0) * 100)}%</span>
+      </div>
+      <div className="sent-gauge">
+        <div className="sent-gauge-track">
+          <div className="sent-gauge-mid" />
+          <div className="sent-gauge-marker" style={{ left: `${markerLeft}%`, background: dispColor(s.bias) }} />
+        </div>
+        <div className="sent-gauge-labels"><span>Bearish</span><span>Neutral</span><span>Bullish</span></div>
+      </div>
+
+      {s.headline && <div className="sent-headline">{s.headline}</div>}
+      {s.summary && <div className="sent-summary">{s.summary}</div>}
+
+      {s.happened?.length > 0 && (
+        <div className="sent-section">
+          <div className="sent-section-title">Happened this week</div>
+          <ul className="sent-drivers">
+            {s.happened.map((h, i) => (
+              <li key={i}>
+                <span className="sent-lean" style={{ color: leanColor(h.gold_impact) }}>{h.gold_impact}</span>
+                <span className="muted">{h.when} · </span>
+                <strong>{h.currency} {h.event}</strong>
+                {h.surprise && <span className="muted"> · {h.surprise.toLowerCase()}</span>}
+                {h.note ? <span className="muted"> — {h.note}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {s.upcoming?.length > 0 && (
+        <div className="sent-section">
+          <div className="sent-section-title">Coming up (this & next week)</div>
+          <ul className="sent-drivers">
+            {s.upcoming.map((u, i) => (
+              <li key={i}>
+                <span className="sent-lean muted" style={{ minWidth: 90 }}>{u.when}</span>
                 <strong>{u.currency} {u.event}</strong>
                 {u.importance && <span className="muted"> · {u.importance.toLowerCase()}</span>}
                 {u.why ? <span className="muted"> — {u.why}</span> : null}

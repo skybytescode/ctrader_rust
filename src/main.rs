@@ -2221,6 +2221,109 @@ async fn get_last_gold_ec_analysis(state: tauri::State<'_, AppState>) -> Result<
     Ok(payload.and_then(|p| serde_json::from_str(&p).ok()))
 }
 
+/// Collect this-week + next-week (importance ≥ 2) economic-calendar events from
+/// all three sources for the weekly outlook agent. `[start, end)` is the Monday
+/// of the current week through the end of next week (date strings, ISO sortable).
+fn gather_week_ec_events(db: &duckdb::Connection, start: &str, end: &str) -> (String, usize) {
+    let datime = |ts: &str| {
+        // "YYYY-MM-DDTHH:MM:SS" → weekday + HH:MM, e.g. "Wed 12:30".
+        if ts.len() >= 16 {
+            let wd = chrono::NaiveDate::parse_from_str(&ts[..10], "%Y-%m-%d")
+                .map(|d| d.format("%a").to_string()).unwrap_or_default();
+            format!("{} {}", wd, &ts[11..16])
+        } else { ts.to_string() }
+    };
+    let vfp = |a: Option<String>, f: Option<String>, p: Option<String>| {
+        let g = |o: Option<String>| o.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "—".to_string());
+        format!("A:{} F:{} P:{}", g(a), g(f), g(p))
+    };
+    let mut lines: Vec<String> = Vec::new();
+    let q = |db: &duckdb::Connection, sql: &str, tag: &str, lines: &mut Vec<String>| {
+        if let Ok(mut s) = db.prepare(sql) {
+            if let Ok(rows) = s.query_map(duckdb::params![start, end], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i32>(2)?, r.get::<_, String>(3)?, r.get::<_, Option<String>>(4)?, r.get::<_, Option<String>>(5)?, r.get::<_, Option<String>>(6)?))) {
+                for (ts, cur, imp, ev, a, f, p) in rows.flatten() {
+                    lines.push(format!("[{}] {} {} (i{}) {} | {}", tag, datime(&ts), cur, imp, ev, vfp(a, f, p)));
+                }
+            }
+        }
+    };
+    q(db, "SELECT timestamp_utc, currency, volatility, event_name, actual_raw, forecast_raw, previous_raw FROM xauusd_economic_calendar WHERE timestamp_utc >= ? AND timestamp_utc < ? AND volatility >= 2 ORDER BY timestamp_utc ASC LIMIT 120", "FXStreet", &mut lines);
+    q(db, "SELECT timestamp_utc, currency, importance, event_name, actual_raw, forecast_raw, previous_raw FROM myfxbook_economic_calendar WHERE timestamp_utc >= ? AND timestamp_utc < ? AND importance >= 2 ORDER BY timestamp_utc ASC LIMIT 120", "MyFXBook", &mut lines);
+    q(db, "SELECT timestamp_utc, currency, impact, title, actual_raw, forecast_raw, previous_raw FROM forexfactory_calendar WHERE timestamp_utc >= ? AND timestamp_utc < ? AND impact >= 2 ORDER BY timestamp_utc ASC LIMIT 120", "ForexFactory", &mut lines);
+    let count = lines.len();
+    (lines.join("\n"), count)
+}
+
+/// Tauri command behind the Market Predictor "This Week" button. Sends this +
+/// next week's calendar to the gold-week-events agent, parses, stamps, persists.
+#[tauri::command]
+async fn get_gold_week_analysis(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    use chrono::Datelike;
+    let now = chrono::Utc::now();
+    let weekday = now.weekday().num_days_from_monday() as i64;
+    let week_start = (now - chrono::Duration::days(weekday)).format("%Y-%m-%d").to_string();
+    let range_end = (now - chrono::Duration::days(weekday) + chrono::Duration::days(14)).format("%Y-%m-%d").to_string();
+
+    let (events, count) = {
+        let db_mutex = state.db_mutex.clone();
+        let (ws, re) = (week_start.clone(), range_end.clone());
+        tokio::task::spawn_blocking(move || {
+            let _lock = db_mutex.lock().ok()?;
+            let db = duckdb::Connection::open(DB_PATH).ok()?;
+            Some(gather_week_ec_events(&db, &ws, &re))
+        }).await.unwrap_or(None).unwrap_or((String::new(), 0))
+    };
+    if count == 0 {
+        return Err("No economic-calendar events stored for this/next week yet — run EC_Gold_Events_Update.".into());
+    }
+
+    let user = format!(
+        "Now is {} (UTC); the current week starts {}. Below are the important (i≥2) economic-calendar events for \
+         THIS week and NEXT week from FXStreet, MyFXBook and ForexFactory (A=actual, F=forecast, P=previous; '—' = \
+         not yet released — that means it hasn't happened). Split them into what already happened (with gold impact) \
+         and what's still to come this/next week, and give the weekly gold outlook. JSON only.\n\n{}",
+        now.to_rfc3339(), week_start, events,
+    );
+    let model = std::env::var("CLAUDE_SENTIMENT_MODEL").unwrap_or_else(|_| "opus".to_string());
+    let raw = ai::traders::claude_cli_raw_timeout(
+        &model, &ai::traders::gold_week_events_prompt(), &user, std::time::Duration::from_secs(300),
+    ).await?;
+    let mut val = extract_sentiment_json(&raw)
+        .ok_or_else(|| "could not parse weekly analysis JSON from the model output".to_string())?;
+    if let Some(obj) = val.as_object_mut() {
+        obj.insert("updated_utc".to_string(), serde_json::json!(now.to_rfc3339()));
+        obj.insert("events_count".to_string(), serde_json::json!(count));
+        obj.insert("week_start".to_string(), serde_json::json!(week_start));
+    }
+    {
+        let db_mutex = state.db_mutex.clone();
+        let updated = now.to_rfc3339();
+        let payload = val.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(_lock) = db_mutex.lock() {
+                if let Ok(db) = duckdb::Connection::open(DB_PATH) {
+                    let _ = db.execute_batch("CREATE TABLE IF NOT EXISTS gold_week_analysis (updated_utc VARCHAR, payload VARCHAR)");
+                    let _ = db.execute("INSERT INTO gold_week_analysis VALUES (?, ?)", duckdb::params![updated, payload]);
+                }
+            }
+        }).await;
+    }
+    Ok(val)
+}
+
+/// Load the most recent stored weekly analysis (so the panel is persistent).
+#[tauri::command]
+async fn get_last_gold_week_analysis(state: tauri::State<'_, AppState>) -> Result<Option<serde_json::Value>, String> {
+    let db_mutex = state.db_mutex.clone();
+    let payload: Option<String> = tokio::task::spawn_blocking(move || {
+        let _lock = db_mutex.lock().ok()?;
+        let db = duckdb::Connection::open(DB_PATH).ok()?;
+        let _ = db.execute_batch("CREATE TABLE IF NOT EXISTS gold_week_analysis (updated_utc VARCHAR, payload VARCHAR)");
+        db.query_row("SELECT payload FROM gold_week_analysis ORDER BY updated_utc DESC LIMIT 1", [], |r| r.get::<_, String>(0)).ok()
+    }).await.unwrap_or(None);
+    Ok(payload.and_then(|p| serde_json::from_str(&p).ok()))
+}
+
 /// Tauri command: fetch one article's body on demand (when a user opens it in the
 /// modal). Hits the econcal proxy API, parses the HTML field, strips tags, and
 /// updates `news_historical.body` so subsequent loads are free.
@@ -4633,6 +4736,8 @@ fn main() {
             get_last_gold_sentiment,
             get_gold_ec_analysis,
             get_last_gold_ec_analysis,
+            get_gold_week_analysis,
+            get_last_gold_week_analysis,
             get_trendbars,
             get_gold_trade_ideas_multi,
             get_gold_trade_idea,

@@ -52,6 +52,11 @@ const GOLD_SENTIMENT_SKILL: &str =
 const GOLD_EC_EVENTS_SKILL: &str =
     include_str!("../../.claude/skills/gold-ec-events/SKILL.md");
 
+/// The gold weekly-events agent — reads this + next week's calendar and returns
+/// the weekly outlook (happened + upcoming). Market Predictor.
+const GOLD_WEEK_EVENTS_SKILL: &str =
+    include_str!("../../.claude/skills/gold-week-events/SKILL.md");
+
 /// Strip a leading `---\n … \n---\n` YAML frontmatter block from a skill body.
 fn strip_frontmatter(s: &str) -> String {
     if let Some(rest) = s.strip_prefix("---") {
@@ -90,6 +95,11 @@ pub fn gold_sentiment_prompt() -> String {
 /// Gold EC-events agent's system prompt (frontmatter removed).
 pub fn gold_ec_events_prompt() -> String {
     strip_frontmatter(GOLD_EC_EVENTS_SKILL)
+}
+
+/// Gold weekly-events agent's system prompt (frontmatter removed).
+pub fn gold_week_events_prompt() -> String {
+    strip_frontmatter(GOLD_WEEK_EVENTS_SKILL)
 }
 
 /// One model's answer, ready to serialize to the frontend popup.
