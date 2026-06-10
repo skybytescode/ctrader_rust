@@ -571,7 +571,7 @@ function App() {
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      for (const sym of ['XAUUSD', 'EURUSD', 'XRPUSD', 'US30']) {
+      for (const sym of ['XAUUSD', 'EURUSD', 'XRPUSD', 'US30', 'BTCUSD']) {
         try {
           const candles = await invoke<Candle[]>('get_trendbars', { symbol: sym, timeframe: 'D1', count: 1 })
           const bar = candles.at(-1)
@@ -598,6 +598,8 @@ function App() {
   // The tick for whichever instrument is currently selected (drives its chart).
   const selectedTick = selectedSymbol ? (ticks[selectedSymbol] ?? null) : null
   const isXrp = selectedSymbol === 'XRPUSD'
+  // BTCUSD is a chart-only view (like XRP): just its 5-min chart, no other tabs.
+  const isBtc = selectedSymbol === 'BTCUSD'
 
   // Calendar + News scoped to the selected instrument (EURUSD → EUR/USD only;
   // XAUUSD and the unselected state → the full global feed).
@@ -658,6 +660,16 @@ function App() {
             selected={selectedSymbol === 'US30'}
             onSelect={() => { setSelectedSymbol('US30'); setTab('dashboard'); }}
           />
+          <InstrumentTile
+            symbol="BTCUSD"
+            tick={ticks['BTCUSD'] ?? null}
+            prevBid={prevBids['BTCUSD'] ?? null}
+            decimals={1}
+            dailyOpen={dailyBars['BTCUSD']?.open}
+            lastClose={dailyBars['BTCUSD']?.close}
+            selected={selectedSymbol === 'BTCUSD'}
+            onSelect={() => { setSelectedSymbol('BTCUSD'); setTab('dashboard'); }}
+          />
         </ul>
 
         <footer className="footer">
@@ -671,9 +683,9 @@ function App() {
 
       <main className="content">
         <nav className="tabs">
-          <button className={tab === 'dashboard' ? 'tab active' : 'tab'} onClick={() => setTab('dashboard')}>Dashboard</button>
-          {/* XRP is a self-contained bot view — just a Dashboard, no calendar/news/ideas. */}
-          {!isXrp && (
+          <button className={tab === 'dashboard' ? 'tab active' : 'tab'} onClick={() => setTab('dashboard')}>{isBtc ? 'Chart' : 'Dashboard'}</button>
+          {/* XRP / BTC are self-contained views — just the chart, no calendar/news/ideas. */}
+          {!isXrp && !isBtc && (
             <>
               <button className={tab === 'calendar' ? 'tab active' : 'tab'} onClick={() => setTab('calendar')}>
                 Calendar
@@ -720,6 +732,8 @@ function App() {
           {tab === 'dashboard' && (
             isXrp
               ? <XrpBotView tick={selectedTick} />
+              : isBtc
+                ? <SimpleChart symbol="BTCUSD" precision={1} minMove={0.1} />
               : selectedSymbol === 'US30'
                 ? <US30View positions={positions} orders={orders} tick={selectedTick} />
                 : (selectedSymbol === 'XAUUSD' || selectedSymbol === 'EURUSD')
@@ -971,11 +985,12 @@ function Us30OppCard({ opp }: { opp: Us30Opp }) {
   )
 }
 
-// Minimal US30 5-minute candle chart. ChartView is heavily XAUUSD-tuned (session
-// VWAP from tick-volume, per-TF zoom memory, a deliberate no-fitContent policy for
-// 1000-bar charts) which leaves US30's ~150 bars out of view — so this is a clean,
-// self-contained candle chart that just loads M5 and fitContent()s.
-function Us30Chart() {
+// Minimal 5-minute candle chart for a single symbol (US30, BTCUSD …). ChartView
+// is heavily XAUUSD-tuned (session VWAP from tick-volume, per-TF zoom memory, a
+// deliberate no-fitContent policy for 1000-bar charts) which leaves these ~150
+// bars out of view — so this is a clean, self-contained chart that just loads M5
+// and fitContent()s.
+function SimpleChart({ symbol, precision = 1, minMove = 0.1 }: { symbol: string; precision?: number; minMove?: number }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<any>(null)
   const seriesRef = useRef<any>(null)
@@ -986,7 +1001,7 @@ function Us30Chart() {
     const series = seriesRef.current
     if (!series) return
     try {
-      const candles = await invoke<Candle[]>('get_trendbars', { symbol: 'US30', timeframe: 'M5', count: 200 })
+      const candles = await invoke<Candle[]>('get_trendbars', { symbol, timeframe: 'M5', count: 200 })
       const sorted = [...candles].sort((a, b) => a.time - b.time)
       const dedup: Candle[] = []
       for (const c of sorted) {
@@ -1017,7 +1032,7 @@ function Us30Chart() {
       const series = chart.addSeries(CandlestickSeries, {
         upColor: '#2dd47b', downColor: '#f87171', borderVisible: false,
         wickUpColor: '#2dd47b', wickDownColor: '#f87171',
-        priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
+        priceFormat: { type: 'price', precision, minMove },
       })
       chartRef.current = chart
       seriesRef.current = series
@@ -1027,7 +1042,7 @@ function Us30Chart() {
     })()
     return () => { cancelled = true; cleanup() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [symbol])
 
   return (
     <div>
@@ -1163,7 +1178,7 @@ function US30View({ positions, orders, tick }: { positions: OpenPosition[]; orde
         </div>
       )}
 
-      <Us30Chart />
+      <SimpleChart symbol="US30" precision={1} minMove={0.1} />
     </div>
   )
 }

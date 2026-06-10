@@ -5089,7 +5089,7 @@ async fn run_session(
     // Symbols to subscribe to live spot prices (driven by CTRADER_SYMBOL env var).
     // EURUSD is always added so it shows in the sidebar alongside the primary symbol.
     let mut instruments_to_subscribe: Vec<&str> = vec![target_symbol.as_str()];
-    for extra in ["EURUSD", "XRPUSD", "US30"] {
+    for extra in ["EURUSD", "XRPUSD", "US30", "BTCUSD"] {
         if !instruments_to_subscribe.contains(&extra) {
             instruments_to_subscribe.push(extra);
         }
