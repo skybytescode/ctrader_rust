@@ -351,13 +351,17 @@ function InstrumentTile({ symbol, tick, prevBid, decimals, pipSize, dailyOpen, l
 // symbol absent from these maps (e.g. XAUUSD) shows the unfiltered global feed.
 const SYMBOL_CCYS: Record<string, string[]> = {
   EURUSD: ['EUR', 'USD'],
-  // BTCUSD is priced in USD — US macro (Fed/CPI/jobs) is what moves it on the calendar.
+  // BTCUSD / US30 are priced in / driven by USD — US macro (Fed/CPI/jobs) is what
+  // moves them on the calendar.
   BTCUSD: ['USD'],
+  US30: ['USD'],
 }
 const SYMBOL_NEWS_RE: Record<string, RegExp> = {
   EURUSD: /\beur\b|\beuro\b|\becb\b|lagarde|eurozone|euro area|\busd\b|us dollar|greenback|\bfed\b|fomc|powell|federal reserve|nonfarm|payrolls/i,
   // Crypto stories + the USD/Fed macro + risk-sentiment threads that drive bitcoin.
   BTCUSD: /\bbtc\b|bitcoin|\bcrypto|blockchain|ethereum|\beth\b|coinbase|\betf\b|\bsec\b|halving|stablecoin|\busd\b|us dollar|greenback|\bfed\b|fomc|powell|federal reserve|interest rate|rate (cut|hike)|\bcpi\b|inflation|nonfarm|payrolls|risk[- ](on|off)|treasury|yields/i,
+  // US equities / indices + the USD/Fed macro + risk-sentiment threads that drive the Dow.
+  US30: /\bdow\b|dow jones|\bus30\b|wall street|s&p|nasdaq|\bspx\b|\bndx\b|equit|stock market|\bstocks\b|earnings|\bvix\b|risk[- ](on|off)|\busd\b|us dollar|greenback|\bfed\b|fomc|powell|federal reserve|interest rate|rate (cut|hike)|\bcpi\b|inflation|nonfarm|payrolls|treasury|yields|tariff/i,
 }
 
 // XRP 5-minute bot dashboard: live quote + start/close controls. The bot itself
@@ -602,8 +606,11 @@ function App() {
   // The tick for whichever instrument is currently selected (drives its chart).
   const selectedTick = selectedSymbol ? (ticks[selectedSymbol] ?? null) : null
   const isXrp = selectedSymbol === 'XRPUSD'
-  // BTCUSD is a chart-only view (like XRP): just its 5-min chart, no other tabs.
   const isBtc = selectedSymbol === 'BTCUSD'
+  const isUs30 = selectedSymbol === 'US30'
+  // BTC + US30 are self-contained views: a Chart tab + their own (symbol-relevant)
+  // News tab — none of the generic Calendar/Archives/Ideas tabs.
+  const isChartOnly = isBtc || isUs30
 
   // Calendar + News scoped to the selected instrument (EURUSD → EUR/USD only;
   // XAUUSD and the unselected state → the full global feed).
@@ -687,16 +694,16 @@ function App() {
 
       <main className="content">
         <nav className="tabs">
-          <button className={tab === 'dashboard' ? 'tab active' : 'tab'} onClick={() => setTab('dashboard')}>{isBtc ? 'Chart' : 'Dashboard'}</button>
-          {/* BTC is a chart-only view plus its own News (BTC-relevant news + USD events). */}
-          {isBtc && (
+          <button className={tab === 'dashboard' ? 'tab active' : 'tab'} onClick={() => setTab('dashboard')}>{isChartOnly ? 'Chart' : 'Dashboard'}</button>
+          {/* BTC + US30 are chart-only views plus their own symbol-relevant News tab. */}
+          {isChartOnly && (
             <button className={tab === 'news' ? 'tab active' : 'tab'} onClick={() => setTab('news')}>
               News
               {shownNews.length > 0 && <span className="badge">{shownNews.length}</span>}
             </button>
           )}
-          {/* XRP / BTC are self-contained views — just the chart, no calendar/ideas. */}
-          {!isXrp && !isBtc && (
+          {/* XRP / BTC / US30 are self-contained views — no generic calendar/ideas tabs. */}
+          {!isXrp && !isChartOnly && (
             <>
               <button className={tab === 'calendar' ? 'tab active' : 'tab'} onClick={() => setTab('calendar')}>
                 Calendar
@@ -763,7 +770,7 @@ function App() {
               </div>
             </div>
           )}
-          {tab === 'news' && !isBtc && (
+          {tab === 'news' && !isChartOnly && (
             <div className="calendar-split">
               <div className="calendar-pane">
                 <h4 className="calendar-pane-title">FXStreet (live)</h4>
@@ -775,10 +782,10 @@ function App() {
               </div>
             </div>
           )}
-          {tab === 'news' && isBtc && (
+          {tab === 'news' && isChartOnly && (
             <div className="calendar-split">
               <div className="calendar-pane">
-                <h4 className="calendar-pane-title">FXStreet — BTC news (today)</h4>
+                <h4 className="calendar-pane-title">FXStreet — {selectedSymbol} news (today)</h4>
                 <NewsView articles={shownNews} status={newsStatus} onOpen={setOpenArticle} />
               </div>
               <div className="calendar-pane">
