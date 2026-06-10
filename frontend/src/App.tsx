@@ -733,7 +733,7 @@ function App() {
             isXrp
               ? <XrpBotView tick={selectedTick} />
               : isBtc
-                ? <SimpleChart symbol="BTCUSD" precision={1} minMove={0.1} />
+                ? <SimpleChart symbol="BTCUSD" precision={1} minMove={0.1} tick={selectedTick} />
               : selectedSymbol === 'US30'
                 ? <US30View positions={positions} orders={orders} tick={selectedTick} />
                 : (selectedSymbol === 'XAUUSD' || selectedSymbol === 'EURUSD')
@@ -990,11 +990,12 @@ function Us30OppCard({ opp }: { opp: Us30Opp }) {
 // deliberate no-fitContent policy for 1000-bar charts) which leaves these ~150
 // bars out of view — so this is a clean, self-contained chart that just loads M5
 // and fitContent()s.
-function SimpleChart({ symbol, precision = 1, minMove = 0.1 }: { symbol: string; precision?: number; minMove?: number }) {
+function SimpleChart({ symbol, precision = 1, minMove = 0.1, tick }: { symbol: string; precision?: number; minMove?: number; tick?: Tick | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<any>(null)
   const seriesRef = useRef<any>(null)
   const firstRef = useRef(true)
+  const lastBarRef = useRef<Candle | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = async () => {
@@ -1009,12 +1010,26 @@ function SimpleChart({ symbol, precision = 1, minMove = 0.1 }: { symbol: string;
         if (dedup.length === 0 || dedup[dedup.length - 1].time !== c.time) dedup.push(c)
         else dedup[dedup.length - 1] = c
       }
-      if (dedup.length === 0) { setError('No US30 candles returned.'); return }
+      if (dedup.length === 0) { setError(`No ${symbol} candles returned.`); return }
       series.setData(dedup.map(c => ({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close })))
+      lastBarRef.current = dedup[dedup.length - 1] ?? null
       setError(null)
       if (firstRef.current) { chartRef.current?.timeScale().fitContent(); firstRef.current = false }
     } catch (e) { setError(String(e)) }
   }
+
+  // Live: update the forming M5 bar on every tick (the 10s refetch makes new bars
+  // and reconciles). Without this the chart only moves once every 10 seconds.
+  useEffect(() => {
+    const series = seriesRef.current
+    const last = lastBarRef.current
+    if (!series || !last || tick?.bid == null) return
+    const price = tick.bid
+    const high = Math.max(last.high, price)
+    const low = Math.min(last.low, price)
+    lastBarRef.current = { ...last, high, low, close: price }
+    series.update({ time: last.time as any, open: last.open, high, low, close: price })
+  }, [tick])
 
   useEffect(() => {
     let cancelled = false
@@ -1178,7 +1193,7 @@ function US30View({ positions, orders, tick }: { positions: OpenPosition[]; orde
         </div>
       )}
 
-      <SimpleChart symbol="US30" precision={1} minMove={0.1} />
+      <SimpleChart symbol="US30" precision={1} minMove={0.1} tick={tick} />
     </div>
   )
 }
