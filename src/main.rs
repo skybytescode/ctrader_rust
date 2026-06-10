@@ -108,6 +108,10 @@ static VITE_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::ne
 /// tick in the WS bridge so commands like the Trade Idea can read a true
 /// current price instead of relying on the last (up-to-5-min-old) M5 close.
 static LATEST_XAUUSD_BID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Same idea for US30 — the live bid, so US30 pending orders pick LIMIT vs STOP
+/// against the true current price (not the lagging M5 close, which would put the
+/// order on the wrong side and fill immediately).
+static LATEST_US30_BID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Latest broadcast JSON message keyed by `type` field. Sent to every newly-connected
 /// WS client so a client joining after a one-shot event (e.g. ec_today) still sees
@@ -3921,11 +3925,22 @@ async fn submit_us30_order(
     let Some(e) = entry.map(round) else {
         return Err("US30 needs an entry price (pending order) — market orders aren't enabled for US30.".into());
     };
-    // Price reference (last M5 close) to choose LIMIT vs STOP at the entry.
-    let m5 = fetch_trendbars_for_snapshot(spec.symbol_id, P::M5, 5, 3).await.unwrap_or_default();
-    let price = m5.last().map(|c| c.close).unwrap_or(0.0);
+    // Price reference to choose LIMIT vs STOP at the entry. Prefer the LIVE bid
+    // (kept current by the WS bridge); fall back to the last M5 close only if no
+    // tick has arrived yet. Using a stale close here is what made pending orders
+    // land on the wrong side and fill immediately at market.
+    let price = {
+        let bits = LATEST_US30_BID.load(std::sync::atomic::Ordering::Relaxed);
+        let live = if bits != 0 { f64::from_bits(bits) } else { 0.0 };
+        if live > 0.0 {
+            live
+        } else {
+            let m5 = fetch_trendbars_for_snapshot(spec.symbol_id, P::M5, 5, 3).await.unwrap_or_default();
+            m5.last().map(|c| c.close).unwrap_or(0.0)
+        }
+    };
     if price <= 0.0 {
-        return Err("no US30 price reference yet — wait for candle data and retry.".into());
+        return Err("no US30 price reference yet — wait for a live tick and retry.".into());
     }
 
     let ot = if is_buy {
@@ -4703,6 +4718,8 @@ fn main() {
                             if symbol == "XAUUSD" {
                                 LATEST_XAUUSD_BID.store(bid.to_bits(), std::sync::atomic::Ordering::Relaxed);
                                 record_xauusd_tick(bid, ask);
+                            } else if symbol == "US30" {
+                                LATEST_US30_BID.store(bid.to_bits(), std::sync::atomic::Ordering::Relaxed);
                             }
                             serde_json::json!({"type":"tick","symbol":symbol,"bid":bid,"ask":ask})
                         }
