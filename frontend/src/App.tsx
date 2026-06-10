@@ -351,9 +351,13 @@ function InstrumentTile({ symbol, tick, prevBid, decimals, pipSize, dailyOpen, l
 // symbol absent from these maps (e.g. XAUUSD) shows the unfiltered global feed.
 const SYMBOL_CCYS: Record<string, string[]> = {
   EURUSD: ['EUR', 'USD'],
+  // BTCUSD is priced in USD — US macro (Fed/CPI/jobs) is what moves it on the calendar.
+  BTCUSD: ['USD'],
 }
 const SYMBOL_NEWS_RE: Record<string, RegExp> = {
   EURUSD: /\beur\b|\beuro\b|\becb\b|lagarde|eurozone|euro area|\busd\b|us dollar|greenback|\bfed\b|fomc|powell|federal reserve|nonfarm|payrolls/i,
+  // Crypto stories + the USD/Fed macro + risk-sentiment threads that drive bitcoin.
+  BTCUSD: /\bbtc\b|bitcoin|\bcrypto|blockchain|ethereum|\beth\b|coinbase|\betf\b|\bsec\b|halving|stablecoin|\busd\b|us dollar|greenback|\bfed\b|fomc|powell|federal reserve|interest rate|rate (cut|hike)|\bcpi\b|inflation|nonfarm|payrolls|risk[- ](on|off)|treasury|yields/i,
 }
 
 // XRP 5-minute bot dashboard: live quote + start/close controls. The bot itself
@@ -684,7 +688,14 @@ function App() {
       <main className="content">
         <nav className="tabs">
           <button className={tab === 'dashboard' ? 'tab active' : 'tab'} onClick={() => setTab('dashboard')}>{isBtc ? 'Chart' : 'Dashboard'}</button>
-          {/* XRP / BTC are self-contained views — just the chart, no calendar/news/ideas. */}
+          {/* BTC is a chart-only view plus its own News (BTC-relevant news + USD events). */}
+          {isBtc && (
+            <button className={tab === 'news' ? 'tab active' : 'tab'} onClick={() => setTab('news')}>
+              News
+              {shownNews.length > 0 && <span className="badge">{shownNews.length}</span>}
+            </button>
+          )}
+          {/* XRP / BTC are self-contained views — just the chart, no calendar/ideas. */}
           {!isXrp && !isBtc && (
             <>
               <button className={tab === 'calendar' ? 'tab active' : 'tab'} onClick={() => setTab('calendar')}>
@@ -752,7 +763,7 @@ function App() {
               </div>
             </div>
           )}
-          {tab === 'news' && (
+          {tab === 'news' && !isBtc && (
             <div className="calendar-split">
               <div className="calendar-pane">
                 <h4 className="calendar-pane-title">FXStreet (live)</h4>
@@ -761,6 +772,18 @@ function App() {
               <div className="calendar-pane">
                 <h4 className="calendar-pane-title">MyFXBook</h4>
                 <MyFXBookNewsView items={mfbNewsItems} status={mfbNewsStatus} onOpen={setOpenMfbNews} />
+              </div>
+            </div>
+          )}
+          {tab === 'news' && isBtc && (
+            <div className="calendar-split">
+              <div className="calendar-pane">
+                <h4 className="calendar-pane-title">FXStreet — BTC news (today)</h4>
+                <NewsView articles={shownNews} status={newsStatus} onOpen={setOpenArticle} />
+              </div>
+              <div className="calendar-pane">
+                <h4 className="calendar-pane-title">FXStreet — USD events (today)</h4>
+                <CalendarView events={shownEc} status={ecStatus} />
               </div>
             </div>
           )}
