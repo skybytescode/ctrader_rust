@@ -3884,33 +3884,31 @@ async fn get_us30_opportunities(_state: tauri::State<'_, AppState>) -> Result<se
         map.get("US30").copied().ok_or_else(||
             "US30 not subscribed — the broker may list it under a different name (e.g. US30.cash / USA30 / DJI30). Adjust the symbol and restart.".to_string())?
     };
-    let m5 = fetch_trendbars_for_snapshot(symbol_id, P::M5, 5, 150).await.unwrap_or_default();
-    let m15 = fetch_trendbars_for_snapshot(symbol_id, P::M15, 15, 64).await.unwrap_or_default();
+    // Lean + fast: just the recent M5 candles (with VWAP/8 EMA) + a few session
+    // scalars, read by haiku — short-term 5-minute opportunities, no M15 round-trip.
+    let m5 = fetch_trendbars_for_snapshot(symbol_id, P::M5, 5, 180).await.unwrap_or_default();
     if m5.is_empty() {
         return Err("No US30 candle data from cTrader yet — wait a few seconds after connect.".into());
     }
     let (m5_full, vwap_now, ema8_m5) = candles_with_indicators(&m5);
-    let (m15_full, _, ema8_m15) = candles_with_indicators(&m15);
     let (sess_hi, sess_lo) = session_high_low(&m5);
-    let atr_m15 = atr_simple(&m15, 14);
-    let tail = |v: &[serde_json::Value], n: usize| -> Vec<serde_json::Value> {
-        v.iter().skip(v.len().saturating_sub(n)).cloned().collect()
-    };
+    let atr_m5 = atr_simple(&m5, 14);
+    let m5_recent: Vec<serde_json::Value> =
+        m5_full.iter().skip(m5_full.len().saturating_sub(120)).cloned().collect();
     let price = m5.last().map(|c| round2(c.close));
     let snapshot = serde_json::json!({
         "now_utc": chrono::Utc::now().to_rfc3339(),
-        "price": price, "vwap": vwap_now, "ema8_m5": ema8_m5, "ema8_m15": ema8_m15,
-        "session_high": sess_hi, "session_low": sess_lo, "atr_m15": atr_m15,
-        "m5_recent": tail(&m5_full, 40),    // {ts,o,h,l,c,vwap,ema8}
-        "m15_recent": tail(&m15_full, 24),  // {ts,o,h,l,c,vwap,ema8}
+        "price": price, "vwap": vwap_now, "ema8": ema8_m5,
+        "session_high": sess_hi, "session_low": sess_lo, "atr": atr_m5,
+        "m5": m5_recent, // last ~120 candles {ts,o,h,l,c,vwap,ema8}
     });
 
-    let system = "You are a professional intraday US30 (Dow Jones / US Wall St 30 index) trader. From the live 5-minute snapshot (price, session VWAP, 8 EMA on M5 & M15, session high/low, ATR(M15), and recent M5 & M15 candles {ts,o,h,l,c,vwap,ema8}) identify any CLEAN intraday trade opportunities for right now — e.g. trend pullback to VWAP/8 EMA, breakout-retest of a session level, range fade at the session extreme, or liquidity-sweep reversal. For each: a tight entry zone, a stop beyond invalidation (within ~1.5x ATR(M15)), and one or two targets at the next reference; prefer R:R >= 1.5. If there is no clean setup, return an empty list — never force a trade.\n\nOutput ONLY a single JSON object, no prose/markdown/code-fences/<think>: {\"opportunities\":[{\"side\":\"LONG|SHORT\",\"strategy\":\"<short label>\",\"entry\":<number>,\"stop\":<number>,\"target1\":<number>,\"target2\":<number|null>,\"confidence\":\"high|medium|low\",\"rationale\":\"<=160 chars\"}],\"note\":\"<=200 chars overall read of the tape\"}. All prices are index points (floats).";
+    let system = "You are an intraday US30 (Dow / US Wall St 30) scalper. You get the last ~120 5-minute candles {ts,o,h,l,c,vwap,ema8} plus session high/low and ATR. Spot SHORT-TERM trade opportunities for the next few bars — pullback to VWAP/8 EMA, breakout-retest of a session level, range-extreme fade, or liquidity-sweep reversal. For each: a tight entry, a stop just beyond invalidation (within ~1.5x ATR), and one or two targets; prefer R:R >= 1.5. If nothing is clean, return an empty list — never force a trade. Be fast and decisive.\n\nOutput ONLY a single JSON object, no prose/markdown/code-fences/<think>: {\"opportunities\":[{\"side\":\"LONG|SHORT\",\"strategy\":\"<short label>\",\"entry\":<number>,\"stop\":<number>,\"target1\":<number>,\"target2\":<number|null>,\"confidence\":\"high|medium|low\",\"rationale\":\"<=160 chars\"}],\"note\":\"<=200 chars\"}. All prices are index points (floats).";
     let user = format!(
-        "US30 live 5-minute snapshot (seconds old):\n```json\n{}\n```\n\nFind the intraday trade opportunities right now (or none). JSON only.",
+        "US30 last 5-minute candles + levels (seconds old):\n```json\n{}\n```\n\nShort-term opportunities for the next few bars (or none). JSON only.",
         serde_json::to_string(&snapshot).unwrap_or_default(),
     );
-    let model = std::env::var("CLAUDE_US30_MODEL").unwrap_or_else(|_| "sonnet".to_string());
+    let model = std::env::var("CLAUDE_US30_MODEL").unwrap_or_else(|_| "haiku".to_string());
     let raw = ai::traders::claude_cli_raw(&model, system, &user).await?;
     extract_sentiment_json(&raw)
         .ok_or_else(|| "could not parse opportunities JSON from the model output".to_string())
