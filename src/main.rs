@@ -113,6 +113,16 @@ static LATEST_XAUUSD_BID: std::sync::atomic::AtomicU64 = std::sync::atomic::Atom
 /// order on the wrong side and fill immediately).
 static LATEST_US30_BID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Latest EURUSD bid (f64 bits), kept current by the WS bridge — same mechanism
+/// as US30, used to price/side EURUSD pending orders.
+static LATEST_EURUSD_BID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Account balance in the deposit currency (f64 bits). Seeded by a
+/// ProtoOATraderReq right after auth, then refreshed from every closing deal's
+/// close_position_detail.balance. 0 = not yet known. Used by the EURUSD
+/// auto-trade bot's daily-loss risk rule.
+static ACCOUNT_BALANCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Latest broadcast JSON message keyed by `type` field. Sent to every newly-connected
 /// WS client so a client joining after a one-shot event (e.g. ec_today) still sees
 /// the current state instead of waiting for the next fetch.
@@ -237,6 +247,14 @@ fn xauusd_spec() -> &'static std::sync::Mutex<Option<SymbolSpec>> {
 /// orders safely (volume floored to step, clamped to min/max).
 static US30_SPEC: std::sync::OnceLock<std::sync::Mutex<Option<SymbolSpec>>>
     = std::sync::OnceLock::new();
+
+/// Cached trading spec for EURUSD — same mechanism, for EURUSD pending orders.
+static EURUSD_SPEC: std::sync::OnceLock<std::sync::Mutex<Option<SymbolSpec>>>
+    = std::sync::OnceLock::new();
+
+fn eurusd_spec() -> &'static std::sync::Mutex<Option<SymbolSpec>> {
+    EURUSD_SPEC.get_or_init(|| std::sync::Mutex::new(None))
+}
 
 fn us30_spec() -> &'static std::sync::Mutex<Option<SymbolSpec>> {
     US30_SPEC.get_or_init(|| std::sync::Mutex::new(None))
@@ -2234,6 +2252,84 @@ async fn get_last_gold_ec_analysis(state: tauri::State<'_, AppState>) -> Result<
     Ok(payload.and_then(|p| serde_json::from_str(&p).ok()))
 }
 
+/// Tauri command behind the US30 "Market State" button. Gathers today's news
+/// AND today's economic-calendar events, sends both to the us30-market-state
+/// agent, parses the JSON, stamps it, persists it (so the panel survives until
+/// the next click), and returns it.
+#[tauri::command]
+async fn get_us30_market_state(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    // 1. Gather today's news + today's economic-calendar events in one DB open.
+    let (news, news_count, events, events_count) = {
+        let db_mutex = state.db_mutex.clone();
+        tokio::task::spawn_blocking(move || {
+            let _lock = db_mutex.lock().ok()?;
+            let db = duckdb::Connection::open(DB_PATH).ok()?;
+            let (news, nc) = gather_todays_news(&db);
+            let (events, ec) = gather_todays_ec_events(&db);
+            Some((news, nc, events, ec))
+        }).await.unwrap_or(None).unwrap_or((String::new(), 0, String::new(), 0))
+    };
+    if news_count == 0 && events_count == 0 {
+        return Err("No news or economic-calendar events stored for today yet — let the feeds run first.".into());
+    }
+
+    // 2. Ask the us30-market-state agent (news block + EC block in one prompt).
+    let now = chrono::Utc::now();
+    let user = format!(
+        "Today is {} (UTC). Read the current market state for US30 (Dow Jones) from the two blocks below: \
+         today's market NEWS and today's ECONOMIC CALENDAR (impact i0..i3; A=actual, F=forecast, P=previous; \
+         '—' means not yet released). Give the news perspective, the EC-events perspective (which released \
+         events drove the Dow up/down, plus upcoming events and what to watch), and the net bias. JSON only.\n\n\
+         === TODAY'S NEWS ({} items) ===\n{}\n\n=== TODAY'S ECONOMIC CALENDAR ({} events) ===\n{}",
+        now.format("%Y-%m-%d"),
+        news_count, if news.is_empty() { "(none)" } else { news.as_str() },
+        events_count, if events.is_empty() { "(none)" } else { events.as_str() },
+    );
+    let model = std::env::var("CLAUDE_SENTIMENT_MODEL").unwrap_or_else(|_| "opus".to_string());
+    let raw = ai::traders::claude_cli_raw_timeout(
+        &model, &ai::traders::us30_market_state_prompt(), &user, std::time::Duration::from_secs(240),
+    ).await?;
+    let mut val = extract_sentiment_json(&raw)
+        .ok_or_else(|| "could not parse US30 market-state JSON from the model output".to_string())?;
+
+    // 3. Stamp with meta.
+    if let Some(obj) = val.as_object_mut() {
+        obj.insert("updated_utc".to_string(), serde_json::json!(now.to_rfc3339()));
+        obj.insert("news_count".to_string(), serde_json::json!(news_count));
+        obj.insert("events_count".to_string(), serde_json::json!(events_count));
+    }
+
+    // 4. Persist (the panel loads the latest).
+    {
+        let db_mutex = state.db_mutex.clone();
+        let updated = now.to_rfc3339();
+        let payload = val.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(_lock) = db_mutex.lock() {
+                if let Ok(db) = duckdb::Connection::open(DB_PATH) {
+                    let _ = db.execute_batch("CREATE TABLE IF NOT EXISTS us30_market_state (updated_utc VARCHAR, payload VARCHAR)");
+                    let _ = db.execute("INSERT INTO us30_market_state VALUES (?, ?)", duckdb::params![updated, payload]);
+                }
+            }
+        }).await;
+    }
+    Ok(val)
+}
+
+/// Load the most recent stored US30 market state (so the panel is persistent
+/// across restarts / tab switches). Returns null if none has been computed yet.
+#[tauri::command]
+async fn get_last_us30_market_state(state: tauri::State<'_, AppState>) -> Result<Option<serde_json::Value>, String> {
+    let db_mutex = state.db_mutex.clone();
+    let payload: Option<String> = tokio::task::spawn_blocking(move || {
+        let _lock = db_mutex.lock().ok()?;
+        let db = duckdb::Connection::open(DB_PATH).ok()?;
+        let _ = db.execute_batch("CREATE TABLE IF NOT EXISTS us30_market_state (updated_utc VARCHAR, payload VARCHAR)");
+        db.query_row("SELECT payload FROM us30_market_state ORDER BY updated_utc DESC LIMIT 1", [], |r| r.get::<_, String>(0)).ok()
+    }).await.unwrap_or(None);
+    Ok(payload.and_then(|p| serde_json::from_str(&p).ok()))
+}
+
 /// Collect this-week + next-week (importance ≥ 2) economic-calendar events from
 /// all three sources for the weekly outlook agent. `[start, end)` is the Monday
 /// of the current week through the end of next week (date strings, ISO sortable).
@@ -3891,7 +3987,8 @@ async fn place_gold_order(
 /// an entry (places a LIMIT/STOP there) — US30 market orders aren't enabled, which
 /// also avoids needing a live-bid feed. Absolute SL/TP are validated against the
 /// entry. The UI gates this behind a LIVE confirm step.
-async fn submit_us30_order(
+async fn submit_pending_order(
+    symbol: &str,
     side: String,
     qty: u32,
     entry: Option<f64>,
@@ -3899,6 +3996,12 @@ async fn submit_us30_order(
     target1: Option<f64>,
 ) -> Result<OrderResult, String> {
     use openapi::ProtoOaTrendbarPeriod as P;
+    // Per-symbol plumbing: cached spec, live-bid atomic, order label.
+    let (spec_lock, bid_atomic, label): (_, &std::sync::atomic::AtomicU64, &str) = match symbol {
+        "US30"   => (us30_spec(), &LATEST_US30_BID, "US30Idea"),
+        "EURUSD" => (eurusd_spec(), &LATEST_EURUSD_BID, "EurUsdIdea"),
+        other => return Err(format!("pending orders not enabled for symbol '{}'", other)),
+    };
     let qty = qty.clamp(1, 10);
     let (trade_side, side_str) = match side.to_uppercase().as_str() {
         "LONG" | "BUY"  => (openapi::ProtoOaTradeSide::Buy, "BUY"),
@@ -3907,8 +4010,8 @@ async fn submit_us30_order(
     };
     let is_buy = matches!(trade_side, openapi::ProtoOaTradeSide::Buy);
 
-    let spec = us30_spec().lock().map_err(|e| e.to_string())?.ok_or(
-        "US30 trading spec not loaded yet — wait a few seconds after connect and retry."
+    let spec = spec_lock.lock().map_err(|e| e.to_string())?.ok_or_else(||
+        format!("{} trading spec not loaded yet — wait a few seconds after connect and retry.", symbol)
     )?;
     let round = |x: f64| { let f = 10f64.powi(spec.digits.max(0)); (x * f).round() / f };
 
@@ -3919,18 +4022,18 @@ async fn submit_us30_order(
     if spec.max_volume > 0 { volume = volume.min(spec.max_volume); }
     if spec.min_volume > 0 && volume < spec.min_volume { volume = spec.min_volume; }
     if volume <= 0 {
-        return Err(format!("computed volume {} invalid for US30 spec min={} step={}", volume, spec.min_volume, spec.step_volume));
+        return Err(format!("computed volume {} invalid for {} spec min={} step={}", volume, symbol, spec.min_volume, spec.step_volume));
     }
 
     let Some(e) = entry.map(round) else {
-        return Err("US30 needs an entry price (pending order) — market orders aren't enabled for US30.".into());
+        return Err(format!("{} needs an entry price (pending order) — market orders aren't enabled here.", symbol));
     };
     // Price reference to choose LIMIT vs STOP at the entry. Prefer the LIVE bid
     // (kept current by the WS bridge); fall back to the last M5 close only if no
     // tick has arrived yet. Using a stale close here is what made pending orders
     // land on the wrong side and fill immediately at market.
     let price = {
-        let bits = LATEST_US30_BID.load(std::sync::atomic::Ordering::Relaxed);
+        let bits = bid_atomic.load(std::sync::atomic::Ordering::Relaxed);
         let live = if bits != 0 { f64::from_bits(bits) } else { 0.0 };
         if live > 0.0 {
             live
@@ -3940,7 +4043,7 @@ async fn submit_us30_order(
         }
     };
     if price <= 0.0 {
-        return Err("no US30 price reference yet — wait for a live tick and retry.".into());
+        return Err(format!("no {} price reference yet — wait for a live tick and retry.", symbol));
     }
 
     let ot = if is_buy {
@@ -3961,7 +4064,7 @@ async fn submit_us30_order(
         take_profit: tp,
         rel_sl: None,
         rel_tp: None,
-        label: "US30Idea".into(),
+        label: label.into(),
         reply: reply_tx,
     };
     let tx = ORDER_REQ_TX.get().ok_or("order channel not initialised")?;
@@ -3975,17 +4078,17 @@ async fn submit_us30_order(
     let out_type = ot.as_str_name().to_string();
     match outcome {
         Ok(status) => Ok(OrderResult {
-            sent: true, side: side_str.into(), symbol: "US30".into(), oz: qty,
+            sent: true, side: side_str.into(), symbol: symbol.to_string(), oz: qty,
             ctrader_volume: volume, order_type: out_type, entry: Some(e), sl, tp, status: Some(status), error: None,
         }),
         Err(err) => Ok(OrderResult {
-            sent: false, side: side_str.into(), symbol: "US30".into(), oz: qty,
+            sent: false, side: side_str.into(), symbol: symbol.to_string(), oz: qty,
             ctrader_volume: volume, order_type: out_type, entry: Some(e), sl, tp, status: None, error: Some(err),
         }),
     }
 }
 
-/// Tauri command wrapper around [`submit_us30_order`].
+/// Tauri command wrapper around [`submit_pending_order`] for US30.
 #[tauri::command]
 async fn place_us30_order(
     side: String,
@@ -3994,7 +4097,29 @@ async fn place_us30_order(
     stop: Option<f64>,
     target1: Option<f64>,
 ) -> Result<OrderResult, String> {
-    submit_us30_order(side, qty, entry, stop, target1).await
+    submit_pending_order("US30", side, qty, entry, stop, target1).await
+}
+
+/// Current account balance (deposit currency). Err until the trader entity has
+/// been fetched after connect. Basis for the EURUSD bot's daily-loss limit.
+#[tauri::command]
+async fn get_account_balance() -> Result<f64, String> {
+    let bits = ACCOUNT_BALANCE.load(std::sync::atomic::Ordering::Relaxed);
+    let bal = if bits != 0 { f64::from_bits(bits) } else { 0.0 };
+    if bal > 0.0 { Ok(bal) } else { Err("account balance not loaded yet — wait a few seconds after connect.".into()) }
+}
+
+/// Tauri command — EURUSD pending order, same plumbing as US30 (qty 1–10 ×
+/// the broker's min volume; entry required; LIMIT/STOP picked vs the live bid).
+#[tauri::command]
+async fn place_eurusd_order(
+    side: String,
+    qty: u32,
+    entry: Option<f64>,
+    stop: Option<f64>,
+    target1: Option<f64>,
+) -> Result<OrderResult, String> {
+    submit_pending_order("EURUSD", side, qty, entry, stop, target1).await
 }
 
 /// Tauri command behind the US30 "Detect Opportunities" button. Builds a live
@@ -4027,7 +4152,7 @@ async fn get_us30_opportunities(_state: tauri::State<'_, AppState>) -> Result<se
         "m5": m5_recent, // last ~120 candles {ts,o,h,l,c,vwap,ema8}
     });
 
-    let system = "You are an intraday US30 (Dow / US Wall St 30) scalper. You get the last ~120 5-minute candles {ts,o,h,l,c,vwap,ema8} plus session high/low and ATR. Spot SHORT-TERM trade opportunities for the next few bars — pullback to VWAP/8 EMA, breakout-retest of a session level, range-extreme fade, or liquidity-sweep reversal. For each: a tight entry, a stop just beyond invalidation (within ~1.5x ATR), and one or two targets; prefer R:R >= 1.5. If nothing is clean, return an empty list — never force a trade. Be fast and decisive.\n\nOutput ONLY a single JSON object, no prose/markdown/code-fences/<think>: {\"opportunities\":[{\"side\":\"LONG|SHORT\",\"strategy\":\"<short label>\",\"entry\":<number>,\"stop\":<number>,\"target1\":<number>,\"target2\":<number|null>,\"confidence\":\"high|medium|low\",\"rationale\":\"<=160 chars\"}],\"note\":\"<=200 chars\"}. All prices are index points (floats).";
+    let system = "You are an intraday US30 (Dow / US Wall St 30) scalper. You get the last ~120 5-minute candles {ts,o,h,l,c,vwap,ema8} plus session high/low and ATR. Spot SHORT-TERM trade opportunities for the next few bars — pullback to VWAP/8 EMA, breakout-retest of a session level, range-extreme fade, or liquidity-sweep reversal. For each: a tight entry, a stop just beyond invalidation (within ~1.5x ATR), and one or two targets; prefer R:R >= 1.5. If nothing is clean, return an empty list — never force a trade. Be fast and decisive.\n\nAlso set `size` — the position size in lots to risk on THIS setup, between 0.10 and 0.40, scaled by how sure you are: 0.40 when the setup is clean and you're very confident, ~0.20-0.30 for a decent-but-not-perfect read, 0.10 when it's marginal. Allowed values: 0.10, 0.20, 0.30, 0.40. Keep it consistent with `confidence`.\n\nOutput ONLY a single JSON object, no prose/markdown/code-fences/<think>: {\"opportunities\":[{\"side\":\"LONG|SHORT\",\"strategy\":\"<short label>\",\"entry\":<number>,\"stop\":<number>,\"target1\":<number>,\"target2\":<number|null>,\"confidence\":\"high|medium|low\",\"size\":0.10|0.20|0.30|0.40,\"rationale\":\"<=160 chars\"}],\"note\":\"<=200 chars\"}. All prices are index points (floats).";
     let user = format!(
         "US30 last 5-minute candles + levels (seconds old):\n```json\n{}\n```\n\nShort-term opportunities for the next few bars (or none). JSON only.",
         serde_json::to_string(&snapshot).unwrap_or_default(),
@@ -4393,6 +4518,16 @@ async fn maybe_emit_close_notice(
     names: &std::collections::HashMap<i64, String>,
     tx: &mpsc::Sender<PriceUpdate>,
 ) {
+    // Any closing deal carries the post-close account balance — keep the cache
+    // fresh so the auto-trade risk rule always sees the current balance.
+    if let Some(deal) = ev.deal.as_ref() {
+        if let Some(cp) = deal.close_position_detail.as_ref() {
+            let digits = cp.money_digits.or(deal.money_digits).unwrap_or(2) as i32;
+            let bal = cp.balance as f64 / 10f64.powi(digits);
+            ACCOUNT_BALANCE.store(bal.to_bits(), std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
     let Some(order) = ev.order.as_ref() else { return };
     // 3 = ORDER_FILLED; closing_order marks it as reducing/closing a position.
     if ev.execution_type != 3 || order.closing_order != Some(true) { return; }
@@ -4779,6 +4914,8 @@ fn main() {
                                 record_xauusd_tick(bid, ask);
                             } else if symbol == "US30" {
                                 LATEST_US30_BID.store(bid.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                            } else if symbol == "EURUSD" {
+                                LATEST_EURUSD_BID.store(bid.to_bits(), std::sync::atomic::Ordering::Relaxed);
                             }
                             serde_json::json!({"type":"tick","symbol":symbol,"bid":bid,"ask":ask})
                         }
@@ -4964,6 +5101,8 @@ fn main() {
             get_last_gold_ec_analysis,
             get_gold_week_analysis,
             get_last_gold_week_analysis,
+            get_us30_market_state,
+            get_last_us30_market_state,
             get_trendbars,
             get_gold_trade_ideas_multi,
             get_gold_trade_idea,
@@ -4973,6 +5112,8 @@ fn main() {
             place_gold_order,
             get_us30_opportunities,
             place_us30_order,
+            place_eurusd_order,
+            get_account_balance,
             review_us30_positions,
             review_pending_order,
             cancel_order,
@@ -5424,6 +5565,7 @@ async fn run_session(
                                     let mut spec_ids: Vec<i64> = Vec::new();
                                     if let Some(id) = id_of("XAUUSD") { spec_ids.push(id); }
                                     if let Some(id) = id_of("US30") { spec_ids.push(id); }
+                                    if let Some(id) = id_of("EURUSD") { spec_ids.push(id); }
                                     if !spec_ids.is_empty() {
                                         let spec_req = openapi::ProtoOaSymbolByIdReq {
                                             payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaSymbolByIdReq as i32),
@@ -5436,6 +5578,20 @@ async fn run_session(
                                             spec_req,
                                         ).await;
                                     }
+                                }
+
+                                // Fetch the trader entity once for the account balance
+                                // (cached in ACCOUNT_BALANCE; closing deals keep it fresh).
+                                {
+                                    let trader_req = openapi::ProtoOaTraderReq {
+                                        payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaTraderReq as i32),
+                                        ctid_trader_account_id: account_id,
+                                    };
+                                    let _ = send_message(
+                                        &mut tls_stream,
+                                        openapi::ProtoOaPayloadType::ProtoOaTraderReq as u32,
+                                        trader_req,
+                                    ).await;
                                 }
 
                                 // Seed the Positions panel with current open positions
@@ -5451,6 +5607,52 @@ async fn run_session(
                                     openapi::ProtoOaPayloadType::ProtoOaReconcileReq as u32,
                                     recon,
                                 ).await;
+
+                                // Pull the last 21 days of closed-trade history (deals). The
+                                // 2134 response is decoded and written to trade_history.csv.
+                                {
+                                    let now_ms = chrono::Utc::now().timestamp_millis();
+                                    let from_ms = now_ms - 21 * 24 * 60 * 60 * 1000;
+                                    let deal_req = openapi::ProtoOaDealListReq {
+                                        payload_type: Some(openapi::ProtoOaPayloadType::ProtoOaDealListReq as i32),
+                                        ctid_trader_account_id: account_id,
+                                        from_timestamp: Some(from_ms),
+                                        to_timestamp: Some(now_ms),
+                                        max_rows: Some(1000),
+                                    };
+                                    let _ = send_message(
+                                        &mut tls_stream,
+                                        openapi::ProtoOaPayloadType::ProtoOaDealListReq as u32,
+                                        deal_req,
+                                    ).await;
+                                }
+
+                                // One-shot: dump US30 M1 candles for the 2026-06-10 session
+                                // window to us30_m1.csv (for analysing that day's US30 scalps).
+                                // Spawned so it doesn't block the session loop — it goes through
+                                // the same CHART_REQ path the chart uses.
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                                    let us30_id = symbol_map().lock().ok().and_then(|m| m.get("US30").copied());
+                                    let Some(us30_id) = us30_id else { println!("[m1dump] US30 not in symbol map"); return; };
+                                    let from_ms = chrono::DateTime::parse_from_rfc3339("2026-06-10T14:00:00Z").map(|t| t.timestamp_millis()).unwrap_or(0);
+                                    let to_ms   = chrono::DateTime::parse_from_rfc3339("2026-06-10T21:30:00Z").map(|t| t.timestamp_millis()).unwrap_or(0);
+                                    match fetch_trendbars_range(us30_id, openapi::ProtoOaTrendbarPeriod::M1, from_ms, to_ms, 800).await {
+                                        Ok(bars) => {
+                                            let mut out = String::from("time_utc,open,high,low,close,volume\n");
+                                            for c in &bars {
+                                                let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(c.timestamp, 0)
+                                                    .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string()).unwrap_or_default();
+                                                out.push_str(&format!("{},{},{},{},{},{}\n", dt, c.open, c.high, c.low, c.close, c.volume));
+                                            }
+                                            match std::fs::write("us30_m1.csv", &out) {
+                                                Ok(_) => println!("[m1dump] wrote {} US30 M1 bars to us30_m1.csv", bars.len()),
+                                                Err(e) => println!("[m1dump] write failed: {}", e),
+                                            }
+                                        }
+                                        Err(e) => println!("[m1dump] fetch failed: {}", e),
+                                    }
+                                });
 
                                 // (Note: the one-shot history backfill is NOT auto-spawned
                                 // anymore — it's triggered manually by the
@@ -5474,6 +5676,17 @@ async fn run_session(
                             }
                         }
                     },
+                    2122 => { // ProtoOATraderRes — cache the account balance
+                        if let Some(payload) = &msg.payload {
+                            if let Ok(res) = openapi::ProtoOaTraderRes::decode(payload.as_slice()) {
+                                let t = &res.trader;
+                                let digits = t.money_digits.unwrap_or(2) as i32;
+                                let bal = t.balance as f64 / 10f64.powi(digits);
+                                ACCOUNT_BALANCE.store(bal.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                                println!("[account] balance: {:.2}", bal);
+                            }
+                        }
+                    },
                     2117 => { // ProtoOASymbolByIdRes — cache trading specs (XAUUSD + US30)
                         if let Some(payload) = &msg.payload {
                             if let Ok(res) = openapi::ProtoOaSymbolByIdRes::decode(payload.as_slice()) {
@@ -5491,8 +5704,47 @@ async fn run_session(
                                     match name.as_str() {
                                         "XAUUSD" => { if let Ok(mut g) = xauusd_spec().lock() { *g = Some(spec); } }
                                         "US30"   => { if let Ok(mut g) = us30_spec().lock() { *g = Some(spec); } }
+                                        "EURUSD" => { if let Ok(mut g) = eurusd_spec().lock() { *g = Some(spec); } }
                                         _ => {}
                                     }
+                                }
+                            }
+                        }
+                    },
+                    2134 => { // ProtoOADealListRes — closed-trade history → trade_history.csv
+                        if let Some(payload) = &msg.payload {
+                            if let Ok(res) = openapi::ProtoOaDealListRes::decode(payload.as_slice()) {
+                                let mut deals = res.deal.clone();
+                                deals.sort_by_key(|d| d.execution_timestamp);
+                                let mut out = String::from(
+                                    "id,symbol,direction,exec_time_utc,entry_price,close_price,filled_volume,net_usd,balance_usd\n");
+                                let mut closed = 0u32;
+                                for d in &deals {
+                                    // Only closing deals carry realized entry/net/balance.
+                                    let Some(cp) = &d.close_position_detail else { continue };
+                                    closed += 1;
+                                    let digits = cp.money_digits.or(d.money_digits).unwrap_or(2) as i32;
+                                    let scale = 10f64.powi(digits);
+                                    let net = (cp.gross_profit + cp.swap + cp.commission) as f64 / scale;
+                                    let bal = cp.balance as f64 / scale;
+                                    let sym = symbol_id_to_name.get(&d.symbol_id).cloned()
+                                        .unwrap_or_else(|| d.symbol_id.to_string());
+                                    // A closing deal's side is the opposite of the opening direction.
+                                    let open_dir = match openapi::ProtoOaTradeSide::try_from(d.trade_side) {
+                                        Ok(openapi::ProtoOaTradeSide::Buy) => "Sell",
+                                        _ => "Buy",
+                                    };
+                                    let dt = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(d.execution_timestamp)
+                                        .map(|t| t.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
+                                        .unwrap_or_default();
+                                    out.push_str(&format!(
+                                        "{},{},{},{},{},{},{},{:.2},{:.2}\n",
+                                        d.deal_id, sym, open_dir, dt, cp.entry_price,
+                                        d.execution_price.unwrap_or(0.0), d.filled_volume, net, bal));
+                                }
+                                match std::fs::write("trade_history.csv", &out) {
+                                    Ok(_) => println!("[history] wrote {} closed trades to trade_history.csv (has_more={})", closed, res.has_more),
+                                    Err(e) => println!("[history] write failed: {}", e),
                                 }
                             }
                         }

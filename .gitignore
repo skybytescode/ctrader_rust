@@ -62,3 +62,6 @@ forexfactory_news_data/
 
 # Backtest research data (regenerable via `cargo run --bin backtest_orb -- download`)
 backtest_data/
+
+# Personal trade exports (cTrader deal history)
+trade_history*.csv

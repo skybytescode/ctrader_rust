@@ -57,6 +57,11 @@ const GOLD_EC_EVENTS_SKILL: &str =
 const GOLD_WEEK_EVENTS_SKILL: &str =
     include_str!("../../.claude/skills/gold-week-events/SKILL.md");
 
+/// The US30 market-state agent — reads today's news + economic calendar and
+/// returns the current Dow disposition (news read + EC read). US30 view.
+const US30_MARKET_STATE_SKILL: &str =
+    include_str!("../../.claude/skills/us30-market-state/SKILL.md");
+
 /// Strip a leading `---\n … \n---\n` YAML frontmatter block from a skill body.
 fn strip_frontmatter(s: &str) -> String {
     if let Some(rest) = s.strip_prefix("---") {
@@ -100,6 +105,11 @@ pub fn gold_ec_events_prompt() -> String {
 /// Gold weekly-events agent's system prompt (frontmatter removed).
 pub fn gold_week_events_prompt() -> String {
     strip_frontmatter(GOLD_WEEK_EVENTS_SKILL)
+}
+
+/// US30 market-state agent's system prompt (frontmatter removed).
+pub fn us30_market_state_prompt() -> String {
+    strip_frontmatter(US30_MARKET_STATE_SKILL)
 }
 
 /// One model's answer, ready to serialize to the frontend popup.
