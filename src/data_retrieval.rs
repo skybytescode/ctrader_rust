@@ -210,12 +210,60 @@ pub fn decode_tick_data(
 
 /// Generate a DuckDB table name from symbol + data kind.
 ///
-/// Examples: `eurusd_m1`, `eurusd_ticks`
+/// Examples: `eurusd_m1`, `eurusd_ticks`. The name is spliced into SQL, so
+/// characters other than ASCII letters and digits (as in broker symbols like
+/// `US30.cash` or `#EURUSD`) become `_`.
 pub fn get_data_table_name(symbol: &str, kind: DataKind) -> String {
-    let sym = symbol.to_lowercase();
+    let sym: String = symbol
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .collect();
     match kind {
         DataKind::M1Candles => format!("{}_m1", sym),
         DataKind::TickData => format!("{}_ticks", sym),
         DataKind::TickDataAsk => format!("{}_ticks_ask", sym),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trendbar_prices_are_deltas_from_low() {
+        // EUR/USD bar: low 1.08000, open +12, high +40, close +25 (1/100,000 units).
+        let c = trendbar_to_candle(321, Some(108_000), Some(12), Some(25), Some(40), Some(29_000_000)).unwrap();
+        assert_eq!(c.timestamp, 29_000_000 * 60);
+        assert!((c.low - 1.08).abs() < 1e-12);
+        assert!((c.open - 1.08012).abs() < 1e-12);
+        assert!((c.high - 1.0804).abs() < 1e-12);
+        assert!((c.close - 1.08025).abs() < 1e-12);
+        assert_eq!(c.volume, 321);
+    }
+
+    #[test]
+    fn trendbar_without_low_or_time_is_skipped() {
+        assert!(trendbar_to_candle(1, None, Some(1), Some(1), Some(1), Some(1)).is_none());
+        assert!(trendbar_to_candle(1, Some(1), Some(1), Some(1), Some(1), None).is_none());
+    }
+
+    #[test]
+    fn ticks_are_delta_decoded() {
+        let got = decode_tick_data(&[1_700_000_000_000, 250, 1_000], &[108_000, 3, -5]);
+        assert_eq!(got, vec![
+            (1_700_000_000_000, 1.08),
+            (1_700_000_000_250, 1.08003),
+            (1_700_000_001_250, 1.07998),
+        ]);
+        assert!(decode_tick_data(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn table_names() {
+        assert_eq!(get_data_table_name("EURUSD", DataKind::M1Candles), "eurusd_m1");
+        assert_eq!(get_data_table_name("EURUSD", DataKind::TickData), "eurusd_ticks");
+        assert_eq!(get_data_table_name("EURUSD", DataKind::TickDataAsk), "eurusd_ticks_ask");
+        assert_eq!(get_data_table_name("US30.cash", DataKind::M1Candles), "us30_cash_m1");
+        assert_eq!(get_data_table_name("x; DROP TABLE y", DataKind::M1Candles), "x__drop_table_y_m1");
     }
 }

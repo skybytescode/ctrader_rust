@@ -90,6 +90,11 @@ pub async fn fetch_events_for_date(start: &str, end: &str) -> Result<Vec<EcRow>,
 
     let text = resp.text().await.map_err(|e| format!("EC read body: {}", e))?;
 
+    parse_events(&text)
+}
+
+/// Parses the proxy's JSON array into EUR and USD rows.
+fn parse_events(text: &str) -> Result<Vec<EcRow>, String> {
     // econcal sometimes appends stray `{}` after the JSON array — strip it
     let trimmed = text.trim();
     let json_text = if let Some(pos) = trimmed.rfind(']') {
@@ -101,12 +106,7 @@ pub async fn fetch_events_for_date(start: &str, end: &str) -> Result<Vec<EcRow>,
     let events: Vec<EcEvent> =
         serde_json::from_str(json_text).map_err(|e| format!("EC parse JSON: {}", e))?;
 
-    let rows: Vec<EcRow> = events
-        .into_iter()
-        .filter_map(|ev| parse_event(ev))
-        .collect();
-
-    Ok(rows)
+    Ok(events.into_iter().filter_map(parse_event).collect())
 }
 
 fn parse_event(ev: EcEvent) -> Option<EcRow> {
@@ -548,4 +548,46 @@ pub fn read_ec_today(db: &duckdb::Connection) -> Vec<String> {
         lines.push("No EC events for today".to_string());
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE: &str = r#"[
+      {"Event": {"Id": "nfp", "Name": "Nonfarm Payrolls", "CurrencyId": "USD", "InternationalCountryCode": "US"},
+       "DateUtc": "2026-03-06T13:30:00Z", "Volatility": 3, "Actual": 151.0, "Consensus": 160.0, "Previous": 143.0},
+      {"Event": {"Id": "cpi", "Name": "HICP", "CurrencyId": "EUR", "InternationalCountryCode": "EMU"},
+       "DateUtc": "2026-03-03T10:00:00.000Z", "Volatility": 2, "Consensus": 2.3, "Previous": 2.5},
+      {"Event": {"Id": "jobs", "Name": "Employment Change", "CurrencyId": "CAD", "InternationalCountryCode": "CA"},
+       "DateUtc": "2026-03-06T13:30:00Z", "Volatility": 3}
+    ]{}"#;
+
+    #[test]
+    fn keeps_eur_and_usd_and_tolerates_trailing_garbage() {
+        let rows = parse_events(SAMPLE).unwrap();
+        let names: Vec<_> = rows.iter().map(|r| r.event_name.as_str()).collect();
+        assert_eq!(names, ["Nonfarm Payrolls", "HICP"]);
+    }
+
+    #[test]
+    fn surprise_is_actual_minus_consensus() {
+        let rows = parse_events(SAMPLE).unwrap();
+        let nfp = &rows[0];
+        assert_eq!(nfp.event_date_id, "nfp__2026-03-06T13:30:00Z");
+        assert_eq!(nfp.timestamp_utc, "2026-03-06T13:30:00");
+        assert_eq!((nfp.weekday, nfp.hour_utc), (4, 13)); // Friday 13:30 UTC
+        assert_eq!(nfp.surprise, Some(-9.0));
+        assert_eq!(nfp.beats_forecast, Some(-1));
+
+        let hicp = &rows[1];
+        assert_eq!(hicp.timestamp_utc, "2026-03-03T10:00:00");
+        assert_eq!(hicp.actual, None);
+        assert_eq!(hicp.surprise, None, "no actual yet, so no surprise");
+    }
+
+    #[test]
+    fn invalid_json_is_an_error() {
+        assert!(parse_events("<html>proxy down</html>").is_err());
+    }
 }

@@ -25,6 +25,8 @@ pub mod ai;
 pub mod ui;
 pub mod db;
 pub mod data_retrieval;
+pub mod framing;
+pub mod platform;
 pub mod ec_realtime;
 pub mod news_realtime;
 pub mod news_sentiment;
@@ -79,22 +81,26 @@ enum AuthState {
 /// If Node.js is not found or port 6000 is already in use, logs and continues.
 fn start_econcal_server() {
     std::thread::spawn(|| {
-        let econcal_dir = "D:/RustProjects/ctrader_rust/econcal";
-
         // Skip if something is already listening on port 6000
         if std::net::TcpStream::connect("127.0.0.1:6000").is_ok() {
             println!("[econcal] Port 6000 already in use — skipping launch.");
             return;
         }
 
+        let econcal_dir = platform::econcal_dir();
+        if !std::path::Path::new(&econcal_dir).is_dir() {
+            println!("[econcal] {econcal_dir}/ not found (set ECONCAL_DIR) — calendar capture disabled.");
+            return;
+        }
+
         println!("[econcal] Starting proxy server (node econcal.js)...");
 
         // Install dependencies if node_modules is missing
-        if !std::path::Path::new(econcal_dir).join("node_modules").exists() {
+        if !std::path::Path::new(&econcal_dir).join("node_modules").exists() {
             println!("[econcal] node_modules not found, running npm install...");
             match std::process::Command::new("npm")
                 .args(["install", "--prefer-offline"])
-                .current_dir(econcal_dir)
+                .current_dir(&econcal_dir)
                 .status()
             {
                 Ok(s) if s.success() => println!("[econcal] npm install done."),
@@ -105,7 +111,7 @@ fn start_econcal_server() {
 
         let result = std::process::Command::new("node")
             .arg("econcal.js")
-            .current_dir(econcal_dir)
+            .current_dir(&econcal_dir)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn();
@@ -208,16 +214,15 @@ async fn run_session(
     shared_db: SharedDb,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Load credentials from environment variables
-    let app_client_id = std::env::var("CTRADER_CLIENT_ID")
-        .expect("CTRADER_CLIENT_ID must be set in .env file");
-    let app_secret = std::env::var("CTRADER_SECRET")
-        .expect("CTRADER_SECRET must be set in .env file");
-    let access_token = std::env::var("CTRADER_ACCESS_TOKEN")
-        .expect("CTRADER_ACCESS_TOKEN must be set in .env file");
-    let account_id: i64 = std::env::var("CTRADER_ACCOUNT_ID")
-        .expect("CTRADER_ACCOUNT_ID must be set in .env file")
+    // A missing variable is reported in the UI status and retried with
+    // backoff; panicking here would kill the network thread and leave the UI
+    // waiting forever.
+    let app_client_id = required_env("CTRADER_CLIENT_ID")?;
+    let app_secret = required_env("CTRADER_SECRET")?;
+    let access_token = required_env("CTRADER_ACCESS_TOKEN")?;
+    let account_id: i64 = required_env("CTRADER_ACCOUNT_ID")?
         .parse()
-        .expect("CTRADER_ACCOUNT_ID must be a valid number");
+        .map_err(|_| "CTRADER_ACCOUNT_ID must be a number")?;
     let target_symbol = std::env::var("CTRADER_SYMBOL")
         .unwrap_or_else(|_| "BTCUSD".to_string());
 
@@ -474,7 +479,13 @@ async fn run_session(
                         break;
                     }
                 }
-                let len = u32::from_be_bytes(header) as usize;
+                let len = match framing::frame_len(header) {
+                    Ok(len) => len,
+                    Err(e) => {
+                        println!("Bad frame header: {}", e);
+                        break;
+                    }
+                };
                 let mut buf = vec![0u8; len];
                 let payload_read = timeout(Duration::from_secs(30), tls_stream.read_exact(&mut buf)).await;
                 match payload_read {
@@ -1302,6 +1313,13 @@ async fn run_session(
     Ok(())
 }
 
+fn required_env(name: &str) -> Result<String, String> {
+    match std::env::var(name) {
+        Ok(v) if !v.trim().is_empty() => Ok(v),
+        _ => Err(format!("{name} is not set; copy .env.example to .env and fill it in")),
+    }
+}
+
 async fn send_message<T: Message>(
     stream: &mut tokio_rustls::client::TlsStream<TcpStream>,
     payload_type: u32,
@@ -1321,9 +1339,7 @@ async fn send_message<T: Message>(
     proto_msg.encode(&mut full_msg)?;
     println!("DEBUG send: full_msg_len={}", full_msg.len());
 
-    let len = (full_msg.len() as u32).to_be_bytes();
-    stream.write_all(&len).await?;
-    stream.write_all(&full_msg).await?;
+    stream.write_all(&framing::frame(&full_msg)).await?;
     Ok(())
 }
 
@@ -1335,9 +1351,7 @@ async fn send_heartbeat(stream: &mut tokio_rustls::client::TlsStream<TcpStream>)
     };
     let mut full_msg = Vec::new();
     proto_msg.encode(&mut full_msg)?;
-    let len = (full_msg.len() as u32).to_be_bytes();
-    stream.write_all(&len).await?;
-    stream.write_all(&full_msg).await?;
+    stream.write_all(&framing::frame(&full_msg)).await?;
     println!("Heartbeat sent");
     Ok(())
 }

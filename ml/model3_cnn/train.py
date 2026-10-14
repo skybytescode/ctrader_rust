@@ -68,6 +68,7 @@ CONFIG = {
     "lr":           1e-3,
     "weight_decay": 1e-4,
     "patience":     15,    # early stopping patience (epochs without val-AUC improvement)
+    "val_fraction": 0.1,   # end of the training years held out for early stopping
 
     # Train short model too
     "train_short_model": True,
@@ -80,9 +81,10 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ── Walk-forward splits ───────────────────────────────────────────────────────
 
-def walk_forward_splits(timestamps: pd.DatetimeIndex, n_folds: int) -> list:
+def walk_forward_splits(timestamps: pd.DatetimeIndex, n_folds: int, embargo: int = 0) -> list:
     """
-    Expanding-window walk-forward splits identical to Model 1.
+    Expanding-window walk-forward splits identical to Model 1, with the last
+    `embargo` training rows purged (labels look that many bars ahead).
 
     Returns list of (train_idx, test_idx, test_year).
     """
@@ -97,8 +99,11 @@ def walk_forward_splits(timestamps: pd.DatetimeIndex, n_folds: int) -> list:
     for test_year in test_years:
         train_mask = timestamps.year < test_year
         test_mask  = timestamps.year == test_year
+        train_idx  = np.where(train_mask)[0]
+        if embargo > 0:
+            train_idx = train_idx[:-embargo]
         splits.append((
-            np.where(train_mask)[0],
+            train_idx,
             np.where(test_mask)[0],
             test_year,
         ))
@@ -191,7 +196,7 @@ def _train_one_direction(
           f"X.shape={X.shape}")
     print(f"{'='*60}")
 
-    splits       = walk_forward_splits(timestamps, CONFIG["n_folds"])
+    splits       = walk_forward_splits(timestamps, CONFIG["n_folds"], embargo=CONFIG["horizon_bars"])
     fold_metrics = []
     best_auc     = 0.0
     best_state   = None
@@ -204,8 +209,14 @@ def _train_one_direction(
         if len(test_idx) == 0:
             print(f"  Skipping fold {test_year}: no test samples after bounds check")
             continue
-        X_tr, X_te = X[train_idx], X[test_idx]
-        y_tr, y_te = y[train_idx], y[test_idx]
+        # Early stopping and the LR schedule watch a validation slice cut
+        # from the end of the training years (with a purge gap), never the
+        # test year: choosing the epoch by test AUC overstated the results.
+        n_val     = max(1, int(len(train_idx) * CONFIG["val_fraction"]))
+        fit_idx   = train_idx[: -(n_val + CONFIG["horizon_bars"])]
+        val_idx   = train_idx[-n_val:]
+        X_tr, X_va, X_te = X[fit_idx], X[val_idx], X[test_idx]
+        y_tr, y_va, y_te = y[fit_idx], y[val_idx], y[test_idx]
 
         # Class-balanced loss weight
         pos_frac   = float(y_tr.mean())
@@ -214,7 +225,8 @@ def _train_one_direction(
         )
 
         train_loader = _make_loader(X_tr, y_tr, CONFIG["batch_size"], shuffle=True)
-        val_loader   = _make_loader(X_te, y_te, CONFIG["batch_size"], shuffle=False)
+        val_loader   = _make_loader(X_va, y_va, CONFIG["batch_size"], shuffle=False)
+        test_loader  = _make_loader(X_te, y_te, CONFIG["batch_size"], shuffle=False)
 
         model = CNNPatternModel(
             window_size=CONFIG["window_size"],
@@ -272,7 +284,7 @@ def _train_one_direction(
         if best_ep_state:
             model.load_state_dict(best_ep_state)
 
-        y_true, y_proba = _evaluate(model, val_loader)
+        y_true, y_proba = _evaluate(model, test_loader)
         metrics = _fold_metrics(
             y_true, y_proba, CONFIG["threshold"],
             f"[{direction}] Fold test_year={test_year} "

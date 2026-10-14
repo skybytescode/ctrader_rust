@@ -17,7 +17,6 @@ import numpy as np
 print(" ok", flush=True)
 print("  sklearn...", end="", flush=True)
 from sklearn.metrics import classification_report, accuracy_score
-from sklearn.model_selection import TimeSeriesSplit
 print(" ok", flush=True)
 print("  xgboost...", end="", flush=True)
 import xgboost as xgb
@@ -28,6 +27,8 @@ print(" ok", flush=True)
 CSV_PATH = os.path.join(os.path.dirname(__file__), "ml_unified_features.csv")
 print(f"Loading {CSV_PATH}...")
 df = pd.read_csv(CSV_PATH)
+# The splits below are chronological, so the rows must be in time order.
+df = df.sort_values('timestamp', kind='stable').reset_index(drop=True)
 print(f"Loaded {len(df)} rows, {len(df.columns)} columns")
 print(f"Period: {df['timestamp'].min()} to {df['timestamp'].max()}")
 
@@ -64,13 +65,29 @@ if len(high_nan) > 0:
 
 # ── Walk-forward split ───────────────────────────────────────────────────────
 
-# Use last 20% as test (most recent data)
-split_idx = int(len(X_bin) * 0.8)
-X_train, X_test = X_bin[:split_idx], X_bin[split_idx:]
-y_train, y_test = y_bin[:split_idx], y_bin[split_idx:]
+# Chronological train | validation | test = 70 | 10 | 20.
+# Early stopping picks the number of trees on the validation slice; the test
+# slice is only used once, for the final numbers. (Early stopping on the test
+# slice, as before, tuned the model to it and overstated its accuracy.)
+# EMBARGO rows are dropped at each boundary so that features built from
+# rolling windows, and labels built from the next bar, never straddle two
+# slices.
+EMBARGO = 120
+
+n = len(X_bin)
+test_start = int(n * 0.8)
+val_start = int(n * 0.7)
+train_idx = np.arange(0, val_start - EMBARGO)
+val_idx = np.arange(val_start, test_start - EMBARGO)
+test_idx = np.arange(test_start, n)
+
+X_train, y_train = X_bin.iloc[train_idx], y_bin.iloc[train_idx]
+X_val, y_val = X_bin.iloc[val_idx], y_bin.iloc[val_idx]
+X_test, y_test = X_bin.iloc[test_idx], y_bin.iloc[test_idx]
 
 print(f"\nTrain: {len(X_train)} rows")
-print(f"Test:  {len(X_test)} rows (walk-forward, most recent 20%)")
+print(f"Val:   {len(X_val)} rows (early stopping)")
+print(f"Test:  {len(X_test)} rows (most recent 20%, untouched until the end)")
 
 # ── Train XGBoost ────────────────────────────────────────────────────────────
 
@@ -94,7 +111,7 @@ model = xgb.XGBClassifier(
 
 model.fit(
     X_train, y_train,
-    eval_set=[(X_test, y_test)],
+    eval_set=[(X_val, y_val)],
     verbose=50,
 )
 
@@ -149,7 +166,9 @@ metrics = {
     "accuracy": float(acc),
     "baseline": float(max(y_test.mean(), 1-y_test.mean())),
     "train_rows": int(len(X_train)),
+    "val_rows": int(len(X_val)),
     "test_rows": int(len(X_test)),
+    "embargo_rows": EMBARGO,
     "features": len(feature_cols),
     "best_iteration": int(model.best_iteration) if hasattr(model, 'best_iteration') else -1,
     "top_features": {row['feature']: float(row['importance']) for _, row in imp_df.head(20).iterrows()},
