@@ -4,6 +4,27 @@ Tauri (Rust backend) + React/TypeScript frontend + Tokio async networking +
 cTrader OpenAPI + DuckDB. Live spot prices, 14-timeframe candle charts with
 local cache, economic calendar, and news pipeline — all in one desktop app.
 
+## Trading and safety
+
+The app can place real orders: manual ones from the trade cards, plus two
+automated bots — a gold loop that asks Claude for one intraday XAUUSD setup
+at a time, and a rule-based EURUSD scalper. These rules are enforced in the
+Rust backend, so a UI reload or an app restart can't bypass them:
+
+- **No order without a stop-loss.** An order whose stop is missing or on the
+  wrong side of its entry is refused, never sent without protection.
+- **Daily loss limit for the bots.** Automated orders stop for the rest of
+  the UTC day once the balance is `RISK_DAILY_LOSS_PCT` (default 5 %) below
+  the day's opening balance. The day's anchor is saved in
+  `Bots_db/risk_state.json`, so a restart after losses doesn't reset it.
+- **At most `RISK_MAX_AUTO_TRADES` automated orders a day** (default 10).
+- **Demo by default.** `CTRADER_ENV=live` is needed to reach the live server.
+
+```bash
+cp .env.example .env    # credentials, CTRADER_ENV, risk limits
+cargo test --bin ctrader_rust
+```
+
 ## Live Data Pipelines
 
 The frontend exposes four tabs — **Dashboard** (XAUUSD chart), **Calendar**

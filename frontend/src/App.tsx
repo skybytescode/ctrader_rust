@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import './App.css'
 
 type Tick = { type: 'tick'; symbol: string; bid: number; ask: number }
@@ -257,7 +255,6 @@ type ModelTradeIdea = {
 
 // The models we fan out to, in display order. Popups are keyed by provider.
 const TRADER_PROVIDERS = ['Claude', 'Gemini', 'Claude Blitz'] as const
-type TraderProvider = typeof TRADER_PROVIDERS[number]
 
 // Result of a live market-order placement (place_gold_order).
 type OrderResult = {
@@ -2288,8 +2285,11 @@ function EurUsdAutoBotView({ positions, orders, tick, lastClosed }: {
   const myOrd = orders.filter(o => o.symbol === 'EURUSD')
 
   // Live snapshot for the interval closure (avoids stale props in the cycle).
-  const ref = useRef({ running, halted, myPos, myOrd, tick })
-  ref.current = { running, halted, myPos, myOrd, tick }
+  // startBalance and realized live here too: the 20 s interval keeps the
+  // cycle function from the render that started it, so reading the state
+  // variables directly would always see the values from that moment.
+  const ref = useRef({ running, halted, myPos, myOrd, tick, startBalance, realized })
+  ref.current = { running, halted, myPos, myOrd, tick, startBalance, realized }
 
   const markersRef = useRef<any[]>([])
   const seenClosesRef = useRef<Set<number>>(new Set())
@@ -2381,11 +2381,12 @@ function EurUsdAutoBotView({ positions, orders, tick, lastClosed }: {
           addLog('info', `new trading day — risk anchor $${bal.toFixed(2)}`)
         } catch { /* keep the previous anchor */ }
       }
-      // 1. The 5% daily-loss rule (realized + unrealized).
-      if (startBalance != null) {
-        const total = realized + unrealOf(s.myPos, s.tick?.bid)
-        if (total <= -startBalance * 0.05) {
-          await haltAndFlatten(`daily loss limit hit (${total.toFixed(2)}$ ≤ −5% of $${startBalance.toFixed(2)}) — all trades closed. Waiting for activation.`)
+      // 1. The 5% daily-loss rule (realized + unrealized). The backend also
+      //    refuses bot orders past its own limit, which survives reloads.
+      if (s.startBalance != null) {
+        const total = s.realized + unrealOf(s.myPos, s.tick?.bid)
+        if (total <= -s.startBalance * 0.05) {
+          await haltAndFlatten(`daily loss limit hit (${total.toFixed(2)}$ ≤ −5% of $${s.startBalance.toFixed(2)}) — all trades closed. Waiting for activation.`)
           return
         }
       }
@@ -2473,7 +2474,16 @@ function EurUsdAutoBotView({ positions, orders, tick, lastClosed }: {
       const read = computeBestScalp(clean(m1), clean(m5), ti, 5)
       if (read.opp && read.score >= 65) {
         const o = read.opp
-        const r = await invoke<OrderResult>('place_eurusd_order', { side: o.side, qty: 1, entry: o.entry, stop: o.stop, target1: o.target1 })
+        let r: OrderResult
+        try {
+          r = await invoke<OrderResult>('place_eurusd_order', { side: o.side, qty: 1, entry: o.entry, stop: o.stop, target1: o.target1, source: 'bot' })
+        } catch (e) {
+          const msg = String(e)
+          if (msg.includes('halted for today')) { await haltAndFlatten(msg); return }
+          setReason('Order refused: ' + msg)
+          addLog('info', 'order refused: ' + msg)
+          return
+        }
         if (r.sent) {
           lastEntryRef.current = now
           setReason(`Placed ${o.side} 0.01 lot @ ${o.entry} (score ${read.score}) — ${read.reasons.join(' · ')}`)

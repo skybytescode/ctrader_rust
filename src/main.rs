@@ -32,6 +32,7 @@ pub mod myfxbook_news;
 pub mod forexfactory;
 pub mod volume_profile;
 pub mod strategy;
+pub mod risk;
 
 use db::{Candle, CandleDatabase};
 use data_retrieval::{
@@ -3924,9 +3925,9 @@ async fn submit_gold_order(
             openapi::ProtoOaOrderType::Limit => order.limit_price = Some(e),
             _ => order.stop_price = Some(e),
         }
-        // SL/TP validated against the ENTRY (must straddle it correctly).
-        let sl = stop.map(round).filter(|&s| if is_buy { s < e } else { s > e });
-        let tp = target1.map(round).filter(|&t| if is_buy { t > e } else { t < e });
+        // SL/TP validated against the ENTRY; no order goes out without a stop.
+        let (sl, tp) = risk::protective_levels(is_buy, e, stop.map(round), target1.map(round))?;
+        let sl = Some(sl);
         order.stop_loss = sl;
         order.take_profit = tp;
         out_type = ot.as_str_name().to_string();
@@ -3935,8 +3936,8 @@ async fn submit_gold_order(
         out_tp = tp;
     } else {
         // No entry zone → MARKET now, with relative SL/TP from current price.
-        let sl = stop.filter(|&s| if is_buy { s < price } else { s > price });
-        let tp = target1.filter(|&t| if is_buy { t > price } else { t < price });
+        let (sl, tp) = risk::protective_levels(is_buy, price, stop, target1)?;
+        let sl = Some(sl);
         order.rel_sl = sl.map(|s| ((price - s).abs() * 100_000.0).round() as i64);
         order.rel_tp = tp.map(|t| ((t - price).abs() * 100_000.0).round() as i64);
         out_type = "MARKET".to_string();
@@ -4049,8 +4050,8 @@ async fn submit_pending_order(
     let ot = if is_buy {
         if e <= price { openapi::ProtoOaOrderType::Limit } else { openapi::ProtoOaOrderType::Stop }
     } else if e >= price { openapi::ProtoOaOrderType::Limit } else { openapi::ProtoOaOrderType::Stop };
-    let sl = stop.map(round).filter(|&s| if is_buy { s < e } else { s > e });
-    let tp = target1.map(round).filter(|&t| if is_buy { t > e } else { t < e });
+    let (sl, tp) = risk::protective_levels(is_buy, e, stop.map(round), target1.map(round))?;
+    let sl = Some(sl);
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     let order = OrderRequest {
@@ -4118,8 +4119,45 @@ async fn place_eurusd_order(
     entry: Option<f64>,
     stop: Option<f64>,
     target1: Option<f64>,
+    source: Option<String>,
 ) -> Result<OrderResult, String> {
-    submit_pending_order("EURUSD", side, qty, entry, stop, target1).await
+    // The EURUSD bot passes source "bot": its orders go through the same
+    // daily-loss and per-day limits as the gold loop.
+    let automated = source.as_deref() == Some("bot");
+    if automated {
+        risk::check_auto_order(account_balance())?;
+    }
+    let res = submit_pending_order("EURUSD", side, qty, entry, stop, target1).await?;
+    if automated && res.sent {
+        risk::record_auto_order();
+    }
+    Ok(res)
+}
+
+fn required_env(name: &str) -> Result<String, String> {
+    match std::env::var(name) {
+        Ok(v) if !v.trim().is_empty() => Ok(v),
+        _ => Err(format!("{name} is not set; copy .env.example to .env and fill it in")),
+    }
+}
+
+fn account_balance() -> f64 {
+    let bits = ACCOUNT_BALANCE.load(std::sync::atomic::Ordering::Relaxed);
+    if bits != 0 { f64::from_bits(bits) } else { 0.0 }
+}
+
+/// Risk state for the UI: today's anchor, automated orders, halt reason, limits.
+#[tauri::command]
+fn get_risk_status() -> serde_json::Value {
+    let (day, limits) = risk::status();
+    serde_json::json!({
+        "day": day.day,
+        "anchor_balance": day.anchor_balance,
+        "auto_trades": day.auto_trades,
+        "halted": day.halted,
+        "daily_loss_pct": limits.daily_loss_pct,
+        "max_auto_trades": limits.max_auto_trades,
+    })
 }
 
 /// Tauri command behind the US30 "Detect Opportunities" button. Builds a live
@@ -4266,8 +4304,14 @@ async fn auto_generate_and_place(db_mutex: &SharedDb) -> Result<bool, String> {
         (None, None) => None,
     };
     let oz = AUTO_OZ.load(std::sync::atomic::Ordering::Relaxed).clamp(1, 10);
+    risk::check_auto_order(account_balance())?;
     let res = submit_gold_order(bias, oz, entry, idea.stop, idea.target1).await?;
-    if res.sent { Ok(true) } else { Err(res.error.unwrap_or_else(|| "order rejected".into())) }
+    if res.sent {
+        risk::record_auto_order();
+        Ok(true)
+    } else {
+        Err(res.error.unwrap_or_else(|| "order rejected".into()))
+    }
 }
 
 /// Auto-trade state machine: keep exactly one XAUUSD position at a time. When
@@ -4343,6 +4387,18 @@ async fn run_auto_trade_loop(tx: mpsc::Sender<PriceUpdate>, db_mutex: SharedDb) 
             Ok(false) => {
                 next_gen = Instant::now() + Duration::from_secs(5 * 60);
                 push_auto_status(&tx, "no clean setup (FLAT) — retry in 5m").await;
+            }
+            Err(e) if e.contains("halted for today") => {
+                // A risk limit: nothing more to do until the next UTC day.
+                next_gen = Instant::now() + Duration::from_secs(15 * 60);
+                push_auto_status(&tx, &format!("⛔ {}", e)).await;
+            }
+            Err(e) if e.contains("timeout") => {
+                // The order may have reached the broker; give the account
+                // state time to show it before generating another one.
+                last_place = Instant::now();
+                next_gen = Instant::now() + Duration::from_secs(3 * 60);
+                push_auto_status(&tx, &format!("error: {} — retry in 3m", e)).await;
             }
             Err(e) => {
                 next_gen = Instant::now() + Duration::from_secs(60);
@@ -5121,6 +5177,7 @@ fn main() {
             close_position,
             amend_position_sltp,
             set_auto_trade,
+            get_risk_status,
             get_history_backfill_state,
             start_history_backfill,
             update_news_archive,
@@ -5170,16 +5227,14 @@ async fn run_session(
     let mut pending_orders: std::collections::HashMap<i64, openapi::ProtoOaOrder> =
         std::collections::HashMap::new();
     // Load credentials from environment variables
-    let app_client_id = std::env::var("CTRADER_CLIENT_ID")
-        .expect("CTRADER_CLIENT_ID must be set in .env file");
-    let app_secret = std::env::var("CTRADER_SECRET")
-        .expect("CTRADER_SECRET must be set in .env file");
-    let access_token = std::env::var("CTRADER_ACCESS_TOKEN")
-        .expect("CTRADER_ACCESS_TOKEN must be set in .env file");
-    let account_id: i64 = std::env::var("CTRADER_ACCOUNT_ID")
-        .expect("CTRADER_ACCOUNT_ID must be set in .env file")
+    // A missing variable is reported and retried with backoff; panicking here
+    // would kill the network thread and leave the UI waiting forever.
+    let app_client_id = required_env("CTRADER_CLIENT_ID")?;
+    let app_secret = required_env("CTRADER_SECRET")?;
+    let access_token = required_env("CTRADER_ACCESS_TOKEN")?;
+    let account_id: i64 = required_env("CTRADER_ACCOUNT_ID")?
         .parse()
-        .expect("CTRADER_ACCOUNT_ID must be a valid number");
+        .map_err(|_| "CTRADER_ACCOUNT_ID must be a number")?;
     let target_symbol = std::env::var("CTRADER_SYMBOL")
         .unwrap_or_else(|_| "XAUUSD".to_string());
 
@@ -5189,7 +5244,13 @@ async fn run_session(
              account_id,
              target_symbol);
 
-    let host = "live.ctraderapi.com";
+    // CTRADER_ENV=live trades a real-money account; anything else (the
+    // default) uses the demo server, where only demo accounts authenticate.
+    let host = match std::env::var("CTRADER_ENV").as_deref().map(str::trim) {
+        Ok("live") => "live.ctraderapi.com",
+        _ => "demo.ctraderapi.com",
+    };
+    println!("✓ cTrader server: {}", host);
     let port = 5035;
 
     // 1. Setup SSL/TLS
