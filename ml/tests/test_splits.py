@@ -27,7 +27,7 @@ def minute_bars(start: str, end: str) -> pd.DataFrame:
     return pd.DataFrame({"close": np.arange(len(index), dtype=float)}, index=index)
 
 
-@pytest.mark.parametrize("split", [model1.walk_forward_splits, model4.walk_forward_splits])
+@pytest.mark.parametrize("split", [model1.walk_forward_splits, model4.walk_forward_splits], ids=["model1", "model4"])
 def test_folds_are_chronological_and_purged(split):
     data = minute_bars("2021-12-31", "2024-01-02")  # 2021 (1 day), 2022, 2023, 2024 (1 day)
     folds = split(data, n_folds=2, embargo=HORIZON)

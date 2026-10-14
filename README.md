@@ -1,5 +1,7 @@
 # cTrader Rust — EUR/USD Algorithmic Trading System
 
+[![CI](https://github.com/skybytescode/ctrader_rust/actions/workflows/ci.yml/badge.svg)](https://github.com/skybytescode/ctrader_rust/actions/workflows/ci.yml)
+
 egui/eframe UI + Tokio async networking + cTrader OpenAPI + DuckDB + ML Pipeline.
 
 The app reads market data only: it never sends orders.
@@ -10,6 +12,8 @@ The app reads market data only: it never sends orders.
 
 *Screenshots taken without a cTrader connection (hence the status line); the
 metrics are the saved results in `ml/trained/`.*
+
+![Architecture](docs/images/architecture.png)
 
 ## Real-Time Data
 
@@ -210,6 +214,8 @@ python -m pytest ml/tests    # walk-forward splits are chronological and purged
 ```
 
 CI runs both on every push and pull request.
+
+![Tests](docs/images/tests.png)
 
 ## Model evaluation
 
