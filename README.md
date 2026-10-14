@@ -2,6 +2,15 @@
 
 egui/eframe UI + Tokio async networking + cTrader OpenAPI + DuckDB + ML Pipeline.
 
+The app reads market data only: it never sends orders.
+
+![Dashboard](docs/images/dashboard.png)
+
+![Saved model metrics](docs/images/model-status.png)
+
+*Screenshots taken without a cTrader connection (hence the status line); the
+metrics are the saved results in `ml/trained/`.*
+
 ## Real-Time Data
 
 The **Real-Time Data** card in the UI provides live market intelligence from three sources:
@@ -180,3 +189,43 @@ Stored in `eurusd_news` table, accumulating for future News Sentiment ML model.
 - econcal proxy: `cd econcal && node econcal.js` (must be running for EC Calendar)
 - cTrader OpenAPI credentials in `.env` file
 - DuckDB database at `Bots_db/Algo_EURUSD.duckdb`
+- Optional: `PYTHON` (interpreter for the training buttons; default `python3`,
+  or `py -3.12` on Windows) and `ECONCAL_DIR` (default `./econcal`)
+
+Run from the repository root (the database path is relative):
+
+```bash
+cp .env.example .env   # then fill in your cTrader Open API credentials
+cargo run --release
+```
+
+Without credentials the UI still opens and the status line says which
+variable is missing; the stream retries with backoff.
+
+## Tests
+
+```bash
+cargo test                   # framing, price/tick decoding, calendar and news parsing, LLM reply parsing
+python -m pytest ml/tests    # walk-forward splits are chronological and purged
+```
+
+CI runs both on every push and pull request.
+
+## Model evaluation
+
+Every model is evaluated walk-forward: train on earlier years, test on the
+next one. Two rules keep the numbers honest:
+
+- **Purge.** A label looks 120 bars ahead, so the last 120 training rows of
+  each fold are dropped; otherwise their labels would be decided by prices
+  inside the test year.
+- **Early stopping never sees the test data.** It watches a validation slice
+  cut from the end of the training period. (Earlier versions stopped on the
+  test fold itself, which tunes the model to it.)
+
+The saved results show a weak edge at best: Model 1 averages ROC-AUC 0.54
+with precision 0.38 for a +15/−10 pip target, below the 0.40 a 15:10 trade
+needs to break even before costs, and the unified model scores 51.2 %
+against a 50.1 % baseline. Treat the models as research, not as a trading
+signal. Retrain with the current scripts to refresh `ml/trained/`.
+

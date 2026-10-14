@@ -98,7 +98,7 @@ CONFIG = {
 
 # ── Walk-forward validation ───────────────────────────────────────────────────
 
-def walk_forward_splits(dataset: pd.DataFrame, n_folds: int):
+def walk_forward_splits(dataset: pd.DataFrame, n_folds: int, embargo: int = 0):
     """
     Expanding-window walk-forward splits.
 
@@ -107,6 +107,9 @@ def walk_forward_splits(dataset: pd.DataFrame, n_folds: int):
         Fold 1: train 2010–2022, test 2023
         Fold 2: train 2010–2023, test 2024
         Fold 3: train 2010–2024, test 2025
+
+    The last `embargo` training rows are dropped from each fold (pass the
+    label horizon in rows).
 
     Returns list of (train_idx, test_idx, test_year) tuples.
     """
@@ -123,8 +126,13 @@ def walk_forward_splits(dataset: pd.DataFrame, n_folds: int):
     for test_year in test_years:
         train_mask = dataset.index.year < test_year
         test_mask  = dataset.index.year == test_year
+        train_idx  = np.where(train_mask)[0]
+        # Purge: a label looks horizon_bars ahead, so the last training rows'
+        # labels would be decided by prices inside the test year.
+        if embargo > 0:
+            train_idx = train_idx[:-embargo]
         splits.append((
-            np.where(train_mask)[0],
+            train_idx,
             np.where(test_mask)[0],
             test_year,
         ))
@@ -205,22 +213,28 @@ def _train_one_direction(
     print(f"  Training {direction.upper()} model")
     print(f"{'='*60}")
 
-    splits = walk_forward_splits(dataset, CONFIG["n_folds"])
+    splits = walk_forward_splits(dataset, CONFIG["n_folds"], embargo=CONFIG["horizon_bars"])
 
     fold_metrics  = []
     best_fold_auc = 0.0
     best_model    = None
 
     for train_idx, test_idx, test_year in splits:
-        X_tr, X_te = X[train_idx], X[test_idx]
-        y_tr, y_te = y[train_idx], y[test_idx]
+        # Early stopping watches a validation slice cut from the end of the
+        # training years (after a purge gap), never the test year: stopping
+        # on the test year tuned the model to it and overstated the results.
+        n_val      = max(1, int(len(train_idx) * 0.1))
+        fit_idx    = train_idx[: -(n_val + CONFIG["horizon_bars"])]
+        val_idx    = train_idx[-n_val:]
+        X_tr, X_va, X_te = X[fit_idx], X[val_idx], X[test_idx]
+        y_tr, y_va, y_te = y[fit_idx], y[val_idx], y[test_idx]
 
         pos_frac = y_tr.mean()
         spw      = (1 - pos_frac) / (pos_frac + 1e-10)
         params   = {**CONFIG["xgb_params"], "scale_pos_weight": round(spw, 2)}
 
         model = xgb.XGBClassifier(**params)
-        model.fit(X_tr, y_tr, eval_set=[(X_te, y_te)], verbose=False)
+        model.fit(X_tr, y_tr, eval_set=[(X_va, y_va)], verbose=False)
 
         y_proba = model.predict_proba(X_te)[:, 1]
         metrics = evaluate_fold(

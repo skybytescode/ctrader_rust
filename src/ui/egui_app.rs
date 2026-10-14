@@ -326,7 +326,7 @@ impl CTraderApp {
             .frame(egui::Frame::new()
                 .fill(colors::BG_PANEL)
                 .inner_margin(egui::Margin::symmetric(10, 0))
-                .stroke(egui::Stroke::new(1.0, colors::BORDER)))
+                .stroke(egui::Stroke::new(1.0_f32, colors::BORDER)))
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.label(RichText::new("cTrader Rust Terminal").size(16.0).color(colors::TEXT_PRIMARY));
@@ -353,7 +353,7 @@ impl CTraderApp {
             .frame(egui::Frame::new()
                 .fill(colors::BG_DARK)
                 .inner_margin(egui::Margin { left: 5, right: 5, top: 10, bottom: 5 })
-                .stroke(egui::Stroke::new(1.0, colors::BORDER)))
+                .stroke(egui::Stroke::new(1.0_f32, colors::BORDER)))
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     let is_active = true; // Only one view: Bots
@@ -373,7 +373,7 @@ impl CTraderApp {
             .frame(egui::Frame::new()
                 .fill(colors::BG_SIDEBAR)
                 .inner_margin(egui::Margin::same(4))
-                .stroke(egui::Stroke::new(1.0, colors::BORDER)))
+                .stroke(egui::Stroke::new(1.0_f32, colors::BORDER)))
             .show(ctx, |ui| {
                 // Column headers: right-aligned Bid | Ask | Spread
                 ui.allocate_ui_with_layout(
@@ -1354,9 +1354,10 @@ impl CTraderApp {
         self.dashboard.model4b_rx = Some(rx);
 
         std::thread::spawn(move || {
-            let result = std::process::Command::new("C:/Windows/py.exe")
-                .args(["-3.12", "-u", "ml/train_unified.py"])
-                .current_dir("D:/RustProjects/ctrader_rust")
+            let (python, python_args) = crate::platform::python_command();
+            let result = std::process::Command::new(python)
+                .args(python_args)
+                .args(["-u", "ml/train_unified.py"])
                 .env("PYTHONIOENCODING", "utf-8")
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
@@ -1719,9 +1720,10 @@ fn spawn_python_subprocess(
 ) {
     let module_path = module_path.to_string();
     std::thread::spawn(move || {
-        let result = std::process::Command::new("C:/Windows/py.exe")
-            .args(["-3.12", "-u", "-m", &module_path])
-            .current_dir("D:/RustProjects/ctrader_rust")
+        let (python, python_args) = crate::platform::python_command();
+        let result = std::process::Command::new(python)
+            .args(python_args)
+            .args(["-u", "-m", &module_path])
             .env("PYTHONIOENCODING", "utf-8")
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())

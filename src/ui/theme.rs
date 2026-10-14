@@ -66,14 +66,14 @@ pub fn apply_theme(ctx: &egui::Context) {
 
     // Widget colors
     style.visuals.widgets.noninteractive.bg_fill = colors::BG_PANEL;
-    style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, colors::TEXT_SECONDARY);
+    style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, colors::TEXT_SECONDARY);
     style.visuals.widgets.inactive.bg_fill = colors::BG_BUTTON;
-    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, colors::TEXT_PRIMARY);
+    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, colors::TEXT_PRIMARY);
     style.visuals.widgets.hovered.bg_fill = colors::BG_HOVER;
     style.visuals.widgets.active.bg_fill = colors::BG_BUTTON_ACTIVE;
 
     // Separator / border
-    style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, colors::BORDER);
+    style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, colors::BORDER);
 
     // Spacing
     style.spacing.item_spacing = egui::vec2(sizing::SPACING, sizing::SPACING);

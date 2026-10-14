@@ -18,9 +18,11 @@ const NEWS_HOST: &str = "https://subscriptions.fxstreet.com";
 
 /// Crypto-related tag names to filter out (case-insensitive substring match)
 const CRYPTO_FILTER: &[&str] = &[
-    "bitcoin", "btc", "ethereum", "eth", "crypto", "ripple", "xrp",
-    "dogecoin", "doge", "solana", "sol", "cardano", "ada", "bnb",
-    "litecoin", "ltc", "shiba", "altcoin", "defi", "nft", "blockchain",
+    "bitcoin", "bitcoins", "btc", "ethereum", "eth", "ether", "crypto", "cryptos",
+    "cryptocurrency", "cryptocurrencies", "ripple", "xrp", "dogecoin", "doge",
+    "solana", "sol", "cardano", "ada", "bnb", "litecoin", "ltc", "shiba",
+    "altcoin", "altcoins", "stablecoin", "stablecoins", "defi", "nft", "nfts",
+    "blockchain",
 ];
 
 // ── JSON deserialization structs (match FXStreet Post API) ───────────────────
@@ -237,25 +239,21 @@ pub async fn fetch_news_since(
 }
 
 fn is_crypto(article: &NewsArticle) -> bool {
-    // Check title
-    if let Some(ref title) = article.title {
-        let lower = title.to_lowercase();
-        if CRYPTO_FILTER.iter().any(|kw| lower.contains(kw)) {
-            return true;
-        }
+    if article.title.as_deref().is_some_and(mentions_crypto) {
+        return true;
     }
-    // Check tags
-    if let Some(ref tags) = article.tags {
-        for tag in tags {
-            if let Some(ref name) = tag.name {
-                let lower = name.to_lowercase();
-                if CRYPTO_FILTER.iter().any(|kw| lower.contains(kw)) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
+    article.tags.iter().flatten()
+        .filter_map(|tag| tag.name.as_deref())
+        .any(mentions_crypto)
+}
+
+/// Whether the text contains a crypto keyword as a whole word. Matching
+/// substrings would drop forex news about Canada ("ada"), consolidation
+/// ("sol") or the Netherlands ("eth").
+fn mentions_crypto(text: &str) -> bool {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|word| CRYPTO_FILTER.contains(&word))
 }
 
 fn parse_article_no_crypto_check(a: NewsArticle) -> Option<NewsRow> {
@@ -477,4 +475,53 @@ pub fn format_news_lines(rows: &[NewsRow]) -> Vec<String> {
     }
 
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn article(title: &str, tags: &[&str]) -> NewsArticle {
+        NewsArticle {
+            id: Some("a1".into()),
+            title: Some(title.into()),
+            publication_date: Some("2026-03-02T13:30:00Z".into()),
+            summary: None,
+            url: None,
+            author: None,
+            tags: Some(tags.iter().map(|t| NewsTag { name: Some(t.to_string()) }).collect()),
+        }
+    }
+
+    #[test]
+    fn crypto_news_is_filtered() {
+        assert!(is_crypto(&article("Bitcoin jumps above $90K", &[])));
+        assert!(is_crypto(&article("ETH/USD: bulls defend support", &[])));
+        assert!(is_crypto(&article("Markets wrap", &["Cryptocurrencies"])));
+    }
+
+    #[test]
+    fn forex_news_sharing_letters_with_tickers_is_kept() {
+        // "ada" in Canada, "sol" in consolidation, "eth" in Netherlands/whether.
+        assert!(!is_crypto(&article("USD/CAD: Canada jobs data beats estimates", &[])));
+        assert!(!is_crypto(&article("EUR/USD consolidation continues ahead of NFP", &["Majors"])));
+        assert!(!is_crypto(&article("Netherlands CPI: whether the ECB cuts again", &[])));
+    }
+
+    #[test]
+    fn article_parsing() {
+        let row = parse_article_no_crypto_check(article("ECB holds rates", &["ECB", "EUR"])).unwrap();
+        assert_eq!(row.published_utc, "2026-03-02T13:30:00");
+        assert_eq!(row.hour_utc, 13);
+        assert_eq!(row.weekday, 0); // Monday
+        assert_eq!(row.tags, "ECB,EUR");
+
+        let mut no_id = article("x", &[]);
+        no_id.id = None;
+        assert!(parse_article_no_crypto_check(no_id).is_none());
+
+        let mut fractional = article("x", &[]);
+        fractional.publication_date = Some("2026-03-02T13:30:00.123Z".into());
+        assert_eq!(parse_article_no_crypto_check(fractional).unwrap().published_utc, "2026-03-02T13:30:00");
+    }
 }

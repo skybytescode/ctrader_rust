@@ -309,7 +309,16 @@ fn parse_sentiment(response: &str) -> SentimentResult {
         json_str
     };
 
-    serde_json::from_str(json_str).unwrap_or_default()
+    let mut result: SentimentResult = serde_json::from_str(json_str).unwrap_or_default();
+    // The scores become ML features; keep a model that answers 3.0 or -5
+    // inside the ranges the prompt asks for.
+    let clamp = |v: Option<f64>, lo: f64, hi: f64| v.filter(|x| x.is_finite()).map(|x| x.clamp(lo, hi));
+    result.eur_sentiment = clamp(result.eur_sentiment, -1.0, 1.0);
+    result.usd_sentiment = clamp(result.usd_sentiment, -1.0, 1.0);
+    result.eurusd_impact = clamp(result.eurusd_impact, -1.0, 1.0);
+    result.volatility_expected = clamp(result.volatility_expected, 0.0, 1.0);
+    result.relevance = clamp(result.relevance, 0.0, 1.0);
+    result
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -329,5 +338,48 @@ fn format_duration(secs: f64) -> String {
         format!("{}m{}s", s / 60, s % 60)
     } else {
         format!("{}s", s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_counts_characters_not_bytes() {
+        assert_eq!(truncate("short", 10), "short");
+        assert_eq!(truncate("Lagarde speaks", 7), "Lagarde...");
+        assert_eq!(truncate("€€€€", 2), "€€..."); // must not split a multi-byte char
+    }
+
+    #[test]
+    fn sentiment_json_is_extracted_from_chatty_replies() {
+        let reply = "Sure! Here is the analysis:\n```json\n{\"eur_sentiment\": 0.6, \"usd_sentiment\": -0.2, \"eurusd_impact\": 0.5, \"category\": \"central_bank\"}\n```";
+        let r = parse_sentiment(reply);
+        assert_eq!(r.eur_sentiment, Some(0.6));
+        assert_eq!(r.usd_sentiment, Some(-0.2));
+        assert_eq!(r.category.as_deref(), Some("central_bank"));
+    }
+
+    #[test]
+    fn out_of_range_scores_are_clamped() {
+        let r = parse_sentiment(r#"{"eur_sentiment": 3.0, "eurusd_impact": -7, "relevance": 1.5, "volatility_expected": -0.1}"#);
+        assert_eq!(r.eur_sentiment, Some(1.0));
+        assert_eq!(r.eurusd_impact, Some(-1.0));
+        assert_eq!(r.relevance, Some(1.0));
+        assert_eq!(r.volatility_expected, Some(0.0));
+    }
+
+    #[test]
+    fn unparseable_reply_gives_empty_result() {
+        let r = parse_sentiment("I cannot analyse this article.");
+        assert!(r.eur_sentiment.is_none() && r.category.is_none());
+    }
+
+    #[test]
+    fn durations() {
+        assert_eq!(format_duration(42.9), "42s");
+        assert_eq!(format_duration(125.0), "2m5s");
+        assert_eq!(format_duration(7_380.0), "2h3m");
     }
 }
